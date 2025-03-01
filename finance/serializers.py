@@ -37,7 +37,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
         model = Receipt
         fields = (
             "id",
-            "receipt_no",
+            "receipt_number",
             "date",
             "payer",
             "paid_for",
@@ -90,7 +90,7 @@ class PaymentSerializer(serializers.ModelSerializer):
         model = Payment
         fields = [
             "id",
-            "payment_no",
+            "payment_number",
             "date",
             "paid_to",
             "amount",

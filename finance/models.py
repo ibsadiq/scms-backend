@@ -1,13 +1,40 @@
-from django.db import models
-from academic.models import Student
+from django.db import models, transaction
+from django.core.exceptions import ValidationError
+from administration.models import Term
 from users.models import Accountant, CustomUser as User
-from academic.models import Teacher
+from academic.models import Teacher, Student
 
 
 class PaymentStatus(models.TextChoices):
     PENDING = "Pending", "Pending"
     COMPLETED = "Completed", "Completed"
     CANCELLED = "Cancelled", "Cancelled"
+
+
+class PaymentThrough(models.TextChoices):
+    CRDB = "CRDB", "CRDB"
+    NMB = "NMB", "NMB"
+    NBC = "NBC", "NBC"
+    HATI_MALIPO = "HATI MALIPO", "HATI MALIPO"
+    UNKNOWN = "Unknown", "Unknown"
+
+
+class DebtRecord(models.Model):
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="debt_records"
+    )
+    term = models.ForeignKey(Term, on_delete=models.CASCADE)
+    amount_added = models.DecimalField(max_digits=10, decimal_places=2)
+    date_updated = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = (
+            "student",
+            "term",
+        )  # Ensures a student’s debt is only updated once per term
+
+    def __str__(self):
+        return f"{self.student.full_name} - {self.term.name} - {self.amount_added}"
 
 
 class ReceiptAllocation(models.Model):
@@ -27,9 +54,9 @@ class PaymentAllocation(models.Model):
 
 
 class Receipt(models.Model):
-    receipt_no = models.IntegerField(unique=True)
+    receipt_number = models.IntegerField(unique=True, blank=True, null=True)
     date = models.DateField(auto_now_add=True)
-    payer = models.CharField(max_length=255, null=True)
+    payer = models.CharField(max_length=255, blank=False, null=False, default="Unknown")
     paid_for = models.ForeignKey(
         ReceiptAllocation, on_delete=models.SET_NULL, null=True
     )
@@ -37,40 +64,53 @@ class Receipt(models.Model):
         Student, on_delete=models.SET_NULL, blank=True, null=True
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    paid_through = models.CharField(
+        max_length=20, choices=PaymentThrough.choices, default=PaymentThrough.UNKNOWN
+    )
     status = models.CharField(
         max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
     )
     received_by = models.ForeignKey(Accountant, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
-        return (
-            f"Receipt {self.receipt_no} | {self.date} | {self.paid_for} | {self.payer}"
-        )
+        return f"Receipt {self.receipt_number} | {self.date} | {self.paid_for} | {self.payer}"
 
     def clean(self):
+        super().clean()
         if self.amount <= 0:
-            raise ValueError("Amount must be a positive value.")
+            raise ValidationError("Amount must be a positive value.")
 
     def save(self, *args, **kwargs):
-        """
-        Custom save method to update the student's debt if the receipt is for 'School Fees'.
-        """
-        super().save(*args, **kwargs)  # Save the receipt first
+        if not self.receipt_number:
+            with transaction.atomic():
+                last_receipt = (
+                    Receipt.objects.select_for_update()
+                    .order_by("-receipt_number")
+                    .first()
+                )
+                self.receipt_number = (
+                    (last_receipt.receipt_number + 1) if last_receipt else 1
+                )
+
+        super().save(*args, **kwargs)
 
         if (
-            self.paid_for
+            self.student
+            and self.paid_for
             and self.paid_for.name.lower() == "school fees"
-            and self.student
         ):
-            # Reduce the student's debt by the amount paid
             self.student.clear_debt(self.amount)
 
 
 class Payment(models.Model):
-    payment_no = models.IntegerField(unique=True)
+    payment_number = models.IntegerField(
+        unique=True, blank=True, null=True, db_index=True
+    )
     date = models.DateField(auto_now_add=True)
     paid_to = models.CharField(max_length=255, null=True)
-    user = models.ForeignKey(User, blank=True, null=True, on_delete=models.SET_NULL, related_name="payments")
+    user = models.ForeignKey(
+        User, blank=True, null=True, on_delete=models.SET_NULL, related_name="payments"
+    )
     paid_for = models.ForeignKey(
         PaymentAllocation, on_delete=models.SET_NULL, null=True
     )
@@ -81,21 +121,26 @@ class Payment(models.Model):
     paid_by = models.ForeignKey(Accountant, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
-        return f"Payment {self.payment_no} | {self.date} | {self.paid_for} | {self.paid_to}"
+        return f"Payment {self.payment_number} | {self.date} | {self.paid_for} | {self.paid_to}"
 
     def clean(self):
         if self.amount <= 0:
-            raise ValueError("Amount must be a positive value.")
+            raise ValidationError("Amount must be a positive value.")
+
+    def save(self, *args, **kwargs):
+        if not self.payment_number:
+            last_payment = Payment.objects.order_by("-payment_number").first()
+            self.payment_number = (
+                (last_payment.payment_number + 1) if last_payment else 1
+            )
+
+        super().save(*args, **kwargs)
 
     def handle_salary_payment(self):
-        # If paid_to is a teacher, reduce their unpaid salary
-        if (
-            self.paid_for.name.lower() == "salary"
-        ):  # Assuming you track salary payment allocation
-            if isinstance(self.paid_to, Teacher):
-                self.paid_to.unpaid_salary -= self.amount
-                self.paid_to.save()
-            elif isinstance(self.paid_to, Accountant):
+        if self.paid_for.name.lower() == "salary":
+            if isinstance(self.paid_to, Teacher) or isinstance(
+                self.paid_to, Accountant
+            ):
                 self.paid_to.unpaid_salary -= self.amount
                 self.paid_to.save()
         self.save()

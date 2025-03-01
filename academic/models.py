@@ -91,7 +91,7 @@ class Teacher(models.Model):
     inactive = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ("id","first_name", "last_name")
+        ordering = ("id", "first_name", "last_name")
 
     def __str__(self):
         return "{} {}".format(self.first_name, self.last_name)
@@ -236,7 +236,6 @@ class ClassRoom(models.Model):
             raise ValidationError("Occupied sits cannot exceed the capacity.")
 
     def save(self, *args, **kwargs):
-
         self.clean()
         super().save(*args, **kwargs)
 
@@ -410,7 +409,7 @@ class Student(models.Model):
     debt = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
 
     class Meta:
-        ordering = ["admission_number","last_name", "first_name"]
+        ordering = ["admission_number", "last_name", "first_name"]
 
     def __str__(self):
         return f"{self.admission_number} - {self.first_name} {self.last_name} - Debt: {self.debt}"
@@ -476,12 +475,33 @@ class Student(models.Model):
 
     def update_debt_for_term(self, term):
         """
-        Update student debt at the start of a new term.
-        If moving to a new academic year, carry forward unpaid debt.
+        Update student debt only if not already updated for the given term.
         """
-        if term.start_date <= timezone.now():
+        from finance.models import DebtRecord
+
+        if not DebtRecord.objects.filter(student=self, term=term).exists():
             self.debt += term.default_term_fee  # Add the term fee to existing debt
             self.save()
+
+            # Create a record to track the update
+            DebtRecord.objects.create(
+                student=self, term=term, amount_added=term.default_term_fee
+            )
+
+    def reverse_debt_for_term(self, term):
+        """
+        Reverses the debt added for a specific term.
+        """
+        from finance.models import DebtRecord
+
+        debt_record = DebtRecord.objects.filter(student=self, term=term).first()
+
+        if debt_record:
+            self.debt -= debt_record.amount_added
+            self.debt = max(self.debt, Decimal("0.00"))  # Prevent negative debt
+            self.save()
+
+            debt_record.delete()  # Remove the debt record
 
     def carry_forward_debt_to_new_academic_year(self):
         """
