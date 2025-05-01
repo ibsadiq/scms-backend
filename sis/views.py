@@ -1,4 +1,5 @@
 import openpyxl
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import views
 from rest_framework.views import APIView
@@ -7,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from django.http import Http404
+
 
 from academic.models import Student, ClassLevel, Parent
 from .serializers import StudentSerializer
@@ -112,11 +114,9 @@ class BulkUploadStudentsView(APIView):
             )
 
         try:
-            # Load the Excel file
             workbook = openpyxl.load_workbook(file)
-            sheet = workbook.active  # Assuming data is in the first sheet
+            sheet = workbook.active
 
-            # Expected columns in the Excel file
             columns = [
                 "first_name",
                 "middle_name",
@@ -131,17 +131,32 @@ class BulkUploadStudentsView(APIView):
             ]
 
             students_to_create = []
-            sibling_relationships = []  # To store sibling pairs for linking
-            not_created = []  # List to store rows with errors
+            sibling_relationships = []
+            not_created = []
 
             for i, row in enumerate(
                 sheet.iter_rows(min_row=2, values_only=True), start=2
             ):
-                # Map row data to the expected columns
                 student_data = dict(zip(columns, row))
 
+                # Normalize name fields
+                first_name = (
+                    student_data["first_name"].lower()
+                    if student_data["first_name"]
+                    else ""
+                )
+                middle_name = (
+                    student_data["middle_name"].lower()
+                    if student_data["middle_name"]
+                    else ""
+                )
+                last_name = (
+                    student_data["last_name"].lower()
+                    if student_data["last_name"]
+                    else ""
+                )
+
                 try:
-                    # Validate class level
                     try:
                         class_level = ClassLevel.objects.get(
                             name=student_data["class_level"]
@@ -151,25 +166,18 @@ class BulkUploadStudentsView(APIView):
                             f"Class level '{student_data['class_level']}' does not exist."
                         )
 
-                    # Handle parent relationship
                     parent_contact = student_data["parent_contact"]
                     parent = None
                     if parent_contact:
                         parent, _ = Parent.objects.get_or_create(
                             phone_number=parent_contact,
                             defaults={
-                                "first_name": student_data["middle_name"],
-                                "last_name": student_data["last_name"],
-                                "email": f"parent_of_{student_data['first_name']}_{student_data['last_name']}@hayatul.com",
+                                "first_name": middle_name,
+                                "last_name": last_name,
+                                "email": f"parent_of_{first_name}_{last_name}@hayatul.com",
                             },
                         )
 
-                    # Check for existing siblings
-                    existing_sibling = Student.objects.filter(
-                        parent_contact=parent_contact
-                    ).first()
-
-                    # Check for duplicate admission number
                     if Student.objects.filter(
                         admission_number=student_data["admission_number"]
                     ).exists():
@@ -177,11 +185,14 @@ class BulkUploadStudentsView(APIView):
                             f"Admission number '{student_data['admission_number']}' already exists."
                         )
 
-                    # Prepare the student instance
+                    existing_sibling = Student.objects.filter(
+                        parent_contact=parent_contact
+                    ).first()
+
                     student = Student(
-                        first_name=student_data["first_name"],
-                        middle_name=student_data["middle_name"],
-                        last_name=student_data["last_name"],
+                        first_name=first_name,
+                        middle_name=middle_name,
+                        last_name=last_name,
                         admission_number=student_data["admission_number"],
                         parent_contact=parent_contact,
                         region=student_data["region"],
@@ -189,30 +200,30 @@ class BulkUploadStudentsView(APIView):
                         class_level=class_level,
                         gender=student_data["gender"],
                         date_of_birth=student_data["date_of_birth"],
-                        parent_guardian=parent,  # Assign the parent to the student
+                        parent_guardian=parent,
                     )
-                    students_to_create.append(student)
 
-                    # Store sibling relationships for later processing
-                    if existing_sibling:
-                        sibling_relationships.append((student, existing_sibling))
+                    students_to_create.append((student, existing_sibling))
 
                 except Exception as e:
-                    # Add row data and error message to the not_created list
                     student_data["error"] = str(e)
                     not_created.append(student_data)
 
-            # Bulk create students
-            Student.objects.bulk_create(students_to_create)
+            created_students = []
 
-            # Link sibling relationships
-            for new_student, sibling in sibling_relationships:
-                new_student.siblings.add(sibling)
-                sibling.siblings.add(new_student)
+            # Save each student individually to allow ID generation
+            with transaction.atomic():
+                for student, existing_sibling in students_to_create:
+                    student.save()
+                    created_students.append(student)
+
+                    if existing_sibling:
+                        student.siblings.add(existing_sibling)
+                        existing_sibling.siblings.add(student)
 
             return Response(
                 {
-                    "message": f"{len(students_to_create)} students successfully uploaded.",
+                    "message": f"{len(created_students)} students successfully uploaded.",
                     "not_created": not_created,
                 },
                 status=status.HTTP_201_CREATED,
