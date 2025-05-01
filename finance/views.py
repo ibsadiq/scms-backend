@@ -228,9 +228,20 @@ class PaymentListView(generics.ListCreateAPIView):
     filterset_fields = ["status", "date", "user"]
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        # Example: Assign the logged-in user as the payer
-        serializer.save(paid_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        """
+        Override the create method to handle custom validation or processing.
+        """
+        print(request.data)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Save the receipt and process student debt logic
+        receipt = serializer.save()
+
+        # Return response with detailed serialized data
+        response_serializer = self.get_serializer(receipt)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 # Payment Detail View (Retrieve, Update, Delete)

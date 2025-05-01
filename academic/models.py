@@ -400,7 +400,8 @@ class Student(models.Model):
     date_of_birth = models.DateField(blank=True)
     admission_date = models.DateTimeField(auto_now_add=True)
     admission_number = models.CharField(max_length=50, blank=True, unique=True)
-    prem_number = models.CharField(max_length=50, blank=True)
+    prems_number = models.CharField(max_length=50, blank=True)
+    std_vii_number = models.CharField(max_length=50, blank=True)
     siblings = models.ManyToManyField("self", blank=True)
     image = models.ImageField(upload_to="Student_images", blank=True)
     cache_gpa = models.DecimalField(
@@ -416,7 +417,8 @@ class Student(models.Model):
 
     @property
     def full_name(self):
-        return f"{self.first_name} {self.middle_name or ''} {self.last_name}".strip()
+        parts = filter(None, [self.first_name, self.middle_name, self.last_name])
+        return " ".join(part.capitalize() for part in parts)
 
     def clean(self):
         # Prevent students from being teachers
@@ -429,34 +431,35 @@ class Student(models.Model):
         if not self.parent_contact:
             raise ValidationError("Parent contact is required.")
 
-        # Create parent if not exists
+        # Normalize name fields
+        self.first_name = self.first_name.lower() if self.first_name else ""
+        self.middle_name = self.middle_name.lower() if self.middle_name else ""
+        self.last_name = self.last_name.lower() if self.last_name else ""
+
+        # Ensure parent exists or is created
         parent, created = Parent.objects.get_or_create(
             phone_number=self.parent_contact,
             defaults={
                 "first_name": self.middle_name or "Unknown",
-                "last_name": self.last_name,
+                "last_name": self.last_name or "Unknown",
                 "email": f"parent_of_{self.first_name}_{self.last_name}@hayatul.com",
                 "phone_number": self.parent_contact,
             },
         )
-
         self.parent_guardian = parent
 
-        # Check for existing siblings
-        existing_sibling = (
-            Student.objects.filter(parent_contact=self.parent_contact)
-            .exclude(id=self.id)
-            .first()
-        )
-        self.first_name = self.first_name.lower()
-        self.middle_name = self.middle_name.lower()
-        self.last_name = self.last_name.lower()
+        # Save first to ensure self.id is set
         super().save(*args, **kwargs)
 
-        if existing_sibling:
-            # Link siblings
-            self.siblings.add(existing_sibling)
-            existing_sibling.siblings.add(self)
+        # Find all existing siblings with the same parent contact (excluding self)
+        existing_siblings = Student.objects.filter(
+            parent_contact=self.parent_contact
+        ).exclude(id=self.id)
+
+        # Link all siblings symmetrically
+        for sibling in existing_siblings:
+            self.siblings.add(sibling)
+            sibling.siblings.add(self)
 
     def update_debt(self, term_fee):
         """

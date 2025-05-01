@@ -3,6 +3,7 @@ from django.db.models import Q
 from django.contrib.auth.models import Group
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, views
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.pagination import PageNumberPagination
@@ -34,6 +35,14 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def getUserProfile(request):
+    user = request.user
+    serializer = UserSerializer(user, many=False)
+    return Response(serializer.data)
 
 
 class UserListView(APIView):
@@ -68,14 +77,14 @@ class UserListView(APIView):
         if filters:
             users = users.filter(filters)
 
-        '''
+        """
         # Paginate the results
         paginator = self.UserPagination()
         paginated_users = paginator.paginate_queryset(users, request)
         serializer = UserSerializer(paginated_users, many=True)
         return paginator.get_paginated_response(serializer.data)
-        '''
-        
+        """
+
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -117,7 +126,6 @@ class UserDetailView(views.APIView):
         user = self.get_object(pk)
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
 
 
 class AccountantListView(APIView):
@@ -341,10 +349,12 @@ class TeacherDetailView(views.APIView):
         teacher.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
 class BulkUploadTeachersView(APIView):
     """
     API View to handle bulk uploading of teachers from an Excel file.
     """
+
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request, *args, **kwargs):

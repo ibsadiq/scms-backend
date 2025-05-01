@@ -16,7 +16,7 @@ SECRET_KEY = "JVHhdwUt8899h ghhiodfidwbfew"
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.28.14"]
 
 
 DATE_VALIDATORS = [MinValueValidator(date(1970, 1, 1))]  # Unix epoch!

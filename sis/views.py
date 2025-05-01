@@ -41,19 +41,19 @@ class StudentListView(APIView):
         if last_name_query:
             filters &= Q(last_name__icontains=last_name_query)
         if class_level_query:
-            filters &= Q(class_level__icontains=class_level_query)
+            filters &= Q(class_level__name__icontains=class_level_query)
 
         # Apply the combined filters to the queryset
         if filters:
             students = students.filter(filters)
 
-        '''
+        """
         # Paginate the results
         paginator = self.StudentPagination()
         paginated_students = paginator.paginate_queryset(students, request)
         serializer = StudentSerializer(paginated_students, many=True)
         return paginator.get_paginated_response(serializer.data)
-        '''
+        """
 
         serializer = StudentSerializer(students, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -69,9 +69,6 @@ class StudentListView(APIView):
                 status=status.HTTP_201_CREATED,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-
 
 
 class StudentDetailView(views.APIView):
@@ -227,22 +224,22 @@ class BulkUploadStudentsView(APIView):
 
 """
 class StudentHealthRecordViewSet(viewsets.ModelViewSet):
-	queryset = StudentHealthRecord.objects.all()
-	serializer_class = StudentHealthRecordSerializer
+    queryset = StudentHealthRecord.objects.all()
+    serializer_class = StudentHealthRecordSerializer
 
 class GradeScaleViewSet(viewsets.ModelViewSet):
-	queryset = GradeScale.objects.all()
-	serializer_class = GradeScaleSerializer
+    queryset = GradeScale.objects.all()
+    serializer_class = GradeScaleSerializer
 
 class GradeScaleRuleViewSet(viewsets.ModelViewSet):
-	queryset = GradeScaleRule.objects.all()
-	serializer_class = GradeScaleRuleSerializer
+    queryset = GradeScaleRule.objects.all()
+    serializer_class = GradeScaleRuleSerializer
 
 class SchoolYearViewSet(viewsets.ModelViewSet):
-	queryset = SchoolYear.objects.all()
-	serializer_class = SchoolYearSerializer
+    queryset = SchoolYear.objects.all()
+    serializer_class = SchoolYearSerializer
 
 class MessageToStudentViewSet(viewsets.ModelViewSet):
-	queryset = MessageToStudent.objects.all()
-	serializer_class = MessageToStudentSerializer
+    queryset = MessageToStudent.objects.all()
+    serializer_class = MessageToStudentSerializer
 """

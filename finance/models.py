@@ -16,6 +16,7 @@ class PaymentThrough(models.TextChoices):
     NMB = "NMB", "NMB"
     NBC = "NBC", "NBC"
     HATI_MALIPO = "HATI MALIPO", "HATI MALIPO"
+    CASH = "CASH", "CASH"
     UNKNOWN = "Unknown", "Unknown"
 
 
@@ -67,6 +68,7 @@ class Receipt(models.Model):
     paid_through = models.CharField(
         max_length=20, choices=PaymentThrough.choices, default=PaymentThrough.UNKNOWN
     )
+    payment_date = models.DateField(default="2000-01-01")
     status = models.CharField(
         max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
     )
@@ -113,6 +115,9 @@ class Payment(models.Model):
     )
     paid_for = models.ForeignKey(
         PaymentAllocation, on_delete=models.SET_NULL, null=True
+    )
+    paid_through = models.CharField(
+        max_length=20, choices=PaymentThrough.choices, default=PaymentThrough.CASH
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(

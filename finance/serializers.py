@@ -45,6 +45,8 @@ class ReceiptSerializer(serializers.ModelSerializer):
             "student",
             "student_details",  # Embedded Student details
             "amount",
+            "paid_through",
+            "payment_date",
             "status",
             "received_by",
             "received_by_details",  # Embedded Accountant details
@@ -80,10 +82,13 @@ class PaymentSerializer(serializers.ModelSerializer):
         queryset=PaymentAllocation.objects.all(), source="paid_for", write_only=True
     )
     paid_by_id = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), source="paid_by", write_only=True
+        queryset=Accountant.objects.all(), source="paid_by", write_only=True
     )
     user_id = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), source="user", write_only=True
+        queryset=CustomUser.objects.all(),
+        source="user",
+        write_only=True,
+        required=False,
     )
 
     class Meta:
@@ -96,6 +101,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "amount",
             "status",
             "paid_for",
+            "paid_through",
             "paid_by",
             "user",
             "paid_for_id",
