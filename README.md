@@ -33,13 +33,40 @@ in Mac or Linux
 in windows
 `venv/Scripts/activate.bat`  
 
-# Apps
 
-##School Information System (SIS)
-This tracks the students’ information and their parent/guardian/contact information. This module also records, basic classes information, and school year information. This is the central module for django-scms and is required for use of any other module. All other modules are optional.
+## 🚀 Key Features
 
-##Admissions
-This tracks potential students and their registration processes. It allows various admission levels to be added as well as steps that need to be completed before moving onto the next level. It also tracks any open houses a student has attended and how the student heard about the school.
+- 🔐 **Authentication & Role-Based Access Control**:  
+  Supports authentication and permission control for:
+  - **Admins**
+  - **Teachers**
+  - **Accountants**
+  - **Parents**
+
+- 💸 **Finance Module** *(NEW)*:  
+  - Manage **Receipts**
+  - Track **Payments**
+  - Generate **Financial Reports**
+
+- 🧾 **School Information System (SIS)**:
+  - Tracks student records and their associated parent/guardian contacts.
+  - Manages class and academic year data.
+  - Required module for all other apps.
+
+- 📝 **Admissions**:
+  - Manages student admission pipeline and levels.
+  - Tracks marketing channels and open house participation.
+
+---
+
+## 🔧 Upcoming Features
+
+- 📅 **Schedule Management**
+- 🧠 **Examinations and Grading**
+- 📚 **Digital Notes and Materials**
+- 📊 **Attendance Tracking**
+
+---
 
 ## Contributors
 
