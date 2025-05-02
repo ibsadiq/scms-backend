@@ -205,6 +205,15 @@ class ReceiptsListView(generics.ListCreateAPIView):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
+class StudentReceiptsView(generics.ListAPIView):
+    serializer_class = ReceiptSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        student_id = self.kwargs.get("student_id")
+        return Receipt.objects.filter(student_id=student_id)
+
+
 # Receipt Detail View (Retrieve, Update, Delete)
 class ReceiptDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Receipt.objects.all()
