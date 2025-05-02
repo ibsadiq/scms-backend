@@ -62,7 +62,9 @@ class StudentSerializer(serializers.ModelSerializer):
     siblings = SiblingSerializer(many=True, read_only=True)
 
     class_level = serializers.CharField(write_only=True, required=True)
-    class_of_year = serializers.CharField(write_only=False, required=False)
+    class_of_year = serializers.CharField(
+        write_only=False, required=False, allow_null=True
+    )
 
     class Meta:
         model = Student
@@ -187,6 +189,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "city",
             "street",
             "gender",
+            "religion",
             "date_of_birth",
             "std_vii_number",
             "prems_number",
