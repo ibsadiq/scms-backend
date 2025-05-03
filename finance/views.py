@@ -1,5 +1,11 @@
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import (
+    DjangoFilterBackend,
+    FilterSet,
+    DateFilter,
+    CharFilter,
+)
 from rest_framework import generics
 from rest_framework.exceptions import NotFound
 from rest_framework.filters import SearchFilter
@@ -179,14 +185,28 @@ class ReceiptAllocationDetailView(APIView):
         )
 
 
+# Receipts filter
+class ReceiptFilter(FilterSet):
+    from_date = DateFilter(field_name="date", lookup_expr="gte")
+    to_date = DateFilter(field_name="date", lookup_expr="lte")
+    class_level = CharFilter(method="filter_by_class_level")
+
+    class Meta:
+        model = Receipt
+        fields = ["status", "student", "date"]
+
+    def filter_by_class_level(self, queryset, name, value):
+        return queryset.filter(student__class_level__name__iexact=value)
+
+
 # Receipts List & Create View using DRF's ListCreateAPIView
 class ReceiptsListView(generics.ListCreateAPIView):
     queryset = Receipt.objects.all()
     serializer_class = ReceiptSerializer
     filter_backends = [
-        SearchFilter,
+        DjangoFilterBackend,
     ]
-    filterset_fields = ["status", "date", "student"]
+    filterset_class = ReceiptFilter
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):

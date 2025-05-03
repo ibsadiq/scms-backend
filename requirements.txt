@@ -3,6 +3,7 @@ distlib==0.3.5
 Django==5.1
 django-cors-headers==4.4.0
 django-debug-toolbar==4.4.6
+django-filter==25.1
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 et-xmlfile==1.1.0
@@ -11,9 +12,12 @@ openpyxl==3.1.5
 pillow==10.4.0
 platformdirs==2.5.2
 psycopg2==2.9.9
-pyjwt==2.9.0
+PyJWT==2.9.0
 python-decouple==3.8
 sqlparse==0.5.1
 typing_extensions==4.12.2
 tzdata==2024.1
+ua-parser==1.0.0
+ua-parser-builtins==0.18.0.post1
+user-agents==2.2.0
 virtualenv==20.16.3
