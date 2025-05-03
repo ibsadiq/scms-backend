@@ -2,6 +2,7 @@ import openpyxl
 from django.db.models import Q
 from django.contrib.auth.models import Group
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend
 from rest_framework import viewsets, views
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.views import APIView
@@ -9,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -45,59 +46,59 @@ def getUserProfile(request):
     return Response(serializer.data)
 
 
-class UserListView(APIView):
-    """
-    API View for handling single and listing users with pagination and flexible search.
-    """
+class UserFilter(FilterSet):
+    first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
+    middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
+    last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
 
-    class UserPagination(PageNumberPagination):
-        page_size = 30  # Default number of users per page
-        page_size_query_param = "page_size"  # Allow clients to specify page size
-        max_page_size = 100  # Maximum allowed page size
+    class Meta:
+        model = User
+        fields = [
+            "first_name",
+            "middle_name",
+            "last_name",
+        ]
 
-    def get(self, request, format=None):
-        # Retrieve search query parameters
-        first_name_query = request.query_params.get("first_name", "")
-        last_name_query = request.query_params.get("last_name", "")
-        email_query = request.query_params.get("email", "")
 
-        # Start with all users
-        users = User.objects.all()
+class TeacherFilter(FilterSet):
+    first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
+    middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
+    last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
 
-        # Apply filters dynamically based on provided query parameters
-        filters = Q()
-        if first_name_query:
-            filters &= Q(first_name__icontains=first_name_query)
-        if last_name_query:
-            filters &= Q(last_name__icontains=last_name_query)
-        if email_query:
-            filters &= Q(email__icontains=email_query)
+    class Meta:
+        model = Teacher
+        fields = [
+            "first_name",
+            "middle_name",
+            "last_name",
+        ]
 
-        # Apply the combined filters to the queryset
-        if filters:
-            users = users.filter(filters)
 
-        """
-        # Paginate the results
-        paginator = self.UserPagination()
-        paginated_users = paginator.paginate_queryset(users, request)
-        serializer = UserSerializer(paginated_users, many=True)
-        return paginator.get_paginated_response(serializer.data)
-        """
+class ParentFilter(FilterSet):
+    first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
+    middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
+    last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
 
-        serializer = UserSerializer(users, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    class Meta:
+        model = Parent
+        fields = [
+            "first_name",
+            "middle_name",
+            "last_name",
+        ]
 
-    def post(self, request, format=None):
-        data = request.data
-        serializer = UserSerializer(data=data)
-        if serializer.is_valid():
-            user = serializer.save()
-            return Response(
-                UserSerializer(user).data,
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserListView(generics.ListCreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = UserFilter
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(self.get_serializer(user).data, status=status.HTTP_201_CREATED)
 
 
 class UserDetailView(views.APIView):
@@ -111,6 +112,7 @@ class UserDetailView(views.APIView):
 
     def get(self, request, pk, format=None):
         user = self.get_object(pk)
+        print(user)
         serializer = UserSerializer(user)
         return Response(serializer.data)
 
@@ -188,44 +190,19 @@ class AccountantDetailView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ParentListView(APIView):
-    """
-    API View for handling single and listing parents with pagination and flexible search.
-    """
+class ParentListView(generics.ListCreateAPIView):
+    queryset = Parent.objects.all()
+    serializer_class = ParentSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = ParentFilter
 
-    class ParentPagination(PageNumberPagination):
-        page_size = 30  # Default number of parents per page
-        page_size_query_param = "page_size"  # Allow clients to specify page size
-        max_page_size = 100  # Maximum allowed page size
-
-    def get(self, request, format=None):
-        first_name_query = request.query_params.get("first_name", "")
-        last_name_query = request.query_params.get("last_name", "")
-        email_query = request.query_params.get("email", "")
-
-        parents = Parent.objects.all()
-        filters = Q()
-        if first_name_query:
-            filters &= Q(first_name__icontains=first_name_query)
-        if last_name_query:
-            filters &= Q(last_name__icontains=last_name_query)
-        if email_query:
-            filters &= Q(email__icontains=email_query)
-
-        if filters:
-            parents = parents.filter(filters)
-
-        serializer = ParentSerializer(parents, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def post(self, request, format=None):
-        serializer = ParentSerializer(data=request.data)
-        if serializer.is_valid():
-            parent = serializer.save()
-            return Response(
-                ParentSerializer(parent).data, status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        parent = serializer.save()
+        return Response(
+            self.get_serializer(parent).data, status=status.HTTP_201_CREATED
+        )
 
 
 class ParentDetailView(views.APIView):
@@ -269,45 +246,19 @@ class ParentDetailView(views.APIView):
 
 
 # Teacher Views
-class TeacherListView(APIView):
-    """
-    API View for handling single and listing teachers with pagination and flexible search.
-    """
+class TeacherListView(generics.ListCreateAPIView):
+    queryset = Teacher.objects.all()
+    serializer_class = TeacherSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = TeacherFilter
 
-    class TeacherPagination(PageNumberPagination):
-        page_size = 30  # Default number of teachers per page
-        page_size_query_param = "page_size"  # Allow clients to specify page size
-        max_page_size = 100  # Maximum allowed page size
-
-    def get(self, request, format=None):
-        first_name_query = request.query_params.get("first_name", "")
-        last_name_query = request.query_params.get("last_name", "")
-        email_query = request.query_params.get("email", "")
-
-        teachers = Teacher.objects.all()
-        filters = Q()
-        if first_name_query:
-            filters &= Q(first_name__icontains=first_name_query)
-        if last_name_query:
-            filters &= Q(last_name__icontains=last_name_query)
-        if email_query:
-            filters &= Q(email__icontains=email_query)
-
-        if filters:
-            teachers = teachers.filter(filters)
-
-        serializer = TeacherSerializer(teachers, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def post(self, request, format=None):
-        serializer = TeacherSerializer(data=request.data)
-        print(request.data)
-        if serializer.is_valid():
-            teacher = serializer.save()
-            return Response(
-                TeacherSerializer(teacher).data, status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        teacher = serializer.save()
+        return Response(
+            self.get_serializer(teacher).data, status=status.HTTP_201_CREATED
+        )
 
 
 class TeacherDetailView(views.APIView):
