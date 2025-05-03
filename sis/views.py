@@ -1,76 +1,48 @@
 import openpyxl
 from django.db import transaction
-from django.db.models import Q
+from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend
 from rest_framework import views
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from rest_framework import status
+from rest_framework import status, generics
 from django.http import Http404
 
 
 from academic.models import Student, ClassLevel, Parent
 from .serializers import StudentSerializer
 
+# Students filter
 
-class StudentListView(APIView):
-    """
-    API View for handling single and listing students with pagination and flexible search.
-    """
 
-    class StudentPagination(PageNumberPagination):
-        page_size = 30  # Default number of students per page
-        page_size_query_param = "page_size"  # Allow clients to specify page size
-        max_page_size = 100  # Maximum allowed page size
+class StudentFilter(FilterSet):
+    first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
+    middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
+    last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
+    class_level = CharFilter(method="filter_by_class_level")
 
-    def get(self, request, format=None):
-        # Retrieve search query parameters
-        first_name_query = request.query_params.get("first_name", "")
-        middle_name_query = request.query_params.get("middle_name", "")
-        last_name_query = request.query_params.get("last_name", "")
-        class_level_query = request.query_params.get("class_level", "")
+    class Meta:
+        model = Student
+        fields = ["first_name", "middle_name", "last_name", "class_level"]
 
-        # Start with all students
-        students = Student.objects.all()
+    def filter_by_class_level(self, queryset, name, value):
+        return queryset.filter(class_level__name__icontains=value)
 
-        # Apply filters dynamically based on provided query parameters
-        filters = Q()
-        if first_name_query:
-            filters &= Q(first_name__icontains=first_name_query)
-        if middle_name_query:
-            filters &= Q(middle_name__icontains=middle_name_query)
-        if last_name_query:
-            filters &= Q(last_name__icontains=last_name_query)
-        if class_level_query:
-            filters &= Q(class_level__name__icontains=class_level_query)
 
-        # Apply the combined filters to the queryset
-        if filters:
-            students = students.filter(filters)
+class StudentListView(generics.ListCreateAPIView):
+    queryset = Student.objects.all()
+    serializer_class = StudentSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = StudentFilter
 
-        """
-        # Paginate the results
-        paginator = self.StudentPagination()
-        paginated_students = paginator.paginate_queryset(students, request)
-        serializer = StudentSerializer(paginated_students, many=True)
-        return paginator.get_paginated_response(serializer.data)
-        """
-
-        serializer = StudentSerializer(students, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def post(self, request, format=None):
-        data = request.data
-        print(data)
-        serializer = StudentSerializer(data=data)
-        if serializer.is_valid():
-            student = serializer.save()
-            return Response(
-                StudentSerializer(student).data,
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student = serializer.save()
+        return Response(
+            self.get_serializer(student).data, status=status.HTTP_201_CREATED
+        )
 
 
 class StudentDetailView(views.APIView):
