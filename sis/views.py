@@ -103,45 +103,32 @@ class BulkUploadStudentsView(APIView):
             ]
 
             students_to_create = []
-            sibling_relationships = []
             not_created = []
+            created_students = []
+            new_parents_created = 0
+            updated_students_info = []
+            skipped_students = []
 
             for i, row in enumerate(
                 sheet.iter_rows(min_row=2, values_only=True), start=2
             ):
                 student_data = dict(zip(columns, row))
 
-                # Normalize name fields
-                first_name = (
-                    student_data["first_name"].lower()
-                    if student_data["first_name"]
-                    else ""
-                )
-                middle_name = (
-                    student_data["middle_name"].lower()
-                    if student_data["middle_name"]
-                    else ""
-                )
-                last_name = (
-                    student_data["last_name"].lower()
-                    if student_data["last_name"]
-                    else ""
-                )
+                # Normalize names
+                first_name = (student_data["first_name"] or "").lower()
+                middle_name = (student_data["middle_name"] or "").lower()
+                last_name = (student_data["last_name"] or "").lower()
 
                 try:
-                    try:
-                        class_level = ClassLevel.objects.get(
-                            name=student_data["class_level"]
-                        )
-                    except ClassLevel.DoesNotExist:
-                        raise ValueError(
-                            f"Class level '{student_data['class_level']}' does not exist."
-                        )
-
+                    class_level = ClassLevel.objects.get(
+                        name=student_data["class_level"]
+                    )
                     parent_contact = student_data["parent_contact"]
                     parent = None
+                    update_reasons = []
+
                     if parent_contact:
-                        parent, _ = Parent.objects.get_or_create(
+                        parent, parent_created = Parent.objects.get_or_create(
                             phone_number=parent_contact,
                             defaults={
                                 "first_name": middle_name,
@@ -149,23 +136,64 @@ class BulkUploadStudentsView(APIView):
                                 "email": f"parent_of_{first_name}_{last_name}@hayatul.com",
                             },
                         )
+                        if parent_created:
+                            new_parents_created += 1
 
-                    if Student.objects.filter(
-                        admission_number=student_data["admission_number"]
-                    ).exists():
-                        raise ValueError(
-                            f"Admission number '{student_data['admission_number']}' already exists."
-                        )
-
-                    existing_sibling = Student.objects.filter(
-                        parent_contact=parent_contact
+                    admission_number = student_data["admission_number"]
+                    student_exists = Student.objects.filter(
+                        admission_number=admission_number
                     ).first()
 
+                    if student_exists:
+                        # Track updates to existing students
+                        updated = False
+
+                        if not student_exists.parent_guardian and parent:
+                            student_exists.parent_guardian = parent
+                            update_reasons.append("parent added")
+                            updated = True
+
+                        existing_sibling = (
+                            Student.objects.filter(parent_contact=parent_contact)
+                            .exclude(id=student_exists.id)
+                            .first()
+                        )
+                        if (
+                            existing_sibling
+                            and not student_exists.siblings.filter(
+                                id=existing_sibling.id
+                            ).exists()
+                        ):
+                            student_exists.siblings.add(existing_sibling)
+                            existing_sibling.siblings.add(student_exists)
+                            update_reasons.append("sibling added")
+                            updated = True
+
+                        if updated:
+                            student_exists.save()
+                            updated_students_info.append(
+                                {
+                                    "admission_number": admission_number,
+                                    "full_name": f"{student_exists.first_name} {student_exists.last_name}",
+                                    "reasons": update_reasons,
+                                }
+                            )
+                        else:
+                            skipped_students.append(
+                                {
+                                    "admission_number": admission_number,
+                                    "full_name": f"{student_exists.first_name} {student_exists.last_name}",
+                                    "reason": "Student already exists and no updates were needed.",
+                                }
+                            )
+                        continue  # Skip creating duplicate
+
+                    # Prepare new student
                     student = Student(
                         first_name=first_name,
                         middle_name=middle_name,
                         last_name=last_name,
-                        admission_number=student_data["admission_number"],
+                        admission_number=admission_number,
                         parent_contact=parent_contact,
                         region=student_data["region"],
                         city=student_data["city"],
@@ -175,27 +203,40 @@ class BulkUploadStudentsView(APIView):
                         parent_guardian=parent,
                     )
 
+                    existing_sibling = Student.objects.filter(
+                        parent_contact=parent_contact
+                    ).first()
                     students_to_create.append((student, existing_sibling))
 
                 except Exception as e:
                     student_data["error"] = str(e)
                     not_created.append(student_data)
 
-            created_students = []
-
-            # Save each student individually to allow ID generation
+            # Save new students
             with transaction.atomic():
                 for student, existing_sibling in students_to_create:
                     student.save()
                     created_students.append(student)
 
-                    if existing_sibling:
+                    if (
+                        existing_sibling
+                        and not student.siblings.filter(id=existing_sibling.id).exists()
+                    ):
                         student.siblings.add(existing_sibling)
                         existing_sibling.siblings.add(student)
+                        updated_students_info.append(
+                            {
+                                "admission_number": student.admission_number,
+                                "full_name": f"{student.first_name} {student.last_name}",
+                                "reasons": ["sibling added"],
+                            }
+                        )
 
             return Response(
                 {
-                    "message": f"{len(created_students)} students successfully uploaded.",
+                    "message": f"{len(created_students)} students successfully uploaded. {new_parents_created} parents created successfully. ",
+                    "updated_students": updated_students_info,
+                    "skipped_students": skipped_students,
                     "not_created": not_created,
                 },
                 status=status.HTTP_201_CREATED,
