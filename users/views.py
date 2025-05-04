@@ -89,10 +89,12 @@ class ParentFilter(FilterSet):
 
 
 class UserListView(generics.ListCreateAPIView):
-    queryset = User.objects.all()
     serializer_class = UserSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = UserFilter
+
+    def get_queryset(self):
+        return User.objects.filter(is_parent=False)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

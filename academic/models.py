@@ -336,29 +336,38 @@ class Parent(models.Model):
 
     def save(self, *args, **kwargs):
         """
-        When an parent is created, generate a CustomUser instance for login.
+        When a parent is created, ensure a user exists or is created
+        based on phone number. Attach the user to the parent.
         """
+        user, created = CustomUser.objects.get_or_create(
+            phone_number=self.phone_number,
+            defaults={
+                "first_name": self.first_name,
+                "last_name": self.last_name,
+                "email": self.email,
+                "is_parent": True,
+            },
+        )
 
-        if not self.user:
-            # Create the user if it doesn't exist
-            user = CustomUser.objects.create(
-                first_name=self.first_name,
-                last_name=self.last_name,
-                email=self.email,
-                is_parent=True,
-            )
-
-            # Set a default password using empId (if available) or fallback
-            default_password = f"Complex.0000"
-            user.set_password(default_password)
+        if created:
+            # Set password only for new users
+            user.set_password("Complex.0000")
             user.save()
-
-            # Attach the created user to the parent
-            self.user = user
 
             # Add user to "parent" group
             group, _ = Group.objects.get_or_create(name="parent")
             user.groups.add(group)
+        else:
+            # Optionally update user details if needed
+            updated = False
+            if not user.is_parent:
+                user.is_parent = True
+                updated = True
+            if updated:
+                user.save()
+
+        # Link the user to this parent instance
+        self.user = user
 
         super().save(*args, **kwargs)
 
@@ -394,7 +403,11 @@ class Student(models.Model):
     street = models.CharField(max_length=255, blank=True)
     blood_group = models.CharField(max_length=10, blank=True, null=True)
     parent_guardian = models.ForeignKey(
-        Parent, on_delete=models.CASCADE, blank=True, null=True, related_name="children"
+        Parent,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="children",
     )
     parent_contact = models.CharField(max_length=15, blank=True, null=True)
     date_of_birth = models.DateField(blank=True)

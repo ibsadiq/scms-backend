@@ -6,7 +6,6 @@ from academic.models import Teacher, Subject, Parent
 from .models import CustomUser, Accountant
 
 
-
 class UserSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField(read_only=True)
     isAdmin = serializers.SerializerMethodField(read_only=True)
@@ -122,19 +121,31 @@ class AccountantSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         request = self.context.get("request", None)
-        accountant_id = self.instance.id if self.instance else None  # Get accountant ID if updating
-        
+        accountant_id = (
+            self.instance.id if self.instance else None
+        )  # Get accountant ID if updating
+
         if Accountant.objects.filter(email=value).exclude(id=accountant_id).exists():
-            raise serializers.ValidationError("A accountant with this email already exists.")
-        
+            raise serializers.ValidationError(
+                "A accountant with this email already exists."
+            )
+
         return value
 
     def validate_phone_number(self, value):
-        accountant_id = self.instance.id if self.instance else None  # Get accountant ID if updating
+        accountant_id = (
+            self.instance.id if self.instance else None
+        )  # Get accountant ID if updating
 
-        if Accountant.objects.filter(phone_number=value).exclude(id=accountant_id).exists():
-            raise serializers.ValidationError("A accountant with this phone number already exists.")
-        
+        if (
+            Accountant.objects.filter(phone_number=value)
+            .exclude(id=accountant_id)
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                "A accountant with this phone number already exists."
+            )
+
         return value
 
 
@@ -183,21 +194,28 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         request = self.context.get("request", None)
-        teacher_id = self.instance.id if self.instance else None  # Get teacher ID if updating
-        
+        teacher_id = (
+            self.instance.id if self.instance else None
+        )  # Get teacher ID if updating
+
         if Teacher.objects.filter(email=value).exclude(id=teacher_id).exists():
-            raise serializers.ValidationError("A teacher with this email already exists.")
-        
+            raise serializers.ValidationError(
+                "A teacher with this email already exists."
+            )
+
         return value
 
     def validate_phone_number(self, value):
-        teacher_id = self.instance.id if self.instance else None  # Get teacher ID if updating
+        teacher_id = (
+            self.instance.id if self.instance else None
+        )  # Get teacher ID if updating
 
         if Teacher.objects.filter(phone_number=value).exclude(id=teacher_id).exists():
-            raise serializers.ValidationError("A teacher with this phone number already exists.")
-        
-        return value
+            raise serializers.ValidationError(
+                "A teacher with this phone number already exists."
+            )
 
+        return value
 
     def validate_subject_specialization(self, value):
         """
@@ -205,7 +223,9 @@ class TeacherSerializer(serializers.ModelSerializer):
         Ensure it works for both create and update operations.
         """
         if not isinstance(value, list):
-            raise serializers.ValidationError("Subject specialization should be a list of subject names.")
+            raise serializers.ValidationError(
+                "Subject specialization should be a list of subject names."
+            )
 
         # Get existing subjects matching the provided names
         existing_subjects = Subject.objects.filter(name__in=value).distinct()
@@ -222,7 +242,6 @@ class TeacherSerializer(serializers.ModelSerializer):
             )
 
         return existing_subjects  # Return the queryset instead of a list of names
-
 
     def create(self, validated_data):
         subject_specialization_data = validated_data.pop("subject_specialization")
@@ -279,38 +298,9 @@ class ParentSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        """Creates a Parent and an associated CustomUser."""
-        email = validated_data.get("email")
-        first_name = validated_data.get("first_name", "")
-        last_name = validated_data.get("last_name", "")
-
-        # Create the Parent instance
-        parent = Parent.objects.create(**validated_data)
-
-        # If email exists, create a corresponding CustomUser
-        if email:
-            user, created = CustomUser.objects.get_or_create(
-                email=email,
-                defaults={
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "is_parent": True,
-                },
-            )
-            if created:
-                # Set a default password
-                default_password = f"{first_name.lower()}{last_name.lower()}123"
-                user.set_password(default_password)
-                user.save()
-
-                # Assign to "parent" group
-                group, _ = Group.objects.get_or_create(name="parent")
-                user.groups.add(group)
-
-            # Attach the created user to the parent
-            parent.user = user
-            parent.save()
-
+        """Creates a Parent and lets the model handle user creation."""
+        parent = Parent(**validated_data)
+        parent.save()  # This triggers the model's save() where user is created
         return parent
 
     @transaction.atomic
