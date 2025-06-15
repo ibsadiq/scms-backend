@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import AcademicYear, Term, Article, CarouselImage
+from .models import AcademicYear, Term, Article, CarouselImage, SchoolEvent
 
 
 from users.serializers import UserSerializer
@@ -54,3 +54,22 @@ class TermSerializer(serializers.ModelSerializer):
     class Meta:
         model = Term
         fields = "__all__"
+
+
+class SchoolEventSerializer(serializers.ModelSerializer):
+    term_name = serializers.CharField(source='term.name', read_only=True)
+    academic_year = serializers.CharField(source='term.academic_year.name', read_only=True)
+
+    class Meta:
+        model = SchoolEvent
+        fields = [
+            'id',
+            'name',
+            'event_type',
+            'term',
+            'term_name',
+            'academic_year',
+            'start_date',
+            'end_date',
+            'description',
+        ]
