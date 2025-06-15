@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from datetime import date, datetime
 from user_agents import parse
 
@@ -190,3 +191,43 @@ class Term(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.academic_year.name}"
+
+
+
+class SchoolEvent(models.Model):
+    EVENT_TYPE_CHOICES = [
+        ('exam', 'Examination Period'),
+        ('graduation', 'Graduation Day'),
+        ('holiday', 'Holiday'),
+        ('leave', 'Student Leave'),
+        ('other', 'Other Event'),
+    ]
+
+    term = models.ForeignKey(
+        'Term',
+        on_delete=models.CASCADE,
+        related_name='events',
+        help_text="The term this event belongs to"
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="Name of the event (e.g., Midterm Exams, Eid Holiday)"
+    )
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
+    start_date = models.DateField()
+    end_date = models.DateField(blank=True, null=True)
+    description = models.TextField(blank=True, help_text="Optional details about the event")
+
+    class Meta:
+        ordering = ['start_date']
+
+    def __str__(self):
+        return f"{self.name} ({self.term.name} - {self.term.academic_year.name})"
+
+    def clean(self):
+        if self.end_date and self.start_date > self.end_date:
+            raise ValidationError("End date must be after start date.")
+        if not (self.term.start_date <= self.start_date <= self.term.end_date):
+            raise ValidationError("Start date must be within the term's duration.")
+        if self.end_date and not (self.term.start_date <= self.end_date <= self.term.end_date):
+            raise ValidationError("End date must be within the term's duration.")
