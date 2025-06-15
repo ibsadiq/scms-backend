@@ -6,7 +6,9 @@ from administration.views import (
     AcademicYearDetailView,
     TermListCreateView,
     TermDetailView,
-    SchoolEventViewSet
+    SchoolEventViewSet,
+    SchoolEventBulkUploadView,
+    SchoolEventTemplateDownloadView
 )
 
 
@@ -30,5 +32,7 @@ urlpatterns = [
     # Term URLs
     path("terms/", TermListCreateView.as_view(), name="term-list-create"),
     path("terms/<int:pk>/", TermDetailView.as_view(), name="term-detail"),
-    path('calender', include(router.urls)),
+    path('school-events', include(router.urls)),
+    path('school-events/bulk-upload/', SchoolEventBulkUploadView.as_view(), name='school-events-bulk-upload'),
+    path('school-events/template-download/', SchoolEventTemplateDownloadView.as_view(), name='school-events-template-download'),
 ]
