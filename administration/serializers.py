@@ -47,29 +47,41 @@ class AcademicYearSerializer(serializers.ModelSerializer):
 
 
 class TermSerializer(serializers.ModelSerializer):
-    academic_year = (
-        serializers.StringRelatedField()
-    )  # Display AcademicYear name in term details
+    academic_year = serializers.PrimaryKeyRelatedField(
+        queryset=AcademicYear.objects.all(), write_only=True
+    )
+    academic_year_name = serializers.StringRelatedField(
+        source="academic_year", read_only=True
+    )
 
     class Meta:
         model = Term
-        fields = "__all__"
+        fields = [
+            "id",
+            "name",
+            "academic_year",
+            "academic_year_name",
+            "start_date",
+            "end_date",
+        ]
 
 
 class SchoolEventSerializer(serializers.ModelSerializer):
-    term_name = serializers.CharField(source='term.name', read_only=True)
-    academic_year = serializers.CharField(source='term.academic_year.name', read_only=True)
+    term_name = serializers.CharField(source="term.name", read_only=True)
+    academic_year = serializers.CharField(
+        source="term.academic_year.name", read_only=True
+    )
 
     class Meta:
         model = SchoolEvent
         fields = [
-            'id',
-            'name',
-            'event_type',
-            'term',
-            'term_name',
-            'academic_year',
-            'start_date',
-            'end_date',
-            'description',
+            "id",
+            "name",
+            "event_type",
+            "term",
+            "term_name",
+            "academic_year",
+            "start_date",
+            "end_date",
+            "description",
         ]

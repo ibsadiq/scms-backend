@@ -8,13 +8,12 @@ from administration.views import (
     TermDetailView,
     SchoolEventViewSet,
     SchoolEventBulkUploadView,
-    SchoolEventTemplateDownloadView
+    SchoolEventTemplateDownloadView,
 )
 
 
 router = DefaultRouter()
-router.register(r'school-events', SchoolEventViewSet, basename='school-events')
-
+router.register(r"", SchoolEventViewSet, basename="school-events")
 
 
 urlpatterns = [
@@ -32,7 +31,15 @@ urlpatterns = [
     # Term URLs
     path("terms/", TermListCreateView.as_view(), name="term-list-create"),
     path("terms/<int:pk>/", TermDetailView.as_view(), name="term-detail"),
-    path('school-events', include(router.urls)),
-    path('school-events/bulk-upload/', SchoolEventBulkUploadView.as_view(), name='school-events-bulk-upload'),
-    path('school-events/template-download/', SchoolEventTemplateDownloadView.as_view(), name='school-events-template-download'),
+    path("school-events/", include(router.urls)),
+    path(
+        "school-events/bulk-upload/",
+        SchoolEventBulkUploadView.as_view(),
+        name="school-events-bulk-upload",
+    ),
+    path(
+        "school-events/template-download/",
+        SchoolEventTemplateDownloadView.as_view(),
+        name="school-events-template-download",
+    ),
 ]

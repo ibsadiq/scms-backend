@@ -138,9 +138,6 @@ class AcademicYear(models.Model):
     name = models.CharField(max_length=255, unique=True)
     start_date = models.DateField()
     end_date = models.DateField(blank=True, null=True)
-    graduation_date = models.DateField(
-        blank=True, null=True, help_text="The date when students graduate"
-    )
     active_year = models.BooleanField(
         help_text="DANGER!! This is the current school year. "
         "There can only be one and setting this will remove it from other years. "
@@ -193,33 +190,33 @@ class Term(models.Model):
         return f"{self.name} - {self.academic_year.name}"
 
 
-
 class SchoolEvent(models.Model):
     EVENT_TYPE_CHOICES = [
-        ('exam', 'Examination Period'),
-        ('graduation', 'Graduation Day'),
-        ('holiday', 'Holiday'),
-        ('leave', 'Student Leave'),
-        ('other', 'Other Event'),
+        ("exam", "Examination Period"),
+        ("graduation", "Graduation Day"),
+        ("holiday", "Holiday"),
+        ("leave", "Student Leave"),
+        ("other", "Other Event"),
     ]
 
     term = models.ForeignKey(
-        'Term',
+        "Term",
         on_delete=models.CASCADE,
-        related_name='events',
-        help_text="The term this event belongs to"
+        related_name="events",
+        help_text="The term this event belongs to",
     )
     name = models.CharField(
-        max_length=255,
-        help_text="Name of the event (e.g., Midterm Exams, Eid Holiday)"
+        max_length=255, help_text="Name of the event (e.g., Midterm Exams, Eid Holiday)"
     )
     event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
     start_date = models.DateField()
     end_date = models.DateField(blank=True, null=True)
-    description = models.TextField(blank=True, help_text="Optional details about the event")
+    description = models.TextField(
+        blank=True, help_text="Optional details about the event"
+    )
 
     class Meta:
-        ordering = ['start_date']
+        ordering = ["start_date"]
 
     def __str__(self):
         return f"{self.name} ({self.term.name} - {self.term.academic_year.name})"
@@ -229,5 +226,7 @@ class SchoolEvent(models.Model):
             raise ValidationError("End date must be after start date.")
         if not (self.term.start_date <= self.start_date <= self.term.end_date):
             raise ValidationError("Start date must be within the term's duration.")
-        if self.end_date and not (self.term.start_date <= self.end_date <= self.term.end_date):
+        if self.end_date and not (
+            self.term.start_date <= self.end_date <= self.term.end_date
+        ):
             raise ValidationError("End date must be within the term's duration.")

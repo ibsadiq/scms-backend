@@ -11,7 +11,7 @@ from .serializers import (
     TermSerializer,
     ArticleSerializer,
     CarouselImageSerializer,
-    SchoolEventSerializer
+    SchoolEventSerializer,
 )
 from .permissions import IsAdminOrReadOnly
 
@@ -61,6 +61,10 @@ class TermListCreateView(generics.ListCreateAPIView):
     serializer_class = TermSerializer
     permission_classes = [IsAuthenticated]
 
+    def create(self, request, *args, **kwargs):
+        print(request.data)
+        return super().create(request, *args, **kwargs)
+
 
 class TermDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Term.objects.all()
@@ -69,16 +73,16 @@ class TermDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class SchoolEventViewSet(viewsets.ModelViewSet):
-    queryset = SchoolEvent.objects.select_related('term', 'term__academic_year').all()
+    queryset = SchoolEvent.objects.select_related("term", "term__academic_year").all()
     serializer_class = SchoolEventSerializer
     permission_classes = [IsAdminOrReadOnly]
 
     def get_queryset(self):
         queryset = self.queryset
-        term_id = self.request.query_params.get('term')
-        year_name = self.request.query_params.get('academic_year')
-        start_date = parse_date(self.request.query_params.get('start_date') or '')
-        end_date = parse_date(self.request.query_params.get('end_date') or '')
+        term_id = self.request.query_params.get("term")
+        year_name = self.request.query_params.get("academic_year")
+        start_date = parse_date(self.request.query_params.get("start_date") or "")
+        end_date = parse_date(self.request.query_params.get("end_date") or "")
 
         if term_id:
             queryset = queryset.filter(term__id=term_id)
@@ -96,9 +100,11 @@ class SchoolEventBulkUploadView(APIView):
     permission_classes = [permissions.IsAdminUser]
 
     def post(self, request):
-        excel_file = request.FILES.get('file')
+        excel_file = request.FILES.get("file")
         if not excel_file:
-            return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             workbook = openpyxl.load_workbook(excel_file)
@@ -116,13 +122,17 @@ class SchoolEventBulkUploadView(APIView):
                     term=Term.objects.get(pk=term_id),
                     start_date=start_date,
                     end_date=end_date,
-                    description=description or ""
+                    description=description or "",
                 )
 
-            return Response({"detail": f"{len(rows)} events uploaded successfully."}, status=status.HTTP_201_CREATED)
+            return Response(
+                {"detail": f"{len(rows)} events uploaded successfully."},
+                status=status.HTTP_201_CREATED,
+            )
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class SchoolEventTemplateDownloadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -133,17 +143,33 @@ class SchoolEventTemplateDownloadView(APIView):
         ws.title = "School Events Template"
 
         # Headers
-        headers = ['name', 'event_type', 'term_id', 'start_date', 'end_date', 'description']
+        headers = [
+            "name",
+            "event_type",
+            "term_id",
+            "start_date",
+            "end_date",
+            "description",
+        ]
         ws.append(headers)
 
         # Example row
-        ws.append([
-            'Midterm Exams', 'exam', 1, '2025-07-10', '2025-07-14', 'Midterm assessment'
-        ])
+        ws.append(
+            [
+                "Midterm Exams",
+                "exam",
+                1,
+                "2025-07-10",
+                "2025-07-14",
+                "Midterm assessment",
+            ]
+        )
 
         response = HttpResponse(
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        response['Content-Disposition'] = 'attachment; filename=school_events_template.xlsx'
+        response["Content-Disposition"] = (
+            "attachment; filename=school_events_template.xlsx"
+        )
         wb.save(response)
         return response
