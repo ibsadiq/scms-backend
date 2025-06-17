@@ -1,4 +1,3 @@
-import debug_toolbar
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -17,6 +16,36 @@ def custom_404_handler(request, exception):
     )
 
 
+def custom_500_handler(request):
+    return JsonResponse(
+        {
+            "error": "Server Error",
+            "detail": "An unexpected error occurred on the server. Please try again later.",
+        },
+        status=500,
+    )
+
+
+def custom_403_handler(request, exception):
+    return JsonResponse(
+        {
+            "error": "Permission Denied",
+            "detail": "You do not have permission to perform this action.",
+        },
+        status=403,
+    )
+
+
+def custom_400_handler(request, exception):
+    return JsonResponse(
+        {
+            "error": "Bad Request",
+            "detail": "The request could not be understood or was missing required parameters.",
+        },
+        status=400,
+    )
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", TemplateView.as_view(template_name="index.html")),
@@ -31,10 +60,12 @@ urlpatterns = [
     path("api/users/", include("api.users.urls")),
     path("api/timetable/", include("api.schedule.urls")),
     path("api/sis/", include("api.sis.urls")),
-    path("__debug__/", include(debug_toolbar.urls)),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 handler404 = custom_404_handler
+handler500 = custom_500_handler
+handler403 = custom_403_handler
+handler400 = custom_400_handler
