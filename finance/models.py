@@ -1,5 +1,7 @@
 from django.db import models, transaction
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from decimal import Decimal
 from administration.models import Term
 from users.models import Accountant, CustomUser as User
 from academic.models import Teacher, Student
@@ -22,20 +24,47 @@ class PaymentThrough(models.TextChoices):
 
 class DebtRecord(models.Model):
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="debt_records"
+        Student, related_name="debt_records", on_delete=models.CASCADE
     )
     term = models.ForeignKey(Term, on_delete=models.CASCADE)
-    amount_added = models.DecimalField(max_digits=10, decimal_places=2)
+    amount_added = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    amount_paid = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    note = models.TextField(blank=True, null=True)
     date_updated = models.DateTimeField(auto_now_add=True)
+    is_reversed = models.BooleanField(default=False)
+    reversed_on = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        unique_together = (
-            "student",
-            "term",
-        )  # Ensures a student’s debt is only updated once per term
+        unique_together = ("student", "term")
+        ordering = ["-date_updated"]
 
     def __str__(self):
         return f"{self.student.full_name} - {self.term.name} - {self.amount_added}"
+
+    @property
+    def balance(self):
+        return max(Decimal("0.00"), self.amount_added - self.amount_paid)
+
+    def apply_payment(self, amount):
+        """
+        Applies a payment to this debt record and prevents overpayment.
+        """
+        amount = Decimal(amount)
+        if amount <= 0:
+            raise ValueError("Payment must be positive.")
+        if self.balance < amount:
+            raise ValueError("Cannot pay more than the remaining balance.")
+        self.amount_paid += amount
+        self.save()
+
+    def reverse(self):
+        self.is_reversed = True
+        self.reversed_on = timezone.now()
+        self.save()
 
 
 class ReceiptAllocation(models.Model):
@@ -57,18 +86,18 @@ class PaymentAllocation(models.Model):
 class Receipt(models.Model):
     receipt_number = models.IntegerField(unique=True, blank=True, null=True)
     date = models.DateField(auto_now_add=True)
-    payer = models.CharField(max_length=255, blank=False, null=False, default="Unknown")
+    payer = models.CharField(max_length=255, default="Unknown")
     paid_for = models.ForeignKey(
-        ReceiptAllocation, on_delete=models.SET_NULL, null=True
+        "ReceiptAllocation", on_delete=models.SET_NULL, null=True
     )
     student = models.ForeignKey(
-        Student, on_delete=models.SET_NULL, blank=True, null=True
+        Student, on_delete=models.SET_NULL, null=True, blank=True
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     paid_through = models.CharField(
         max_length=20, choices=PaymentThrough.choices, default=PaymentThrough.UNKNOWN
     )
-    payment_date = models.DateField(default="2000-01-01")
+    payment_date = models.DateField(default=timezone.now)
     status = models.CharField(
         max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
     )
@@ -78,7 +107,6 @@ class Receipt(models.Model):
         return f"Receipt {self.receipt_number} | {self.date} | {self.paid_for} | {self.payer}"
 
     def clean(self):
-        super().clean()
         if self.amount <= 0:
             raise ValidationError("Amount must be a positive value.")
 
@@ -93,15 +121,9 @@ class Receipt(models.Model):
                 self.receipt_number = (
                     (last_receipt.receipt_number + 1) if last_receipt else 1
                 )
-
         super().save(*args, **kwargs)
 
-        if (
-            self.student
-            and self.paid_for
-            and self.paid_for.name.lower() == "school fees"
-        ):
-            self.student.clear_debt(self.amount)
+        # Don't apply debt reduction here — move logic to PaymentRecord for full control
 
 
 class Payment(models.Model):
@@ -149,3 +171,34 @@ class Payment(models.Model):
                 self.paid_to.unpaid_salary -= self.amount
                 self.paid_to.save()
         self.save()
+
+
+class PaymentRecord(models.Model):
+    student = models.ForeignKey(
+        Student, related_name="payments", on_delete=models.CASCADE
+    )
+    debt_record = models.ForeignKey(
+        "DebtRecord", related_name="payments", on_delete=models.CASCADE
+    )
+    receipt = models.ForeignKey(
+        "Receipt", related_name="payment_records", on_delete=models.CASCADE
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    method = models.CharField(max_length=50, blank=True, null=True)  # e.g. cash, mpesa
+    reference = models.CharField(max_length=100, blank=True, null=True)
+    paid_on = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True, null=True)
+    processed_by = models.ForeignKey(Accountant, on_delete=models.SET_NULL, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.amount <= 0:
+            raise ValidationError("Payment amount must be positive.")
+        if self.debt_record.balance < self.amount:
+            raise ValidationError("Payment exceeds remaining balance for this debt.")
+
+        # Apply payment to debt
+        self.debt_record.apply_payment(self.amount)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.student.full_name} paid {self.amount} toward {self.debt_record.term.name}"

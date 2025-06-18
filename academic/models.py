@@ -383,14 +383,14 @@ class Student(models.Model):
     last_name = models.CharField(max_length=150, null=True, verbose_name="Last Name")
     graduation_date = models.DateField(blank=True, null=True)
     class_level = models.ForeignKey(
-        ClassLevel, blank=True, null=True, on_delete=models.SET_NULL
+        "ClassLevel", blank=True, null=True, on_delete=models.SET_NULL
     )
     class_of_year = models.ForeignKey(
-        ClassYear, blank=True, null=True, on_delete=models.SET_NULL
+        "ClassYear", blank=True, null=True, on_delete=models.SET_NULL
     )
     date_dismissed = models.DateField(blank=True, null=True)
     reason_left = models.ForeignKey(
-        ReasonLeft, blank=True, null=True, on_delete=models.SET_NULL
+        "ReasonLeft", blank=True, null=True, on_delete=models.SET_NULL
     )
     gender = models.CharField(
         max_length=10, choices=GENDER_CHOICE, blank=True, null=True
@@ -403,7 +403,7 @@ class Student(models.Model):
     street = models.CharField(max_length=255, blank=True)
     blood_group = models.CharField(max_length=10, blank=True, null=True)
     parent_guardian = models.ForeignKey(
-        Parent,
+        "Parent",
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
@@ -420,7 +420,6 @@ class Student(models.Model):
     cache_gpa = models.DecimalField(
         editable=False, max_digits=5, decimal_places=2, blank=True, null=True
     )
-    debt = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
 
     class Meta:
         ordering = ["admission_number", "last_name", "first_name"]
@@ -432,6 +431,33 @@ class Student(models.Model):
     def full_name(self):
         parts = filter(None, [self.first_name, self.middle_name, self.last_name])
         return " ".join(part.capitalize() for part in parts)
+
+    @property
+    def debt(self):
+        """
+        Compute total unpaid debt across all terms.
+        """
+        return sum(
+            (record.balance for record in self.debt_records.filter(is_reversed=False)),
+            Decimal("0.00"),
+        )
+
+    @property
+    def total_paid(self):
+        """
+        Compute total amount paid across all PaymentRecords.
+        """
+        return self.payments.aggregate(total=models.Sum("amount"))["total"] or Decimal(
+            "0.00"
+        )
+
+    def unpaid_terms(self):
+        """
+        Returns queryset of DebtRecords with remaining balances.
+        """
+        return self.debt_records.filter(is_reversed=False).exclude(
+            amount_paid__gte=models.F("amount_added")
+        )
 
     def clean(self):
         # Prevent students from being teachers
@@ -464,66 +490,40 @@ class Student(models.Model):
         # Save first to ensure self.id is set
         super().save(*args, **kwargs)
 
-        # Find all existing siblings with the same parent contact (excluding self)
+        # Link siblings
         existing_siblings = Student.objects.filter(
             parent_contact=self.parent_contact
         ).exclude(id=self.id)
 
-        # Link all siblings symmetrically
         for sibling in existing_siblings:
             self.siblings.add(sibling)
             sibling.siblings.add(self)
 
-    def update_debt(self, term_fee):
-        """
-        Add term fee to the student's debt.
-        """
-        self.debt += Decimal(term_fee)
-        self.save()
-
-    def clear_debt(self, amount_paid):
-        """
-        Reduce the student's debt by the amount paid.
-        """
-        self.debt -= Decimal(amount_paid)
-        self.debt = max(self.debt, Decimal("0.00"))  # Prevent negative debt
-        self.save()
-
     def update_debt_for_term(self, term):
         """
-        Update student debt only if not already updated for the given term.
+        Create a DebtRecord for the given term if not already created.
         """
         from finance.models import DebtRecord
 
-        if not DebtRecord.objects.filter(student=self, term=term).exists():
-            self.debt += term.default_term_fee  # Add the term fee to existing debt
-            self.save()
-
-            # Create a record to track the update
+        if not self.debt_records.filter(term=term, is_reversed=False).exists():
             DebtRecord.objects.create(
                 student=self, term=term, amount_added=term.default_term_fee
             )
 
     def reverse_debt_for_term(self, term):
         """
-        Reverses the debt added for a specific term.
+        Reverse the debt record for a given term.
         """
         from finance.models import DebtRecord
 
-        debt_record = DebtRecord.objects.filter(student=self, term=term).first()
-
+        debt_record = self.debt_records.filter(term=term, is_reversed=False).first()
         if debt_record:
-            self.debt -= debt_record.amount_added
-            self.debt = max(self.debt, Decimal("0.00"))  # Prevent negative debt
-            self.save()
-
-            debt_record.delete()  # Remove the debt record
+            debt_record.reverse()
 
     def carry_forward_debt_to_new_academic_year(self):
         """
-        Carry forward debt to the first term of the new academic year.
+        Carry forward unpaid debts to the first term of the next academic year.
         """
-
         current_academic_year = AcademicYear.objects.get(current=True)
         next_year = AcademicYear.objects.filter(
             start_date__gt=current_academic_year.end_date
@@ -535,6 +535,7 @@ class Student(models.Model):
                 .order_by("start_date")
                 .first()
             )
+
             if first_term_of_new_year:
                 self.update_debt_for_term(first_term_of_new_year)
 
