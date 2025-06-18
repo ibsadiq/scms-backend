@@ -16,6 +16,8 @@ from finance.views import (
     PaymentRecordListView,
     PaymentRecordDetailView,
     StudentDebtOverviewView,
+    UpdateAllUnrecordedDebtsView,
+    UpdatePastDebtsView,
 )
 
 
@@ -29,7 +31,9 @@ urlpatterns = [
     ),
     path("debts/", DebtRecordListView.as_view()),
     path("debts/<int:pk>/", DebtRecordDetailView.as_view()),
-    path("debts/update/", UpdateStudentDebtView.as_view()),
+    path("debts/update-current/", UpdateStudentDebtView.as_view()),
+    path("debts/update-all-missing/", UpdateAllUnrecordedDebtsView.as_view()),
+    path("debts/update-past/", UpdatePastDebtsView.as_view()),
     path("debts/reverse/", ReverseStudentDebtView.as_view()),
     path("payments/record/", PaymentRecordListView.as_view()),
     path("payments/record/<int:pk>/", PaymentRecordDetailView.as_view()),

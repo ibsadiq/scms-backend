@@ -352,6 +352,75 @@ class UpdateStudentDebtView(APIView):
         )
 
 
+class UpdateAllUnrecordedDebtsView(APIView):
+    """
+    API view to update student debts for all past terms that haven't been updated.
+    Ensures that no term is double-counted.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        today = now().date()
+
+        # Get all terms up to today (including current and past)
+        terms = Term.objects.filter(end_date__lte=today).order_by("start_date")
+        updated_count = 0
+        skipped = 0
+
+        for term in terms:
+            students = Student.objects.exclude(debt_records__term=term)
+
+            for student in students:
+                student.update_debt_for_term(term)
+                updated_count += 1
+
+        return Response(
+            {
+                "detail": "Student debts updated for all missing terms.",
+                "updated_count": updated_count,
+            },
+            status=200,
+        )
+
+
+class UpdatePastDebtsView(APIView):
+    """
+    API view to update student debts for selected past terms.
+    Skips already updated records.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        term_ids = request.data.get("term_ids", [])
+
+        if not term_ids:
+            return Response(
+                {"detail": "Provide a list of term IDs to update."}, status=400
+            )
+
+        terms = Term.objects.filter(id__in=term_ids)
+        if not terms.exists():
+            return Response({"detail": "No valid terms found."}, status=404)
+
+        updated = 0
+        for term in terms:
+            students = Student.objects.exclude(debt_records__term=term)
+            for student in students:
+                student.update_debt_for_term(term)
+                updated += 1
+
+        return Response(
+            {
+                "detail": f"Debts updated for selected terms.",
+                "terms_updated": [term.name for term in terms],
+                "students_updated": updated,
+            },
+            status=200,
+        )
+
+
 class ReverseStudentDebtView(APIView):
     permission_classes = [IsAuthenticated]
 
