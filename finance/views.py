@@ -16,12 +16,22 @@ from rest_framework import status
 from academic.models import Student
 from administration.models import Term
 from django.utils.timezone import now
-from .models import Receipt, Payment, ReceiptAllocation, PaymentAllocation
+from .models import (
+    Receipt,
+    Payment,
+    ReceiptAllocation,
+    PaymentAllocation,
+    DebtRecord,
+    PaymentRecord,
+)
 from .serializers import (
     ReceiptSerializer,
     PaymentSerializer,
     ReceiptAllocationSerializer,
     PaymentAllocationSerializer,
+    DebtRecordSerializer,
+    PaymentRecordSerializer,
+    StudentDebtOverviewSerializer,
 )
 
 
@@ -203,24 +213,14 @@ class ReceiptFilter(FilterSet):
 class ReceiptsListView(generics.ListCreateAPIView):
     queryset = Receipt.objects.all()
     serializer_class = ReceiptSerializer
-    filter_backends = [
-        DjangoFilterBackend,
-    ]
+    filter_backends = [DjangoFilterBackend]
     filterset_class = ReceiptFilter
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        """
-        Override the create method to handle custom validation or processing.
-        """
-        print(request.data)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        # Save the receipt and process student debt logic
         receipt = serializer.save()
-
-        # Return response with detailed serialized data
         response_serializer = self.get_serializer(receipt)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -286,10 +286,50 @@ class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
             raise NotFound(detail="Payment not found.", code=404)
 
 
+class DebtRecordListView(generics.ListAPIView):
+    queryset = DebtRecord.objects.all()
+    serializer_class = DebtRecordSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["term", "student", "is_reversed"]
+
+
+class DebtRecordDetailView(generics.RetrieveAPIView):
+    queryset = DebtRecord.objects.all()
+    serializer_class = DebtRecordSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class PaymentRecordListView(generics.ListAPIView):
+    queryset = PaymentRecord.objects.all()
+    serializer_class = PaymentRecordSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ["student", "debt_record", "processed_by"]
+    search_fields = ["reference", "note"]
+
+
+class PaymentRecordDetailView(generics.RetrieveAPIView):
+    queryset = PaymentRecord.objects.all()
+    serializer_class = PaymentRecordSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class StudentDebtOverviewView(generics.RetrieveAPIView):
+    queryset = Student.objects.all()
+    serializer_class = StudentDebtOverviewSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        student_id = self.kwargs.get("student_id")
+        try:
+            return Student.objects.get(pk=student_id)
+        except Student.DoesNotExist:
+            raise NotFound(detail="Student not found.")
+
+
 class UpdateStudentDebtView(APIView):
-    """
-    API view to manually trigger student debt updates for the current term.
-    """
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         today = now().date()
@@ -302,9 +342,7 @@ class UpdateStudentDebtView(APIView):
                 {"detail": "No active term found."}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        students = Student.objects.exclude(
-            debt_records__term=current_term
-        )  # Exclude students whose debts are already updated for this term
+        students = Student.objects.exclude(debt_records__term=current_term)
 
         for student in students:
             student.update_debt_for_term(current_term)
@@ -315,9 +353,7 @@ class UpdateStudentDebtView(APIView):
 
 
 class ReverseStudentDebtView(APIView):
-    """
-    API view to manually reverse student debts for a specific term.
-    """
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         term_id = request.data.get("term_id")
@@ -333,7 +369,9 @@ class ReverseStudentDebtView(APIView):
                 {"detail": "Invalid term ID."}, status=status.HTTP_404_NOT_FOUND
             )
 
-        students = Student.objects.filter(debt_records__term=term)
+        students = Student.objects.filter(
+            debt_records__term=term, debt_records__is_reversed=False
+        )
 
         for student in students:
             student.reverse_debt_for_term(term)
