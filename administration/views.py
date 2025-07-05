@@ -48,6 +48,10 @@ class AcademicYearListCreateView(generics.ListCreateAPIView):
     serializer_class = AcademicYearSerializer
     permission_classes = [IsAuthenticated]
 
+    def create(self, request, *args, **kwargs):
+        print(request.data)
+        return super().create(request, *args, **kwargs)
+
 
 class AcademicYearDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = AcademicYear.objects.all()
