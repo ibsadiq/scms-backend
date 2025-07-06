@@ -52,6 +52,10 @@ class ClassLevelListCreateView(generics.ListCreateAPIView):
     serializer_class = ClassLevelSerializer
     permission_classes = [IsAuthenticated]
 
+    def create(self, request, *args, **kwargs):
+        print(request.data)
+        return super().create(request, *args, **kwargs)
+
 
 class ClassLevelDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = ClassLevel.objects.all()

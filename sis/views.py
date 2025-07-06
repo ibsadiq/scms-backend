@@ -95,11 +95,9 @@ class BulkUploadStudentsView(APIView):
                 "last_name",
                 "admission_number",
                 "parent_contact",
-                "region",
-                "city",
+                "religion",
                 "class_level",
                 "gender",
-                "date_of_birth",
             ]
 
             students_to_create = []
@@ -133,7 +131,7 @@ class BulkUploadStudentsView(APIView):
                             defaults={
                                 "first_name": middle_name,
                                 "last_name": last_name,
-                                "email": f"parent_of_{first_name}_{last_name}@hayatul.com",
+                                "email": f"parent_of_{first_name}_{middle_name}_{last_name}@hayatul.com",
                             },
                         )
                         if parent_created:
@@ -195,11 +193,9 @@ class BulkUploadStudentsView(APIView):
                         last_name=last_name,
                         admission_number=admission_number,
                         parent_contact=parent_contact,
-                        region=student_data["region"],
-                        city=student_data["city"],
+                        religion=student_data["religion"],
                         class_level=class_level,
                         gender=student_data["gender"],
-                        date_of_birth=student_data["date_of_birth"],
                         parent_guardian=parent,
                     )
 

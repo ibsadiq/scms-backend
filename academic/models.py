@@ -410,7 +410,7 @@ class Student(models.Model):
         related_name="children",
     )
     parent_contact = models.CharField(max_length=15, blank=True, null=True)
-    date_of_birth = models.DateField(blank=True)
+    date_of_birth = models.DateField(blank=True, null=True)
     admission_date = models.DateTimeField(auto_now_add=True)
     admission_number = models.CharField(max_length=50, blank=True, unique=True)
     prems_number = models.CharField(max_length=50, blank=True)
