@@ -1,7 +1,7 @@
 import datetime
 from django.db import models
 from django.core.exceptions import ValidationError
-from academic.models import Student, Teacher, ClassRoom, StudentClass, Subject
+from academic.models import Student, Teacher, ClassRoom, StudentClassEnrollment, Subject
 from administration.models import AcademicYear, Term
 
 
@@ -135,7 +135,7 @@ class MarksManagement(models.Model):
         Subject, on_delete=models.CASCADE, related_name="subject_marks"
     )
     student = models.ForeignKey(
-        StudentClass, on_delete=models.CASCADE, related_name="student_marks"
+        StudentClassEnrollment, on_delete=models.CASCADE, related_name="student_marks"
     )
     created_by = models.ForeignKey(
         Teacher, on_delete=models.CASCADE, related_name="marks_entered"

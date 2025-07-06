@@ -17,7 +17,7 @@ from .models import (
     GradeLevel,
     ClassYear,
     ReasonLeft,
-    StudentClass,
+    StudentClassEnrollment as StudentClass,
     Student,
 )
 from .serializers import (
@@ -29,7 +29,7 @@ from .serializers import (
     StreamSerializer,
     SubjectSerializer,
     ClassRoomSerializer,
-    StudentClassSerializer,
+    StudentClassEnrollmentSerializer,
 )
 
 
@@ -116,13 +116,16 @@ class SubjectListView(generics.ListCreateAPIView):
     serializer_class = SubjectSerializer
     permission_classes = [IsAuthenticated]
 
+
 class SubjectDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     API view to retrieve, update, or delete a subject.
     """
+
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
     lookup_field = "id"  # You can change this to "subject_code" if needed
+
 
 class BulkUploadSubjectsView(APIView):
     """
@@ -324,7 +327,7 @@ class StudentClassListCreateView(generics.ListCreateAPIView):
     """
 
     queryset = StudentClass.objects.all()
-    serializer_class = StudentClassSerializer
+    serializer_class = StudentClassEnrollmentSerializer
     permission_classes = [IsAuthenticated]
 
 
@@ -334,7 +337,7 @@ class StudentClassDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
 
     queryset = StudentClass.objects.all()
-    serializer_class = StudentClassSerializer
+    serializer_class = StudentClassEnrollmentSerializer
     permission_classes = [IsAuthenticated]
 
 

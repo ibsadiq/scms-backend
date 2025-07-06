@@ -540,7 +540,7 @@ class Student(models.Model):
                 self.update_debt_for_term(first_term_of_new_year)
 
 
-class StudentClass(models.Model):
+class StudentClassEnrollment(models.Model):
     """
     Bridge table to link a student to a class.
     Updates the selected class capacity when a student is added or removed.
@@ -586,7 +586,7 @@ class StudentClass(models.Model):
 
         # Check for duplicate StudentClass assignments
         if (
-            StudentClass.objects.filter(
+            StudentClassEnrollment.objects.filter(
                 classroom=self.classroom,
                 academic_year=self.academic_year,
                 student=self.student,

@@ -10,7 +10,7 @@ from .models import (
     Department,
     Stream,
     ReasonLeft,
-    StudentClass,
+    StudentClassEnrollment,
 )
 
 
@@ -97,9 +97,9 @@ class ReasonLeftSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class StudentClassSerializer(serializers.ModelSerializer):
+class StudentClassEnrollmentSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StudentClass
+        model = StudentClassEnrollment
         fields = "__all__"
 
     def validate(self, data):
