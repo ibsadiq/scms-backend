@@ -75,6 +75,7 @@ class PaymentAllocationDetailView(APIView):
         """
         Retrieve details of a specific insurance.
         """
+        print(request.data)
         insurance = self.get_object(pk)
         serializer = PaymentAllocationSerializer(insurance)
         return Response(serializer.data, status=status.HTTP_200_OK)
