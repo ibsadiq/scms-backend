@@ -9,6 +9,7 @@ from .models import (
     PaymentRecord,
 )
 from academic.models import Student
+from administration.models import Term
 from users.models import CustomUser, Accountant
 from administration.serializers import TermSerializer
 from sis.serializers import StudentSerializer
@@ -33,10 +34,12 @@ class ReceiptSerializer(serializers.ModelSerializer):
         queryset=ReceiptAllocation.objects.all()
     )
     received_by = serializers.PrimaryKeyRelatedField(queryset=Accountant.objects.all())
+    term = serializers.PrimaryKeyRelatedField(queryset=Term.objects.all())
 
     student_details = StudentSerializer(read_only=True, source="student")
     paid_for_details = ReceiptAllocationSerializer(read_only=True, source="paid_for")
     received_by_details = AccountantSerializer(read_only=True, source="received_by")
+    term_details = TermSerializer(read_only=True, source="term")
 
     class Meta:
         model = Receipt
@@ -50,6 +53,8 @@ class ReceiptSerializer(serializers.ModelSerializer):
             "student",
             "student_details",
             "amount",
+            "term",
+            "term_details",
             "paid_through",
             "payment_date",
             "status",

@@ -247,6 +247,22 @@ class ReceiptDetailView(generics.RetrieveUpdateDestroyAPIView):
         except Http404:
             raise NotFound(detail="Receipt not found.", code=404)
 
+    def update(self, request, *args, **kwargs):
+        """
+        Override the update method to handle custom validation or processing.
+        """
+        print(request.data)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        # Save the receipt and process student debt logic
+        receipt = serializer.save()
+
+        # Return response with detailed serialized data
+        response_serializer = self.get_serializer(receipt)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
+
 
 # Payment List & Create View using DRF's ListCreateAPIView
 class PaymentListView(generics.ListCreateAPIView):

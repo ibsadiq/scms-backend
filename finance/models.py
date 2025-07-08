@@ -97,6 +97,7 @@ class Receipt(models.Model):
     paid_through = models.CharField(
         max_length=20, choices=PaymentThrough.choices, default=PaymentThrough.UNKNOWN
     )
+    term = models.ForeignKey(Term, on_delete=models.SET_NULL, null=True, blank=True)
     payment_date = models.DateField(default=timezone.now)
     status = models.CharField(
         max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
