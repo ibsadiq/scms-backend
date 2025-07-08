@@ -18,6 +18,8 @@ from finance.views import (
     StudentDebtOverviewView,
     UpdateAllUnrecordedDebtsView,
     UpdatePastDebtsView,
+    ReceiptBulkUploadView,
+    download_receipt_template,
 )
 
 
@@ -59,5 +61,15 @@ urlpatterns = [
         "receipt-allocations/<int:pk>/",
         ReceiptAllocationDetailView.as_view(),
         name="receipt-allocation-detail",
+    ),
+    path(
+        "receipts/bulk-upload/",
+        ReceiptBulkUploadView.as_view(),
+        name="receipt-bulk-upload",
+    ),
+    path(
+        "receipts/template/",
+        download_receipt_template,
+        name="download-receipt-template",
     ),
 ]
