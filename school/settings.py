@@ -1,4 +1,5 @@
 import os
+import environ
 from pathlib import Path
 from datetime import timedelta, date
 from django.core.validators import MinValueValidator  # Could use MaxValueValidator too
@@ -6,17 +7,21 @@ from django.core.validators import MinValueValidator  # Could use MaxValueValida
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+env = environ.Env()
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "JVHhdwUt8899h ghhiodfidwbfew"
+SECRET_KEY = env(
+    "SECRET_KEY", default="2_5ub5rqi!%3v#xk$0e4z-jg22zg_$ejz&t3s0g$5lt*vvu!b@"
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool("DEBUG", default=True)
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.28.14"]
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
 
 DATE_VALIDATORS = [MinValueValidator(date(1970, 1, 1))]  # Unix epoch!
@@ -63,7 +68,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [
-            os.path.join(BASE_DIR, "templates/build"),
+            os.path.join(BASE_DIR, "static/dist"),
         ],
         "APP_DIRS": True,
         "OPTIONS": {
@@ -86,11 +91,11 @@ WSGI_APPLICATION = "school.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "scms",
-        "USER": "postgres",
-        "PASSWORD": "Siah.1921#",
-        "HOST": "127.0.0.1",
-        "PORT": "5432",
+        "NAME": env("DB_NAME"),
+        "USER": env("DB_USER"),
+        "PASSWORD": env("DB_PASSWORD"),
+        "HOST": env("DB_HOST"),
+        "PORT": env("DB_PORT"),
     }
 }
 
@@ -133,12 +138,15 @@ USE_TZ = True
 
 
 STATIC_URL = "/static/"
-MEDIA_URL = "/images/"
-# STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static_in_env')]
-MEDIA_ROOT = BASE_DIR / "static/images"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
 
-STATICFILES_DIRS = [BASE_DIR / "static", BASE_DIR / "templates/build/static"]
+STATICFILES_DIRS = [
+    BASE_DIR / "static",  # your app-level static (optional)
+    BASE_DIR / "static/dist/assets",  # vite/react build output
+]
+
+STATIC_ROOT = BASE_DIR / "staticfiles"  # final destination after collectstatic
+MEDIA_ROOT = BASE_DIR / "media"  # uploads
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
