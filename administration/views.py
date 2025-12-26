@@ -1,7 +1,7 @@
 import openpyxl
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
-from rest_framework import generics, viewsets, status, permissions
+from rest_framework import generics, viewsets, status, permissions, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -12,8 +12,20 @@ from .serializers import (
     ArticleSerializer,
     CarouselImageSerializer,
     SchoolEventSerializer,
+    SchoolEventBulkUploadSerializer,
 )
 from .permissions import IsAdminOrReadOnly
+
+
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import Count, Sum, Avg, Q
+from django.utils import timezone
+from datetime import timedelta
+from decimal import Decimal
+
+from academic.models import Subject, Student, Teacher
+from finance.models import StudentFeeAssignment, Receipt, FeePaymentAllocation
+from attendance.models import StudentAttendance
 
 
 # Article Views
@@ -97,11 +109,13 @@ class SchoolEventViewSet(viewsets.ModelViewSet):
         if end_date:
             queryset = queryset.filter(end_date__lte=end_date)
 
+
         return queryset
 
 
 class SchoolEventBulkUploadView(APIView):
     permission_classes = [permissions.IsAdminUser]
+    serializer_class = SchoolEventBulkUploadSerializer
 
     def post(self, request):
         excel_file = request.FILES.get("file")
@@ -136,10 +150,14 @@ class SchoolEventBulkUploadView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
+        
+class EmptySerializer(serializers.Serializer):
+    """Empty serializer for download views that don't require input data"""
+    pass
 
 class SchoolEventTemplateDownloadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EmptySerializer
 
     def get(self, request):
         wb = openpyxl.Workbook()
@@ -177,3 +195,233 @@ class SchoolEventTemplateDownloadView(APIView):
         )
         wb.save(response)
         return response
+
+
+class DashboardStatsView(APIView):
+    """
+    Comprehensive dashboard with REAL FINANCE DATA
+    GET /api/academic/dashboard/stats/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.now().date()
+        first_day_of_month = today.replace(day=1)
+        
+        # ===== BASIC STATS =====
+        total_students = Student.objects.filter(is_active=True).count()
+        new_students_this_month = Student.objects.filter(
+            admission_date__gte=first_day_of_month,
+            is_active=True
+        ).count()
+        total_teachers = Teacher.objects.count()
+        active_subjects = Subject.objects.count()
+        
+        # ===== ATTENDANCE RATE (TODAY) =====
+        today_attendance = StudentAttendance.objects.filter(date=today)
+        total_expected = Student.objects.filter(is_active=True).count()
+        present_count = today_attendance.filter(
+            Q(status__name__iexact='PRESENT') | Q(status__name__iexact='present')
+        ).count()
+        attendance_rate = round(
+            (present_count / total_expected * 100) if total_expected > 0 else 0,
+            1
+        )
+
+        # ===== STUDENTS BY LEVEL =====
+        students_by_level = []
+        students_with_class = Student.objects.filter(is_active=True).select_related('class_level')
+
+        class_counts = {}
+        for student in students_with_class:
+            if hasattr(student, 'class_level') and student.class_level:
+                class_name = getattr(student.class_level, 'name', str(student.class_level))
+            else:
+                class_name = 'Unassigned'
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
+        
+        # Categorize into levels
+        primary_keywords = ['Primary', 'primary', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+        jss_keywords = ['JSS', 'jss', 'Junior']
+        sss_keywords = ['SSS', 'sss', 'Senior']
+        university_keywords = ['Year', 'year', 'University', 'university']
+        
+        primary_count = sum(count for class_name, count in class_counts.items() 
+                           if any(keyword in class_name for keyword in primary_keywords))
+        jss_count = sum(count for class_name, count in class_counts.items() 
+                       if any(keyword in class_name for keyword in jss_keywords))
+        sss_count = sum(count for class_name, count in class_counts.items() 
+                       if any(keyword in class_name for keyword in sss_keywords))
+        university_count = sum(count for class_name, count in class_counts.items() 
+                              if any(keyword in class_name for keyword in university_keywords))
+        
+        students_by_level = [
+            {
+                'name': 'Primary',
+                'count': primary_count,
+                'percentage': round((primary_count / total_students * 100) if total_students > 0 else 0, 1),
+                'icon': 'lucide:baby'
+            },
+            {
+                'name': 'JSS',
+                'count': jss_count,
+                'percentage': round((jss_count / total_students * 100) if total_students > 0 else 0, 1),
+                'icon': 'lucide:book'
+            },
+            {
+                'name': 'SSS',
+                'count': sss_count,
+                'percentage': round((sss_count / total_students * 100) if total_students > 0 else 0, 1),
+                'icon': 'lucide:graduation-cap'
+            },
+            {
+                'name': 'University',
+                'count': university_count,
+                'percentage': round((university_count / total_students * 100) if total_students > 0 else 0, 1),
+                'icon': 'lucide:school'
+            }
+        ]
+        
+        # ===== FINANCIAL STATS (REAL DATA FROM NEW FINANCE SYSTEM) =====
+        try:
+            # Get all student fee assignments (non-waived)
+            fee_assignments = StudentFeeAssignment.objects.filter(is_waived=False)
+
+            # Total expected (amount_owed)
+            total_expected = fee_assignments.aggregate(
+                total=Sum('amount_owed')
+            )['total'] or Decimal('0')
+
+            # Total paid (amount_paid)
+            total_paid = fee_assignments.aggregate(
+                total=Sum('amount_paid')
+            )['total'] or Decimal('0')
+
+            # Outstanding (calculated balance)
+            total_outstanding = total_expected - total_paid
+
+            # Calculate collection rate
+            collection_rate = round(
+                (float(total_paid) / float(total_expected) * 100)
+                if total_expected > 0 else 0, 1
+            )
+
+            # Students with outstanding fees (balance > 0)
+            from django.db.models import F
+            students_with_debt = fee_assignments.annotate(
+                balance=F('amount_owed') - F('amount_paid')
+            ).filter(
+                balance__gt=0
+            ).values('student').distinct().count()
+
+            financial_stats = {
+                'collected': float(total_paid),
+                'outstanding': float(total_outstanding),
+                'expected': float(total_expected),
+                'collectionRate': collection_rate,
+                'studentsWithDebt': students_with_debt,
+                'totalStudents': total_students
+            }
+        except Exception as e:
+            print(f"Financial calculation error: {e}")
+            financial_stats = {
+                'collected': 0,
+                'outstanding': 0,
+                'expected': 0,
+                'collectionRate': 0,
+                'studentsWithDebt': 0,
+                'totalStudents': total_students
+            }
+        
+        # ===== ATTENDANCE FOR THE WEEK =====
+        week_start = today - timedelta(days=today.weekday())
+        attendance_week = []
+        
+        for i in range(5):  # Monday to Friday
+            day = week_start + timedelta(days=i)
+            day_attendance = StudentAttendance.objects.filter(date=day)
+            present = day_attendance.filter(
+                Q(status__name__iexact='PRESENT') | Q(status__name__iexact='present')
+            ).count()
+            total = Student.objects.filter(is_active=True).count()
+            rate = round((present / total * 100) if total > 0 else 0, 1)
+            
+            attendance_week.append({
+                'dayName': day.strftime('%A'),
+                'date': day.isoformat(),
+                'rate': rate,
+                'present': present,
+                'total': total
+            })
+
+        # ===== RECENT ADMISSIONS =====
+        recent_admissions = Student.objects.filter(
+            is_active=True
+        ).select_related('class_level').order_by('-admission_date')[:5]
+
+        recent_admissions_list = []
+        for student in recent_admissions:
+            if hasattr(student, 'class_level') and student.class_level:
+                class_name = getattr(student.class_level, 'name', str(student.class_level))
+            else:
+                class_name = 'Unassigned'
+
+            recent_admissions_list.append({
+                'id': student.id,
+                'first_name': student.first_name,
+                'last_name': student.last_name,
+                'grade_level': class_name,
+                'admission_date': student.admission_date.isoformat() if student.admission_date else None
+            })
+        
+        # ===== PERFORMANCE STATS =====
+        # Placeholder - update when you have grades model
+        performance_stats = {
+            'averageGrade': 'B+',
+            'passRate': 87,
+            'grades': {
+                'a': 28,
+                'b': 35,
+                'c': 24,
+                'df': 13
+            }
+        }
+        
+        # ===== RECENT PAYMENTS (BONUS) =====
+        try:
+            # Get recent receipts with their allocations
+            recent_receipts = Receipt.objects.select_related(
+                'student', 'term'
+            ).order_by('-date')[:5]
+
+            recent_payments_list = []
+            for receipt in recent_receipts:
+                recent_payments_list.append({
+                    'id': receipt.id,
+                    'receipt_number': receipt.receipt_number,
+                    'student_name': receipt.student.full_name if receipt.student else receipt.payer,
+                    'amount': float(receipt.amount),
+                    'method': receipt.paid_through,
+                    'paid_on': receipt.payment_date.isoformat() if receipt.payment_date else receipt.date.isoformat(),
+                    'term_name': receipt.term.name if receipt.term else 'N/A'
+                })
+        except Exception as e:
+            print(f"Recent payments error: {e}")
+            recent_payments_list = []
+        
+        # ===== COMPILE RESPONSE =====
+        return Response({
+            'stats': {
+                'totalStudents': total_students,
+                'totalTeachers': total_teachers,
+                'activeSubjects': active_subjects,
+                'attendanceRate': attendance_rate,
+                'newStudentsThisMonth': new_students_this_month
+            },
+            'studentsByLevel': students_by_level,
+            'financial': financial_stats,
+            'attendance': attendance_week,
+            'recentAdmissions': recent_admissions_list,
+            'recentPayments': recent_payments_list,
+            'performance': performance_stats
+        })

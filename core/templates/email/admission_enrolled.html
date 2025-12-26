@@ -1,0 +1,212 @@
+{% extends "email/base.html" %}
+
+{% block title %}Enrollment Complete - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">🎓 Enrollment Complete - Welcome!</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Great news! The enrollment process for <strong>{{ student_name }}</strong> is now complete. Welcome to the {{ school_name }} family!
+</p>
+
+<!-- Student Details -->
+<table style="width: 100%; margin: 24px 0; background-color: #dcfce7; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 16px 0; color: #1f2937; font-weight: 600; font-size: 18px;">✅ Student Details:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Student Name:</strong> {{ student_name }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Student ID:</strong> {{ student_id }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Class:</strong> {{ class_level }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Academic Session:</strong> {{ academic_session }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Portal Access -->
+<table style="width: 100%; margin: 24px 0; background-color: #ddd6fe; border-left: 4px solid #8b5cf6; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 16px 0; color: #1f2937; font-weight: 600; font-size: 18px;">🔑 Student Portal Access:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                A student account has been created for {{ student_name }}. Here are the login credentials:
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Portal URL:</strong> <a href="{{ portal_url }}" style="color: #8b5cf6; text-decoration: none;">{{ portal_url }}</a>
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Username:</strong> {{ username }}
+            </p>
+            <p style="margin: 0 0 16px 0; color: #4b5563;">
+                <strong>Temporary Password:</strong> <code style="background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px;">{{ temporary_password }}</code>
+            </p>
+            <p style="margin: 0; color: #7c3aed; font-size: 14px;">
+                ⚠️ Please change this password on first login for security reasons.
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">What Students Can Do on the Portal:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📚</span>
+            <span style="color: #4b5563; margin-left: 12px;">View class timetable and assignments</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📊</span>
+            <span style="color: #4b5563; margin-left: 12px;">Check grades and report cards</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📅</span>
+            <span style="color: #4b5563; margin-left: 12px;">Track attendance records</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📢</span>
+            <span style="color: #4b5563; margin-left: 12px;">Receive announcements and notifications</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">💬</span>
+            <span style="color: #4b5563; margin-left: 12px;">Communicate with teachers</span>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Before Resumption:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Purchase required uniforms and textbooks (list attached or available on portal)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Complete all fee payments before resumption</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Attend the mandatory new student orientation</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Label all personal belongings with student's name</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Important Dates -->
+<table style="width: 100%; margin: 24px 0; background-color: #f0f9ff; border-left: 4px solid {{ school_primary_color|default:'#3b82f6' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">📅 Important Dates:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>New Student Orientation:</strong> {{ orientation_date|default:"To be announced" }}
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>School Resumption:</strong> {{ resumption_date|default:"To be announced" }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>First Day Assembly:</strong> {{ first_day_assembly|default:"8:00 AM on resumption day" }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Parent Portal Reminder -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">👨‍👩‍👧 Parent Portal:</p>
+            <p style="margin: 0; color: #4b5563;">
+                Don't forget, you also have access to the parent portal where you can monitor {{ student_name }}'s progress, view attendance, check fee balances, and communicate with teachers. Use your existing parent credentials to log in.
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Contact Information:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">📞</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>School Office:</strong> {{ school_phone }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">✉️</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Email:</strong> {{ school_email }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">🏫</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Address:</strong> {{ school_address }}</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ portal_url }}" style="display: inline-block; padding: 14px 32px; background-color: {{ school_primary_color|default:'#667eea' }}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                Access Student Portal
+            </a>
+        </td>
+    </tr>
+</table>
+
+<!-- Welcome Message -->
+<table style="width: 100%; margin: 24px 0; background-color: #dcfce7; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0; color: #4b5563; font-style: italic; line-height: 1.6;">
+                "Welcome to {{ school_name }}! We are committed to providing a nurturing and challenging environment where {{ student_name }} can thrive academically, socially, and personally. We look forward to a wonderful partnership with your family in the years ahead."
+            </p>
+            <p style="margin: 12px 0 0 0; color: #4b5563; text-align: right;">
+                - {{ school_name }} Management
+            </p>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions, concerns, or need assistance, please don't hesitate to reach out to us. We're here to support you and {{ student_name }} every step of the way.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    Once again, welcome to the {{ school_name }} family!<br><br>
+    Best regards,<br>
+    <strong>{{ school_name }} Administration</strong>
+</p>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "email/base.html" %}
+
+{% block title %}Application Update - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Application Update</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Thank you for your interest in {{ school_name }} and for taking the time to complete an application for <strong>{{ student_name }}</strong>.
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    After careful consideration of your application, we regret to inform you that we are unable to offer admission at this time for the {{ academic_session }} academic session.
+</p>
+
+<!-- Info Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #f9fafb; border-left: 4px solid #9ca3af; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Application Details:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Application Number:</strong> {{ application_number }}
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Class Applied For:</strong> {{ class_level }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Academic Session:</strong> {{ academic_session }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+{% if rejection_reason %}
+<!-- Reason -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Additional Information:</p>
+            <p style="margin: 0; color: #4b5563;">
+                {{ rejection_reason }}
+            </p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
+<p style="margin: 24px 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    This decision was made after thorough review of all applications, and we understand this may be disappointing news. Please know that this decision does not reflect on {{ student_name }}'s abilities or potential.
+</p>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Future Opportunities:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">You are welcome to reapply in future admission cycles</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">We may contact you if spaces become available</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">Consider applying for other class levels that may be a better fit</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Contact Info -->
+<table style="width: 100%; margin: 24px 0; background-color: #f0f9ff; border-left: 4px solid {{ school_primary_color|default:'#3b82f6' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Need More Information?</p>
+            <p style="margin: 0; color: #4b5563;">
+                If you would like feedback on your application or have questions about reapplying, please feel free to contact our admissions office.
+            </p>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    For questions or to schedule a consultation, please contact our admissions office at {{ admissions_email }} or {{ admissions_phone }}.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    We appreciate your interest in {{ school_name }} and wish {{ student_name }} the very best in their educational journey.<br><br>
+    Sincerely,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

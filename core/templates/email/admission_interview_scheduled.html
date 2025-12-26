@@ -1,0 +1,144 @@
+{% extends "email/base.html" %}
+
+{% block title %}Interview Scheduled - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Interview Scheduled</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    We are pleased to invite you and <strong>{{ student_name }}</strong> for an admission interview as part of our admissions process.
+</p>
+
+<!-- Interview Details -->
+<table style="width: 100%; margin: 24px 0; background-color: #ddd6fe; border-left: 4px solid #8b5cf6; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 16px 0; color: #1f2937; font-weight: 600; font-size: 18px;">Interview Details:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>📅 Date:</strong> {{ interview_date }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>🕐 Time:</strong> {{ interview_time }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>📍 Venue:</strong> {{ interview_venue }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>🎓 Application Number:</strong> {{ application_number }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Who Should Attend:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #8b5cf6; font-size: 18px;">👨‍👩‍👧‍👦</span>
+            <span style="color: #4b5563; margin-left: 12px;">The applicant ({{ student_name }})</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #8b5cf6; font-size: 18px;">👨‍👩‍👧‍👦</span>
+            <span style="color: #4b5563; margin-left: 12px;">At least one parent/guardian</span>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">What to Bring:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #8b5cf6; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">This email (printed or on your phone)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #8b5cf6; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Valid photo ID for parent/guardian</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #8b5cf6; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Student's recent school reports (if not already submitted)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #8b5cf6; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Any documents requested during application review</span>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">What to Expect:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">The interview will last approximately 30-45 minutes</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">Questions will focus on the student's interests, goals, and expectations</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">Parents will have the opportunity to ask questions about the school</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">•</span>
+            <span style="color: #4b5563; margin-left: 12px;">This is also a chance for you to learn more about our programs and facilities</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Important Notice -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Important:</p>
+            <p style="margin: 0; color: #4b5563;">
+                ⚠️ Please arrive at least 15 minutes before your scheduled time. If you need to reschedule, contact us at least 24 hours in advance.
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ tracking_url }}" style="display: inline-block; padding: 14px 32px; background-color: #8b5cf6; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                View Application Details
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions or need to reschedule, please contact our admissions office at {{ admissions_email }} or {{ admissions_phone }}.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    We look forward to meeting you and {{ student_name }}!<br><br>
+    Best regards,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "email/base.html" %}
+
+{% block title %}Welcome to {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Welcome, {{ parent_name }}!</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Your parent/guardian account has been successfully created. You can now access the portal to:
+</p>
+
+<table style="width: 100%; margin: 24px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📊</span>
+            <span style="color: #4b5563; margin-left: 12px;">View your children's academic progress</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📅</span>
+            <span style="color: #4b5563; margin-left: 12px;">Check attendance records</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">💰</span>
+            <span style="color: #4b5563; margin-left: 12px;">Monitor fee payments and balances</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📝</span>
+            <span style="color: #4b5563; margin-left: 12px;">Access report cards and grades</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">💬</span>
+            <span style="color: #4b5563; margin-left: 12px;">Communicate with teachers and staff</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Info Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #f9fafb; border-left: 4px solid {{ school_primary_color|default:'#667eea' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Login Credentials:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Portal:</strong>
+                <a href="{{ portal_url }}" style="color: {{ school_primary_color|default:'#667eea' }}; text-decoration: none;">{{ portal_url }}</a>
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Email:</strong> {{ recipient_email }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ portal_url }}" style="display: inline-block; padding: 14px 32px; background-color: {{ school_primary_color|default:'#667eea' }}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                Login to Parent Portal
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions or need assistance, please contact the school administration.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    Best regards,<br>
+    <strong>{{ school_name }} Administration Team</strong>
+</p>
+{% endblock %}

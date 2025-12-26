@@ -1,0 +1,163 @@
+{% extends "email/base.html" %}
+
+{% block title %}Admission Offer - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">🎉 Congratulations!</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    We are delighted to inform you that <strong>{{ student_name }}</strong> has been offered admission to {{ school_name }} for the {{ academic_session }} academic session.
+</p>
+
+<!-- Admission Details -->
+<table style="width: 100%; margin: 24px 0; background-color: #dcfce7; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 16px 0; color: #1f2937; font-weight: 600; font-size: 18px;">Admission Details:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Student Name:</strong> {{ student_name }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Class Level:</strong> {{ class_level }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Academic Session:</strong> {{ academic_session }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Application Number:</strong> {{ application_number }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+{% if approval_notes %}
+<!-- Admission Committee Notes -->
+<table style="width: 100%; margin: 24px 0; background-color: #f0f9ff; border-left: 4px solid {{ school_primary_color|default:'#3b82f6' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Message from Admissions Committee:</p>
+            <p style="margin: 0; color: #4b5563; font-style: italic;">
+                "{{ approval_notes }}"
+            </p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Next Steps to Accept This Offer:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">1️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Review</strong> the admission offer and fee structure</span>
+        </td>
+    </tr>
+    {% if acceptance_fee_required %}
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">2️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Pay</strong> the acceptance fee of ₦{{ acceptance_fee }}</span>
+        </td>
+    </tr>
+    {% endif %}
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">{% if acceptance_fee_required %}3️⃣{% else %}2️⃣{% endif %}</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Accept</strong> the offer using the button below</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">{% if acceptance_fee_required %}4️⃣{% else %}3️⃣{% endif %}</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Complete</strong> enrollment formalities (we will contact you with details)</span>
+        </td>
+    </tr>
+</table>
+
+{% if acceptance_fee_required %}
+<!-- Fee Payment Info -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Acceptance Fee Payment:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Amount:</strong> ₦{{ acceptance_fee }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Payment Instructions:</strong> {{ payment_instructions }}
+            </p>
+            <p style="margin: 0; color: #92400e; font-size: 14px;">
+                💡 After payment, update your application with the payment receipt before accepting the offer.
+            </p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
+<!-- Deadline Notice -->
+<table style="width: 100%; margin: 24px 0; background-color: #fee2e2; border-left: 4px solid #ef4444; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">⚠️ Important Deadline:</p>
+            <p style="margin: 0; color: #4b5563;">
+                This offer is valid until <strong>{{ offer_expiry_date }}</strong>. Please accept the offer before this date to secure your child's place.
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">What's Included:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📚</span>
+            <span style="color: #4b5563; margin-left: 12px;">Quality education with experienced teachers</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">🏫</span>
+            <span style="color: #4b5563; margin-left: 12px;">Modern facilities and learning resources</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">🎨</span>
+            <span style="color: #4b5563; margin-left: 12px;">Extra-curricular activities and sports</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">👨‍🏫</span>
+            <span style="color: #4b5563; margin-left: 12px;">Dedicated parent support and communication</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ acceptance_url }}" style="display: inline-block; padding: 14px 32px; background-color: #22c55e; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                Accept Admission Offer
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions or need assistance with the acceptance process, please contact our admissions office at {{ admissions_email }} or {{ admissions_phone }}.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    We are excited to welcome {{ student_name }} to the {{ school_name }} family!<br><br>
+    Warm regards,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

@@ -1,663 +1,541 @@
-import openpyxl
-from openpyxl.styles import Font
-from django.db import transaction
-from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404
-from django_filters.rest_framework import (
-    DjangoFilterBackend,
-    FilterSet,
-    DateFilter,
-    CharFilter,
-)
-from rest_framework import generics, status
-from rest_framework.exceptions import NotFound
-from rest_framework.filters import SearchFilter
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
+# views.py
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
-
-from academic.models import Student
-from administration.models import Term
-from django.utils.timezone import now
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.filters import SearchFilter, OrderingFilter
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Sum, Q, F
+from django.shortcuts import get_object_or_404
+from decimal import Decimal
 from .models import (
+    FeeStructure,
+    StudentFeeAssignment,
+    FeeAdjustment,
     Receipt,
+    FeePaymentAllocation,
     Payment,
-    ReceiptAllocation,
-    PaymentAllocation,
-    DebtRecord,
-    PaymentRecord,
+    PaymentCategory
 )
 from .serializers import (
+    FeeStructureSerializer,
+    StudentFeeAssignmentSerializer,
+    FeeAdjustmentSerializer,
     ReceiptSerializer,
+    FeePaymentAllocationSerializer,
     PaymentSerializer,
-    ReceiptAllocationSerializer,
-    PaymentAllocationSerializer,
-    DebtRecordSerializer,
-    PaymentRecordSerializer,
-    StudentDebtOverviewSerializer,
+    PaymentCategorySerializer,
+    StudentFeeBalanceSerializer
 )
+from academic.models import Student
+from administration.models import Term
 
 
-class PaymentAllocationListView(APIView):
+class FeeStructureViewSet(viewsets.ModelViewSet):
     """
-    Handles GET and POST requests for the list of insurances.
-    """
+    ViewSet for managing fee structures.
 
+    list: Get all fee structures
+    retrieve: Get a specific fee structure
+    create: Create a new fee structure
+    update: Update a fee structure
+    destroy: Delete a fee structure
+    auto_assign: Manually trigger auto-assignment of a mandatory fee
+    """
+    queryset = FeeStructure.objects.select_related(
+        'academic_year',
+        'term',
+        'created_by'
+    ).prefetch_related(
+        'grade_levels',
+        'class_levels'
+    )
+    serializer_class = FeeStructureSerializer
     permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['academic_year', 'term', 'fee_type', 'is_mandatory']
+    search_fields = ['name', 'fee_type']
+    ordering_fields = ['name', 'amount', 'due_date', 'created_at']
+    ordering = ['-created_at']
 
-    def get(self, request):
-        """
-        Retrieve a list of all insurances.
-        """
-        insurances = PaymentAllocation.objects.all()
-        serializer = PaymentAllocationSerializer(insurances, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    def perform_create(self, serializer):
+        """Save fee structure with current user."""
+        serializer.save(created_by=self.request.user)
 
-    def post(self, request):
+    @action(detail=True, methods=['post'])
+    def auto_assign(self, request, pk=None):
         """
-        Create a new insurance record.
+        Manually trigger auto-assignment of this fee to applicable students.
+        POST /api/financial/fee-structures/{id}/auto_assign/
+        Body: { "term_id": 1 } (optional)
         """
-        serializer = PaymentAllocationSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        fee_structure = self.get_object()
 
+        term_id = request.data.get('term_id')
+        term = None
+        if term_id:
+            term = get_object_or_404(Term, id=term_id)
 
-class PaymentAllocationDetailView(APIView):
-    """
-    Handles GET, PUT, PATCH, and DELETE requests for a single insurance.
-    """
+        assigned_count = fee_structure.auto_assign_to_students(term=term)
 
-    permission_classes = [IsAuthenticated]
+        return Response({
+            'message': f'Successfully assigned fee to {assigned_count} students',
+            'assigned_count': assigned_count
+        })
 
-    def get_object(self, pk):
-        return get_object_or_404(PaymentAllocation, pk=pk)
+    @action(detail=False, methods=['get'])
+    def by_student(self, request):
+        """
+        Get all fee structures applicable to a specific student.
+        GET /api/financial/fee-structures/by_student/?student_id=1&term_id=1
+        """
+        student_id = request.query_params.get('student_id')
+        term_id = request.query_params.get('term_id')
 
-    def get(self, request, pk):
-        """
-        Retrieve details of a specific insurance.
-        """
-        print(request.data)
-        insurance = self.get_object(pk)
-        serializer = PaymentAllocationSerializer(insurance)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        if not student_id:
+            return Response(
+                {'error': 'student_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    def put(self, request, pk):
-        """
-        Update an entire insurance record.
-        """
-        insurance = self.get_object(pk)
-        serializer = PaymentAllocationSerializer(insurance, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        student = get_object_or_404(Student, id=student_id)
+        term = None
+        if term_id:
+            term = get_object_or_404(Term, id=term_id)
 
-    def patch(self, request, pk):
-        """
-        Partially update an insurance record.
-        """
-        insurance = self.get_object(pk)
-        serializer = PaymentAllocationSerializer(
-            insurance, data=request.data, partial=True
-        )
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk):
-        """
-        Delete an insurance record.
-        """
-        insurance = self.get_object(pk)
-        insurance.delete()
-        return Response(
-            {"detail": "PaymentAllocation record deleted successfully"},
-            status=status.HTTP_204_NO_CONTENT,
-        )
-
-
-class ReceiptAllocationListView(APIView):
-    """
-    Handles GET and POST requests for the list of insurances.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        """
-        Retrieve a list of all insurances.
-        """
-        insurances = ReceiptAllocation.objects.all()
-        serializer = ReceiptAllocationSerializer(insurances, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def post(self, request):
-        """
-        Create a new insurance record.
-        """
-        serializer = ReceiptAllocationSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class ReceiptAllocationDetailView(APIView):
-    """
-    Handles GET, PUT, PATCH, and DELETE requests for a single insurance.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self, pk):
-        return get_object_or_404(ReceiptAllocation, pk=pk)
-
-    def get(self, request, pk):
-        """
-        Retrieve details of a specific insurance.
-        """
-        insurance = self.get_object(pk)
-        serializer = ReceiptAllocationSerializer(insurance)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def put(self, request, pk):
-        """
-        Update an entire insurance record.
-        """
-        insurance = self.get_object(pk)
-        serializer = ReceiptAllocationSerializer(insurance, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def patch(self, request, pk):
-        """
-        Partially update an insurance record.
-        """
-        insurance = self.get_object(pk)
-        serializer = ReceiptAllocationSerializer(
-            insurance, data=request.data, partial=True
-        )
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk):
-        """
-        Delete an insurance record.
-        """
-        insurance = self.get_object(pk)
-        insurance.delete()
-        return Response(
-            {"detail": "ReceiptAllocation record deleted successfully"},
-            status=status.HTTP_204_NO_CONTENT,
+        # Get all fee structures that apply to this student
+        fee_structures = FeeStructure.objects.filter(
+            academic_year=term.academic_year if term else F('academic_year')
         )
 
+        applicable_fees = []
+        for fee in fee_structures:
+            if fee.applies_to_student(student, term):
+                applicable_fees.append(fee)
 
-# Receipts filter
-class ReceiptFilter(FilterSet):
-    from_date = DateFilter(field_name="date", lookup_expr="gte")
-    to_date = DateFilter(field_name="date", lookup_expr="lte")
-    class_level = CharFilter(method="filter_by_class_level")
-
-    class Meta:
-        model = Receipt
-        fields = ["status", "student", "date"]
-
-    def filter_by_class_level(self, queryset, name, value):
-        return queryset.filter(student__class_level__name__iexact=value)
+        serializer = self.get_serializer(applicable_fees, many=True)
+        return Response(serializer.data)
 
 
-# Receipts List & Create View using DRF's ListCreateAPIView
-class ReceiptsListView(generics.ListCreateAPIView):
-    queryset = Receipt.objects.all()
+class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing student fee assignments.
+
+    list: Get all fee assignments
+    retrieve: Get a specific fee assignment
+    create: Create a new fee assignment (assign fee to student)
+    update: Update a fee assignment
+    destroy: Delete a fee assignment
+    waive: Waive a fee
+    adjust_amount: Adjust fee amount
+    """
+    queryset = StudentFeeAssignment.objects.select_related(
+        'student',
+        'fee_structure',
+        'term',
+        'term__academic_year',
+        'waived_by'
+    )
+    serializer_class = StudentFeeAssignmentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type']
+    search_fields = ['student__first_name', 'student__last_name', 'student__admission_number', 'fee_structure__name']
+    ordering_fields = ['assigned_date', 'amount_owed', 'balance']
+    ordering = ['-assigned_date']
+
+    @action(detail=False, methods=['get'])
+    def by_student(self, request):
+        """
+        Get all fee assignments for a specific student.
+        GET /api/financial/student-fee-assignments/by_student/?student_id=1&term_id=1
+        """
+        student_id = request.query_params.get('student_id')
+        term_id = request.query_params.get('term_id')
+
+        if not student_id:
+            return Response(
+                {'error': 'student_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        queryset = self.get_queryset().filter(student_id=student_id)
+
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def waive(self, request, pk=None):
+        """
+        Waive a fee (scholarship, discount, etc.).
+        POST /api/financial/student-fee-assignments/{id}/waive/
+        Body: { "reason": "Scholarship awarded" }
+        """
+        assignment = self.get_object()
+        reason = request.data.get('reason', 'No reason provided')
+
+        assignment.waive_fee(reason=reason, waived_by=request.user)
+
+        return Response({
+            'message': 'Fee waived successfully',
+            'fee_assignment': self.get_serializer(assignment).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def adjust_amount(self, request, pk=None):
+        """
+        Adjust the amount owed for a fee.
+        POST /api/financial/student-fee-assignments/{id}/adjust_amount/
+        Body: { "new_amount": 45000.00, "reason": "10% discount applied" }
+        """
+        assignment = self.get_object()
+        new_amount = request.data.get('new_amount')
+        reason = request.data.get('reason', 'Manual adjustment')
+
+        if not new_amount:
+            return Response(
+                {'error': 'new_amount is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            new_amount = Decimal(str(new_amount))
+            assignment.adjust_amount(new_amount, reason)
+
+            return Response({
+                'message': 'Fee amount adjusted successfully',
+                'fee_assignment': self.get_serializer(assignment).data
+            })
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=False, methods=['get'])
+    def unpaid(self, request):
+        """
+        Get all unpaid or partially paid fee assignments.
+        GET /api/financial/student-fee-assignments/unpaid/?term_id=1
+        """
+        queryset = self.get_queryset().annotate(
+            balance_calc=F('amount_owed') - F('amount_paid')
+        ).filter(
+            balance_calc__gt=0,
+            is_waived=False
+        )
+
+        term_id = request.query_params.get('term_id')
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class ReceiptViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing receipts (incoming payments).
+
+    list: Get all receipts
+    retrieve: Get a specific receipt
+    create: Create a new receipt
+    update: Update a receipt
+    destroy: Delete a receipt
+    allocate_to_fees: Allocate receipt amount to specific fees
+    """
+    queryset = Receipt.objects.select_related(
+        'student',
+        'term',
+        'received_by'
+    ).prefetch_related('fee_allocations')
     serializer_class = ReceiptSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = ReceiptFilter
     permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'student': ['exact'],
+        'term': ['exact'],
+        'status': ['exact', 'iexact'],
+        'paid_through': ['exact', 'iexact'],
+        'received_by': ['exact'],
+        'date': ['gte', 'lte', 'exact'],
+        'amount': ['gte', 'lte', 'exact']
+    }
+    search_fields = ['payer', 'reference_number', 'receipt_number', 'student__first_name', 'student__last_name', 'student__admission_number']
+    ordering_fields = ['date', 'receipt_number', 'amount']
+    ordering = ['-date', '-receipt_number']
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        receipt = serializer.save()
-        response_serializer = self.get_serializer(receipt)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-
-class StudentReceiptsView(generics.ListAPIView):
-    serializer_class = ReceiptSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        student_id = self.kwargs.get("student_id")
-        return Receipt.objects.filter(student_id=student_id)
-
-
-# Receipt Detail View (Retrieve, Update, Delete)
-class ReceiptDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Receipt.objects.all()
-    serializer_class = ReceiptSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self):
-        try:
-            return super().get_object()
-        except Http404:
-            raise NotFound(detail="Receipt not found.", code=404)
-
-    def update(self, request, *args, **kwargs):
+    @action(detail=True, methods=['post'])
+    def allocate_to_fees(self, request, pk=None):
         """
-        Override the update method to handle custom validation or processing.
-        """
-        print(request.data)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-
-        # Save the receipt and process student debt logic
-        receipt = serializer.save()
-
-        # Return response with detailed serialized data
-        response_serializer = self.get_serializer(receipt)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
-
-
-# Payment List & Create View using DRF's ListCreateAPIView
-class PaymentListView(generics.ListCreateAPIView):
-    queryset = Payment.objects.all()
-    serializer_class = PaymentSerializer
-    filter_backends = [
-        SearchFilter,
-    ]
-    filterset_fields = ["status", "date", "user"]
-    permission_classes = [IsAuthenticated]
-
-    def create(self, request, *args, **kwargs):
-        """
-        Override the create method to handle custom validation or processing.
-        """
-        print(request.data)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # Save the receipt and process student debt logic
-        receipt = serializer.save()
-
-        # Return response with detailed serialized data
-        response_serializer = self.get_serializer(receipt)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-
-# Payment Detail View (Retrieve, Update, Delete)
-class PaymentDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Payment.objects.all()
-    serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self):
-        try:
-            return super().get_object()
-        except Http404:
-            raise NotFound(detail="Payment not found.", code=404)
-
-
-class DebtRecordListView(generics.ListAPIView):
-    queryset = DebtRecord.objects.all()
-    serializer_class = DebtRecordSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["term", "student", "is_reversed"]
-
-
-class DebtRecordDetailView(generics.RetrieveAPIView):
-    queryset = DebtRecord.objects.all()
-    serializer_class = DebtRecordSerializer
-    permission_classes = [IsAuthenticated]
-
-
-class PaymentRecordListView(generics.ListAPIView):
-    queryset = PaymentRecord.objects.all()
-    serializer_class = PaymentRecordSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ["student", "debt_record", "processed_by"]
-    search_fields = ["reference", "note"]
-
-
-class PaymentRecordDetailView(generics.RetrieveAPIView):
-    queryset = PaymentRecord.objects.all()
-    serializer_class = PaymentRecordSerializer
-    permission_classes = [IsAuthenticated]
-
-
-class StudentDebtOverviewView(generics.RetrieveAPIView):
-    queryset = Student.objects.all()
-    serializer_class = StudentDebtOverviewSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self):
-        student_id = self.kwargs.get("student_id")
-        try:
-            return Student.objects.get(pk=student_id)
-        except Student.DoesNotExist:
-            raise NotFound(detail="Student not found.")
-
-
-class UpdateStudentDebtView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        today = now().date()
-        current_term = Term.objects.filter(
-            start_date__lte=today, end_date__gte=today
-        ).first()
-
-        if not current_term:
-            return Response(
-                {"detail": "No active term found."}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        students = Student.objects.exclude(debt_records__term=current_term)
-
-        for student in students:
-            student.update_debt_for_term(current_term)
-
-        return Response(
-            {"detail": "Student debts updated successfully."}, status=status.HTTP_200_OK
-        )
-
-
-class UpdateAllUnrecordedDebtsView(APIView):
-    """
-    API view to update student debts for all past terms that haven't been updated.
-    Ensures that no term is double-counted.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        today = now().date()
-
-        # Get all terms up to today (including current and past)
-        terms = Term.objects.filter(end_date__lte=today).order_by("start_date")
-        updated_count = 0
-        skipped = 0
-
-        for term in terms:
-            students = Student.objects.exclude(debt_records__term=term)
-
-            for student in students:
-                student.update_debt_for_term(term)
-                updated_count += 1
-
-        return Response(
-            {
-                "detail": "Student debts updated for all missing terms.",
-                "updated_count": updated_count,
-            },
-            status=200,
-        )
-
-
-class UpdatePastDebtsView(APIView):
-    """
-    API view to update student debts for selected past terms.
-    Skips already updated records.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        term_ids = request.data.get("term_ids", [])
-
-        if not term_ids:
-            return Response(
-                {"detail": "Provide a list of term IDs to update."}, status=400
-            )
-
-        terms = Term.objects.filter(id__in=term_ids)
-        if not terms.exists():
-            return Response({"detail": "No valid terms found."}, status=404)
-
-        updated = 0
-        for term in terms:
-            students = Student.objects.exclude(debt_records__term=term)
-            for student in students:
-                student.update_debt_for_term(term)
-                updated += 1
-
-        return Response(
-            {
-                "detail": f"Debts updated for selected terms.",
-                "terms_updated": [term.name for term in terms],
-                "students_updated": updated,
-            },
-            status=200,
-        )
-
-
-class ReverseStudentDebtView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        term_id = request.data.get("term_id")
-
-        if not term_id:
-            return Response(
-                {"detail": "Term ID is required."}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        term = Term.objects.filter(id=term_id).first()
-        if not term:
-            return Response(
-                {"detail": "Invalid term ID."}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        students = Student.objects.filter(
-            debt_records__term=term, debt_records__is_reversed=False
-        )
-
-        for student in students:
-            student.reverse_debt_for_term(term)
-
-        return Response(
-            {"detail": f"Student debts for {term.name} reversed successfully."},
-            status=status.HTTP_200_OK,
-        )
-
-
-class ReceiptBulkUploadView(APIView):
-    """
-    API View to handle bulk uploading of receipts from an Excel file.
-    """
-
-    def post(self, request, *args, **kwargs):
-        file = request.FILES.get("file")
-        if not file:
-            return Response(
-                {"error": "No file provided."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            workbook = openpyxl.load_workbook(file)
-            sheet = workbook.active
-
-            columns = [
-                "payer",
-                "first_name",
-                "middle_name",
-                "last_name",
-                "paid_for",
-                "paid_through",
-                "payment_date",
-                "term",
-                "amount",
+        Allocate receipt amount to specific fee assignments.
+        POST /api/financial/receipts/{id}/allocate_to_fees/
+        Body: {
+            "allocations": [
+                {"fee_assignment_id": 1, "amount": 25000.00},
+                {"fee_assignment_id": 2, "amount": 5000.00}
             ]
+        }
+        """
+        receipt = self.get_object()
+        allocations_data = request.data.get('allocations', [])
 
-            created_receipts = []
-            updated_receipts = []
-            skipped_receipts = []
-            not_created = []
-
-            for i, row in enumerate(
-                sheet.iter_rows(min_row=2, values_only=True), start=2
-            ):
-                try:
-                    data = dict(zip(columns, row))
-
-                    # Normalize and extract names
-                    first_name = (data.get("first_name") or "").strip().lower()
-                    middle_name = (data.get("middle_name") or "").strip().lower()
-                    last_name = (data.get("last_name") or "").strip().lower()
-                    payer = (data.get("payer") or "").strip()
-                    paid_for_name = (data.get("paid_for") or "").strip()
-                    term_str = (data.get("term") or "").strip()
-                    paid_through = (data.get("paid_through") or "").strip()
-                    payment_date = data.get("payment_date")
-                    amount = data.get("amount")
-
-                    if not (first_name and last_name and paid_for_name and term_str):
-                        raise ValueError("Missing required fields.")
-
-                    # Lookup student
-                    student = Student.objects.filter(
-                        first_name__iexact=first_name,
-                        middle_name__iexact=middle_name,
-                        last_name__iexact=last_name,
-                    ).first()
-                    if not student:
-                        raise ValueError("Student not found.")
-
-                    # Determine payer
-                    if not payer:
-                        if student.parent_guardian:
-                            payer = f"{student.parent_guardian.first_name} {student.parent_guardian.last_name}"
-                        else:
-                            raise ValueError(
-                                "Payer not provided and student has no parent."
-                            )
-
-                    # Lookup paid_for
-                    paid_for = ReceiptAllocation.objects.filter(
-                        name__iexact=paid_for_name
-                    ).first()
-                    if not paid_for:
-                        raise ValueError(
-                            f"ReceiptAllocation '{paid_for_name}' not found."
-                        )
-
-                    # Lookup term by formatted string like "Term 1-2024"
-                    if "-" not in term_str:
-                        raise ValueError("Term must be in format 'Term 1-2024'.")
-                    term_name, year = term_str.split("-")
-                    term = Term.objects.filter(
-                        name__iexact=term_name.strip(), academic_year__name=year.strip()
-                    ).first()
-                    if not term:
-                        raise ValueError(f"Term '{term_str}' not found.")
-
-                    # Check duplicate
-                    existing = Receipt.objects.filter(
-                        student=student,
-                        paid_for=paid_for,
-                        payment_date=payment_date,
-                        amount=amount,
-                        term=term,
-                    ).first()
-                    if existing:
-                        skipped_receipts.append(
-                            {
-                                "receipt_number": existing.receipt_number,
-                                "payer": payer,
-                                "reason": "Duplicate receipt already exists.",
-                            }
-                        )
-                        continue
-
-                    # Create receipt
-                    with transaction.atomic():
-                        receipt = Receipt.objects.create(
-                            payer=payer,
-                            student=student,
-                            paid_for=paid_for,
-                            paid_through=paid_through,
-                            payment_date=payment_date,
-                            term=term,
-                            amount=amount,
-                            received_by=getattr(request.user, "accountant", None),
-                        )
-                        created_receipts.append(receipt)
-
-                except Exception as e:
-                    data["error"] = str(e)
-                    not_created.append(data)
-
+        if not allocations_data:
             return Response(
-                {
-                    "message": f"{len(created_receipts)} receipts uploaded.",
-                    "updated": updated_receipts,
-                    "skipped": skipped_receipts,
-                    "not_created": not_created,
-                },
-                status=status.HTTP_201_CREATED,
+                {'error': 'allocations list is required'},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # Validate total doesn't exceed receipt amount
+        total_to_allocate = sum(
+            Decimal(str(alloc['amount'])) for alloc in allocations_data
+        )
+
+        available = receipt.unallocated_amount
+        if total_to_allocate > available:
+            return Response(
+                {'error': f'Total allocation (₦{total_to_allocate}) exceeds available amount (₦{available})'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create allocations
+        created_allocations = []
+        for alloc_data in allocations_data:
+            fee_assignment = get_object_or_404(
+                StudentFeeAssignment,
+                id=alloc_data['fee_assignment_id']
+            )
+
+            allocation = FeePaymentAllocation.objects.create(
+                receipt=receipt,
+                fee_assignment=fee_assignment,
+                amount=Decimal(str(alloc_data['amount'])),
+                allocated_by=request.user
+            )
+            created_allocations.append(allocation)
+
+        return Response({
+            'message': f'Successfully allocated ₦{total_to_allocate} to {len(created_allocations)} fees',
+            'allocations': FeePaymentAllocationSerializer(created_allocations, many=True).data,
+            'receipt': self.get_serializer(receipt).data
+        })
+
+    @action(detail=False, methods=['get'])
+    def by_student(self, request):
+        """
+        Get all receipts for a specific student.
+        GET /api/financial/receipts/by_student/?student_id=1
+        """
+        student_id = request.query_params.get('student_id')
+
+        if not student_id:
+            return Response(
+                {'error': 'student_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        queryset = self.get_queryset().filter(student_id=student_id)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
-def download_receipt_template(request):
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Receipts"
+class PaymentCategoryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing payment categories.
+    """
+    queryset = PaymentCategory.objects.all()
+    serializer_class = PaymentCategorySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['name', 'abbr']
+    ordering = ['name']
 
-    # Headers expected by backend (now using names instead of IDs)
-    headers = [
-        "payer",  # Optional - fallback to student's parent
-        "first_name",  # Required
-        "middle_name",  # Optional
-        "last_name",  # Required
-        "paid_for",  # Name of ReceiptAllocation (e.g. "Tuition Fee")
-        "paid_through",  # e.g. 'HATI MALIPO', 'BANK', 'M-PESA'
-        "payment_date",  # Format: YYYY-MM-DD
-        "term",  # Format: "Term 1-2024"
-        "amount",  # Numeric
-    ]
 
-    # Example row
-    example_data = [
-        "Zainab Mwinami",  # payer (can be blank)
-        "Zainab",  # first_name
-        "Ali",  # middle_name
-        "Mwinami",  # last_name
-        "Tuition Fee",  # paid_for (name)
-        "HATI MALIPO",  # paid_through
-        "2025-07-07",  # payment_date
-        "Term 1-2024",  # term
-        150000,  # amount
-    ]
+class PaymentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing outgoing payments (expenses, salaries).
+    """
+    queryset = Payment.objects.select_related('category', 'paid_by', 'user')
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'category': ['exact'],
+        'status': ['exact', 'iexact'],
+        'paid_through': ['exact', 'iexact'],
+        'paid_by': ['exact'],
+        'date': ['gte', 'lte', 'exact'],
+        'amount': ['gte', 'lte', 'exact']
+    }
+    search_fields = ['paid_to', 'payment_number', 'reference_number', 'description']
+    ordering_fields = ['date', 'payment_number', 'amount']
+    ordering = ['-date', '-payment_number']
 
-    # Add headers with bold styling
-    for col_num, column_title in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_num, value=column_title)
-        cell.font = Font(bold=True)
 
-    # Add example data
-    for col_num, value in enumerate(example_data, 1):
-        ws.cell(row=2, column=col_num, value=value)
+class StudentFeeBalanceViewSet(viewsets.ViewSet):
+    """
+    ViewSet for getting student fee balance summaries.
 
-    # Return file in HTTP response
-    response = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-    response["Content-Disposition"] = (
-        "attachment; filename=receipt_upload_template.xlsx"
-    )
-    wb.save(response)
-    return response
+    Endpoints:
+    - GET /api/finance/fee-balance/?student={id}&term={id} - Get balance by query param
+    - GET /api/finance/student-balance/{student_id}/?term_id={id} - Get balance by path param
+    """
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        """
+        Get fee balance using query parameters.
+        GET /api/finance/fee-balance/?student={student_id}&term={term_id}
+        """
+        student_id = request.query_params.get('student')
+
+        if not student_id:
+            return Response(
+                {'error': 'student parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Use the retrieve logic with query params
+        student = get_object_or_404(Student, id=student_id)
+        term_id = request.query_params.get('term')
+
+        return self._get_student_balance(student, term_id)
+
+    def retrieve(self, request, pk=None):
+        """
+        Get fee balance for a specific student.
+        GET /api/financial/student-balance/{student_id}/?term_id=1
+        """
+        student = get_object_or_404(Student, id=pk)
+        term_id = request.query_params.get('term_id')
+
+        return self._get_student_balance(student, term_id)
+
+    def _get_student_balance(self, student, term_id=None):
+        """Helper method to get student balance data"""
+
+        # Get all fee assignments for this student
+        assignments = StudentFeeAssignment.objects.filter(student=student)
+
+        if term_id:
+            assignments = assignments.filter(term_id=term_id)
+            term = get_object_or_404(Term, id=term_id)
+        else:
+            # Get current term
+            term = Term.objects.filter(
+                academic_year__active_year=True
+            ).order_by('-start_date').first()
+
+            if term:
+                assignments = assignments.filter(term=term)
+
+        # Calculate totals
+        total_fees = assignments.aggregate(
+            total=Sum('amount_owed')
+        )['total'] or Decimal('0.00')
+
+        total_paid = assignments.aggregate(
+            total=Sum('amount_paid')
+        )['total'] or Decimal('0.00')
+
+        balance = total_fees - total_paid
+
+        # Determine status
+        if balance == 0:
+            payment_status = 'Paid'
+        elif total_paid > 0:
+            payment_status = 'Partial'
+        else:
+            payment_status = 'Unpaid'
+
+        # Fee breakdown
+        fee_breakdown = []
+        for assignment in assignments:
+            fee_breakdown.append({
+                'id': assignment.id,
+                'fee_name': assignment.fee_structure.name,
+                'fee_type': assignment.fee_structure.fee_type,
+                'amount_owed': assignment.amount_owed,
+                'amount_paid': assignment.amount_paid,
+                'balance': assignment.balance,
+                'status': assignment.payment_status,
+                'is_waived': assignment.is_waived,
+            })
+
+        # Get last payment date
+        last_payment = None
+        if assignments.exists():
+            from finance.models import Receipt
+            receipts = Receipt.objects.filter(student=student).order_by('-payment_date')
+            if receipts.exists():
+                last_payment = receipts.first().payment_date
+
+        data = {
+            'id': student.id,  # Add id field
+            'student': student.id,
+            'student_name': student.full_name,
+            'student_admission_number': student.admission_number,
+            'term': term.id if term else None,
+            'term_name': term.name if term else None,
+            'academic_year': term.academic_year.name if term else None,
+            'total_fee': total_fees,  # Frontend expects total_fee
+            'total_fees': total_fees,  # Keep backward compatibility
+            'amount_paid': total_paid,  # Frontend expects amount_paid
+            'total_paid': total_paid,  # Keep backward compatibility
+            'balance': balance,
+            'status': payment_status.lower(),  # Frontend expects lowercase
+            'last_payment_date': last_payment,
+            'fee_breakdown': fee_breakdown,
+        }
+
+        serializer = StudentFeeBalanceSerializer(data)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """
+        Get fee balance summary for all students.
+        GET /api/financial/student-balance/summary/?term_id=1
+        """
+        term_id = request.query_params.get('term_id')
+
+        students = Student.objects.filter(status='Active')
+        summaries = []
+
+        for student in students:
+            assignments = StudentFeeAssignment.objects.filter(student=student)
+
+            if term_id:
+                assignments = assignments.filter(term_id=term_id)
+
+            total_fees = assignments.aggregate(
+                total=Sum('amount_owed')
+            )['total'] or Decimal('0.00')
+
+            total_paid = assignments.aggregate(
+                total=Sum('amount_paid')
+            )['total'] or Decimal('0.00')
+
+            balance = total_fees - total_paid
+
+            if balance == 0:
+                payment_status = 'Paid'
+            elif total_paid > 0:
+                payment_status = 'Partial'
+            else:
+                payment_status = 'Unpaid'
+
+            summaries.append({
+                'student': student.id,
+                'student_name': student.full_name,
+                'student_admission_number': student.admission_number,
+                'total_fees': total_fees,
+                'total_paid': total_paid,
+                'balance': balance,
+                'status': payment_status,
+            })
+
+        return Response(summaries)

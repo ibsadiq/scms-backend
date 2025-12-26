@@ -1,0 +1,122 @@
+{% extends "email/base.html" %}
+
+{% block title %}Documents Required - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Documents Required for Your Application</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Thank you for your admission application for <strong>{{ student_name }}</strong>. To continue processing your application, we need you to upload the following documents:
+</p>
+
+<!-- Documents List -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Required Documents:</p>
+            {% if required_documents %}
+                {% for document in required_documents %}
+                <p style="margin: 0 0 8px 0; color: #4b5563;">
+                    <span style="color: #f59e0b;">📄</span> {{ document }}
+                </p>
+                {% endfor %}
+            {% else %}
+                <p style="margin: 0 0 8px 0; color: #4b5563;">
+                    <span style="color: #f59e0b;">📄</span> Birth Certificate or Age Declaration
+                </p>
+                <p style="margin: 0 0 8px 0; color: #4b5563;">
+                    <span style="color: #f59e0b;">📄</span> Recent Passport Photograph
+                </p>
+                <p style="margin: 0 0 8px 0; color: #4b5563;">
+                    <span style="color: #f59e0b;">📄</span> Previous School Report (if applicable)
+                </p>
+                <p style="margin: 0; color: #4b5563;">
+                    <span style="color: #f59e0b;">📄</span> Parent/Guardian ID Card
+                </p>
+            {% endif %}
+        </td>
+    </tr>
+</table>
+
+{% if admin_notes %}
+<!-- Additional Notes -->
+<table style="width: 100%; margin: 24px 0; background-color: #f0f9ff; border-left: 4px solid {{ school_primary_color|default:'#3b82f6' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Additional Notes:</p>
+            <p style="margin: 0; color: #4b5563;">
+                {{ admin_notes }}
+            </p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
+<!-- Info Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #f9fafb; border-left: 4px solid {{ school_primary_color|default:'#667eea' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Application Details:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Application Number:</strong> {{ application_number }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Deadline:</strong> {% if deadline %}{{ deadline }}{% else %}Please submit as soon as possible{% endif %}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">How to Upload Documents:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">1️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">Click the button below to access your application</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">2️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">Navigate to the Documents section</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">3️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">Upload clear scans or photos of the required documents</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">4️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">Ensure all documents are legible and in PDF, JPG, or PNG format</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ upload_url }}" style="display: inline-block; padding: 14px 32px; background-color: {{ school_primary_color|default:'#667eea' }}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                Upload Documents
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions or difficulty uploading documents, please contact our admissions office at {{ admissions_email }} or {{ admissions_phone }}.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    Best regards,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

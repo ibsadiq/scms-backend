@@ -1,19 +1,16 @@
 from rest_framework import serializers
 from .models import Period
-from academic.models import AllocatedSubject
-from academic.serializers import (
-    ClassRoomSerializer,
-    SubjectSerializer,
-)
-from users.serializers import TeacherSerializer
-from administration.serializers import TermSerializer
+from academic.models import AllocatedSubject, Subject, ClassRoom, Teacher
+from academic.serializers import ClassRoomSerializer
 
 
-class PeriodSerializer(serializers.ModelSerializer):
-    teacher = TeacherSerializer(read_only=True)  # Include teacher details
-    subject = SubjectSerializer(read_only=True)  # Include subject details
-    classroom = ClassRoomSerializer(read_only=True)  # Include classroom details
-    term = TermSerializer(read_only=True)  # Include term details
+class PeriodListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing periods with nested data for display.
+    """
+    teacher_name = serializers.SerializerMethodField()
+    subject_name = serializers.SerializerMethodField()
+    classroom_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Period
@@ -23,31 +20,137 @@ class PeriodSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "teacher",
+            "teacher_name",
             "subject",
+            "subject_name",
             "classroom",
-            "term",
+            "classroom_name",
+            "room_number",
+            "is_active",
+            "notes",
         ]
         read_only_fields = ["id"]
 
+    def get_teacher_name(self, obj):
+        if obj.teacher:
+            return f"{obj.teacher.first_name} {obj.teacher.last_name}"
+        return None
+
+    def get_subject_name(self, obj):
+        if obj.subject and obj.subject.subject:
+            return obj.subject.subject.name
+        return None
+
+    def get_classroom_name(self, obj):
+        if obj.classroom:
+            return obj.classroom.class_name
+        return None
+
+
+class PeriodCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating and updating periods.
+    Handles conflict validation.
+    """
+    class Meta:
+        model = Period
+        fields = [
+            "id",
+            "day_of_week",
+            "start_time",
+            "end_time",
+            "classroom",
+            "subject",
+            "teacher",
+            "room_number",
+            "is_active",
+            "notes",
+        ]
+        read_only_fields = ["id"]
+
+    def validate(self, data):
+        """
+        Custom validation to check for conflicts.
+        This runs in addition to model's clean() method.
+        """
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+
+        # Validate time order
+        if start_time and end_time:
+            if end_time <= start_time:
+                raise serializers.ValidationError({
+                    'end_time': 'End time must be after start time.'
+                })
+
+        return data
+
     def create(self, validated_data):
         """
-        Override create to handle dynamic assignment.
+        Create a new period.
+        The model's clean() method will handle conflict detection.
         """
-        allocated_subject = validated_data.pop("allocated_subject", None)
-        if not allocated_subject:
-            raise serializers.ValidationError(
-                {"error": "AllocatedSubject is required to create a period."}
-            )
+        try:
+            period = Period(**validated_data)
+            period.full_clean()  # This will call the model's clean() method
+            period.save()
+            return period
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
 
-        teacher = allocated_subject.teacher
-        subject = allocated_subject.subject
-        classroom = allocated_subject.class_room
-        term = allocated_subject.term
+    def update(self, instance, validated_data):
+        """
+        Update an existing period.
+        The model's clean() method will handle conflict detection.
+        """
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
 
-        return Period.objects.create(
-            **validated_data,
-            teacher=teacher,
-            subject=subject,
-            classroom=classroom,
-            term=term,
-        )
+        try:
+            instance.full_clean()  # This will call the model's clean() method
+            instance.save()
+            return instance
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
+
+
+class PeriodSerializer(serializers.ModelSerializer):
+    """
+    Backward compatible serializer (existing code uses this).
+    """
+    teacher_name = serializers.SerializerMethodField()
+    subject_name = serializers.SerializerMethodField()
+    classroom_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Period
+        fields = [
+            "id",
+            "day_of_week",
+            "start_time",
+            "end_time",
+            "teacher",
+            "teacher_name",
+            "subject",
+            "subject_name",
+            "classroom",
+            "classroom_name",
+            "room_number",
+            "is_active",
+        ]
+        read_only_fields = ["id"]
+
+    def get_teacher_name(self, obj):
+        if obj.teacher:
+            return f"{obj.teacher.first_name} {obj.teacher.last_name}"
+        return None
+
+    def get_subject_name(self, obj):
+        if obj.subject and obj.subject.subject:
+            return obj.subject.subject.name
+        return None
+
+    def get_classroom_name(self, obj):
+        if obj.classroom:
+            return obj.classroom.class_name
+        return None

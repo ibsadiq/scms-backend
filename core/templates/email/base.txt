@@ -1,0 +1,8 @@
+{{ app_name }} - {{ school_name }}
+============================================================
+
+{% block content %}{% endblock %}
+
+============================================================
+This is an automated message from {{ app_name }}
+© 2025 {{ school_name }}. All rights reserved.

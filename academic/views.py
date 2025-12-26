@@ -6,19 +6,20 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from administration.models import AcademicYear
 from .models import (
     Subject,
     Department,
     ClassRoom,
     ClassLevel,
-    Stream,
     Teacher,
     GradeLevel,
     ClassYear,
     ReasonLeft,
     StudentClassEnrollment as StudentClass,
     Student,
+    Stream,
 )
 from .serializers import (
     DepartmentSerializer,
@@ -26,10 +27,13 @@ from .serializers import (
     GradeLevelSerializer,
     ClassYearSerializer,
     ReasonLeftSerializer,
-    StreamSerializer,
     SubjectSerializer,
     ClassRoomSerializer,
     StudentClassEnrollmentSerializer,
+    BulkUploadClassRoomsSerializer,
+    BulkUploadStudentsSerializer,
+    BulkUploadSubjectsSerializer,
+    StreamSerializer,
 )
 
 
@@ -135,6 +139,7 @@ class BulkUploadSubjectsView(APIView):
     """
     API View to handle bulk uploading of subjects from an Excel file.
     """
+    serializer_class = BulkUploadSubjectsSerializer
 
     def post(self, request, *args, **kwargs):
         file = request.FILES.get("file")
@@ -217,28 +222,40 @@ class BulkUploadSubjectsView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ClassRoomView(APIView):
-    """
-    API View to handle CRUD operations for ClassRoom model.
-    """
+# class ClassRoomView(APIView):
+#     """
+#     API View to handle CRUD operations for ClassRoom model.
+#     """
 
-    def get(self, request):
-        classrooms = ClassRoom.objects.all()
-        serializer = ClassRoomSerializer(classrooms, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+#     def get(self, request):
+#         classrooms = ClassRoom.objects.all()
+#         serializer = ClassRoomSerializer(classrooms, many=True)
+#         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request):
-        serializer = ClassRoomSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#     def post(self, request):
+#         serializer = ClassRoomSerializer(data=request.data)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_201_CREATED)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ClassRoomView(ListCreateAPIView):
+    """Handle listing and creating classrooms"""
+    serializer_class = ClassRoomSerializer
+    queryset = ClassRoom.objects.all()
+
+class ClassRoomDetailView(RetrieveUpdateDestroyAPIView):
+    """Handle retrieve, update, delete for single classroom"""
+    serializer_class = ClassRoomSerializer
+    queryset = ClassRoom.objects.all()
 
 
 class BulkUploadClassRoomsView(APIView):
     """
     API View to handle bulk uploading of classrooms from an Excel file.
     """
+
+    serializer_class = BulkUploadClassRoomsSerializer
 
     def post(self, request):
         file = request.FILES.get("file")
@@ -253,7 +270,7 @@ class BulkUploadClassRoomsView(APIView):
 
             columns = [
                 "name",  # ClassLevel name
-                "stream",  # Stream name
+                "stream",  # Stream name (optional)
                 "class_teacher",  # Full name of class teacher
             ]
 
@@ -268,13 +285,22 @@ class BulkUploadClassRoomsView(APIView):
                 try:
                     # Validate and fetch related objects
                     name = ClassLevel.objects.get(name=classroom_data["name"].lower())
-                    stream = Stream.objects.get(name=classroom_data["stream"].upper())
 
-                    # Check if ClassRoom with the same name and stream already exists
-                    if ClassRoom.objects.filter(name=name, stream=stream).exists():
+                    # Check if ClassRoom with the same name already exists
+                    if ClassRoom.objects.filter(name=name).exists():
                         raise ValueError(
-                            f"Row {i}: ClassRoom with the same name and stream already exists."
+                            f"Row {i}: ClassRoom with the same name already exists."
                         )
+
+                    # Handle stream (optional)
+                    stream = None
+                    if classroom_data.get("stream") and classroom_data["stream"].strip():
+                        try:
+                            stream = Stream.objects.get(name=classroom_data["stream"].strip().upper())
+                        except Stream.DoesNotExist:
+                            raise ValueError(
+                                f"Stream '{classroom_data['stream']}' does not exist."
+                            )
 
                     # Split the class teacher name and fetch the teacher
                     teacher_name_parts = classroom_data["class_teacher"].lower().split()
@@ -349,7 +375,8 @@ class BulkUploadStudentClassView(APIView):
     """
     API View to handle bulk uploading of StudentClass records from an Excel file.
     """
-
+    serializer_class = BulkUploadStudentsSerializer
+    
     def post(self, request, *args, **kwargs):
         file = request.FILES.get("file")
         if not file:
@@ -366,7 +393,6 @@ class BulkUploadStudentClassView(APIView):
             # Expected columns in the Excel file
             columns = [
                 "classroom_name",  # Classroom name
-                "stream_name",  # Stream name
                 "academic_year",  # Academic year
                 "student_full_name",  # Student's full name
             ]
@@ -384,11 +410,10 @@ class BulkUploadStudentClassView(APIView):
                     try:
                         classroom = ClassRoom.objects.get(
                             name__name=row_data["classroom_name"].strip().lower(),
-                            stream__name=row_data["stream_name"].strip().upper(),
                         )
                     except ClassRoom.DoesNotExist:
                         raise ValidationError(
-                            f"Row {i}: Classroom '{row_data['classroom_name']}' with stream '{row_data['stream_name']}' does not exist."
+                            f"Row {i}: Classroom '{row_data['classroom_name']}' does not exist."
                         )
 
                     # Validate AcademicYear

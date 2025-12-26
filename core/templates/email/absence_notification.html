@@ -1,0 +1,71 @@
+{% extends "email/base.html" %}
+
+{% block title %}Absence Notification - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 22px;">Absence Alert</h2>
+
+<p style="margin: 0 0 20px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 20px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    This is to notify you that <strong>{{ student_name }}</strong> was marked as <strong>{{ status }}</strong> on <strong>{{ date }}</strong>.
+</p>
+
+<!-- Student Details Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #78350f; font-weight: 700; font-size: 16px;">Attendance Details</p>
+            <table style="width: 100%;">
+                <tr>
+                    <td style="padding: 4px 0; color: #78350f;"><strong>Student:</strong></td>
+                    <td style="padding: 4px 0; color: #78350f; text-align: right;">{{ student_name }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #78350f;"><strong>Class:</strong></td>
+                    <td style="padding: 4px 0; color: #78350f; text-align: right;">{{ class_name }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #78350f;"><strong>Date:</strong></td>
+                    <td style="padding: 4px 0; color: #78350f; text-align: right;">{{ date }}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #78350f;"><strong>Status:</strong></td>
+                    <td style="padding: 4px 0; color: #78350f; text-align: right;">{{ status|upper }}</td>
+                </tr>
+                {% if remarks %}
+                <tr>
+                    <td colspan="2" style="padding: 8px 0 0 0; color: #78350f;"><strong>Remarks:</strong> {{ remarks }}</td>
+                </tr>
+                {% endif %}
+            </table>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 24px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    If your child was absent due to illness or other reasons, please contact the school office to provide an explanation or medical certificate if required.
+</p>
+
+<!-- Button -->
+<table style="width: 100%; margin: 24px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ portal_url }}" style="display: inline-block; padding: 12px 28px; background-color: {{ school_primary_color|default:'#667eea' }}; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px;">
+                View Attendance Record
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 0 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    For any questions or concerns, please contact the school administration.
+</p>
+
+<p style="margin: 0; color: #4b5563;">
+    Best regards,<br>
+    <strong>{{ school_name }} Administration</strong>
+</p>
+{% endblock %}

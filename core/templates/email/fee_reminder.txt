@@ -1,0 +1,25 @@
+{% extends "email/base.txt" %}
+
+{% block content %}
+FEE PAYMENT REMINDER
+
+Dear {{ parent_name }},
+
+This is a reminder that the tuition fee payment for {{ term_name }} is due soon.
+
+Payment Details:
+- Student: {{ student_name }}
+- Amount Due: {{ amount }}
+- Due Date: {{ due_date }}
+- Term: {{ term_name }}
+
+Please ensure payment is made before the due date to avoid late fees.
+
+You can make payments at the school bursar's office during working hours.
+
+You can view your fee statement by logging into the parent portal:
+{{ portal_url }}
+
+Thank you,
+{{ school_name }} Finance Department
+{% endblock %}

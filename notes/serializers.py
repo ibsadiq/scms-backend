@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 
 from users.models import CustomUser as User
 from .models import (
@@ -30,13 +31,14 @@ class AssignmentSerializer(serializers.ModelSerializer):
         model = Assignment
         fields = "__all__"
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_questions(self, obj):
         questions = QuestionSerializer(obj.questions.all(), many=True).data
         return questions
 
-    def create(self, request):
-        data = request.data
-
+    def create(self, validated_data):
+        # Use validated_data instead of request.data
+        data = validated_data
         assignment = Assignment()
         teacher = User.objects.get(username=data["teacher"])
         assignment.teacher = teacher

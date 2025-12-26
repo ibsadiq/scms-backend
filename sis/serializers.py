@@ -59,8 +59,12 @@ class StudentSerializer(serializers.ModelSerializer):
     class_level_display = serializers.SerializerMethodField()
     class_of_year_display = serializers.SerializerMethodField()
     parent_guardian_display = serializers.SerializerMethodField()
+    classroom_display = serializers.SerializerMethodField()
+    classroom_name = serializers.SerializerMethodField()
+    grade_level = serializers.SerializerMethodField()
+    grade_level_name = serializers.SerializerMethodField()
     siblings = SiblingSerializer(many=True, read_only=True)
-
+    status = serializers.SerializerMethodField()
     class_level = serializers.CharField(write_only=True, required=True)
     class_of_year = serializers.CharField(
         write_only=False, required=False, allow_null=True
@@ -81,16 +85,25 @@ class StudentSerializer(serializers.ModelSerializer):
             "gender",
             "religion",
             "date_of_birth",
-            "std_vii_number",
-            "prems_number",
+            "is_active",
             "full_name",
             "class_level_display",
             "class_of_year_display",
             "parent_guardian_display",
+            "classroom_display",
+            "classroom_name",
+            "grade_level",
+            "grade_level_name",
+            "classroom",
             "class_level",  # write-only
             "class_of_year",  # write-only
             "siblings",
+            "status",
         ]
+
+    def get_status(self, obj):
+        return obj.status
+
 
     def get_full_name(self, obj):
         return obj.full_name
@@ -103,6 +116,28 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_parent_guardian_display(self, obj):
         return obj.parent_guardian.email if obj.parent_guardian else None
+
+    def get_classroom_display(self, obj):
+        if obj.classroom:
+            stream_name = obj.classroom.stream.name if obj.classroom.stream else ""
+            return f"{obj.classroom.name.name} {stream_name}".strip()
+        return None
+
+    def get_classroom_name(self, obj):
+        if obj.classroom:
+            stream_name = obj.classroom.stream.name if obj.classroom.stream else ""
+            return f"{obj.classroom.name.name} {stream_name}".strip()
+        return None
+
+    def get_grade_level(self, obj):
+        if obj.class_level and obj.class_level.grade_level:
+            return obj.class_level.grade_level.id
+        return None
+
+    def get_grade_level_name(self, obj):
+        if obj.class_level and obj.class_level.grade_level:
+            return obj.class_level.grade_level.name
+        return None
 
     def validate_and_create_student(self, data):
         print("validated_data:", data)
@@ -191,8 +226,6 @@ class StudentSerializer(serializers.ModelSerializer):
             "gender",
             "religion",
             "date_of_birth",
-            "std_vii_number",
-            "prems_number",
         ]:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])

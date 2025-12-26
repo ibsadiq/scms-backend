@@ -4,6 +4,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from django.http import JsonResponse
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
 
 
 def custom_404_handler(request, exception):
@@ -48,18 +50,32 @@ def custom_400_handler(request, exception):
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("", TemplateView.as_view(template_name="index.html")),
+    # path("", TemplateView.as_view(template_name="index.html")),
+    path("", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+
+
+    path("api/", include("core.urls")),
     path("api/academic/", include("api.academic.urls")),
     path("api/administration/", include("api.administration.urls")),
     path("api/attendance/", include("api.attendance.urls")),
     path("api/assignments/", include("api.assignments.urls")),
     path("api/blog/", include("api.blog.urls")),
+    path("api/examination/", include("api.examination.urls")),
     path("api/finance/", include("api.finance.urls")),
     # path('api/journals/', include('api.journals.urls')),
+    path("api/notifications/", include("api.notifications.urls")),
     # path("api/notes/", include("api.notes.urls")),
     path("api/users/", include("api.users.urls")),
     path("api/timetable/", include("api.schedule.urls")),
     path("api/sis/", include("api.sis.urls")),
+    path("api/tenants/", include("tenants.urls")),
+
+    # Admission management
+    path("api/admissions/", include("api.admissions_admin.urls")),
+
+    # Public admission portal (no authentication required)
+    path("api/public/admissions/", include("api.admissions_public.urls")),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -9,6 +9,7 @@ from administration.views import (
     SchoolEventViewSet,
     SchoolEventBulkUploadView,
     SchoolEventTemplateDownloadView,
+    DashboardStatsView
 )
 
 
@@ -41,5 +42,10 @@ urlpatterns = [
         "school-events/template-download/",
         SchoolEventTemplateDownloadView.as_view(),
         name="school-events-template-download",
+    ),
+    path(
+        "dashboard/",
+        DashboardStatsView.as_view(),
+        name="dashboard-stats",
     ),
 ]

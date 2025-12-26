@@ -1,0 +1,26 @@
+{% extends "email/base.txt" %}
+
+{% block content %}
+ATTENDANCE NOTIFICATION
+
+Dear {{ parent_name }},
+
+This is to notify you that {{ student_name }} was marked as {{ status|upper }} on {{ date }}.
+
+Attendance Details:
+- Student: {{ student_name }}
+- Class: {{ class_name }}
+- Date: {{ date }}
+- Status: {{ status|upper }}
+{% if remarks %}- Remarks: {{ remarks }}{% endif %}
+
+If your child was absent due to illness or other reasons, please contact the school office to provide an explanation or medical certificate if required.
+
+You can view the full attendance record by logging into the parent portal:
+{{ portal_url }}
+
+For any questions or concerns, please contact the school administration.
+
+Best regards,
+{{ school_name }} Administration
+{% endblock %}

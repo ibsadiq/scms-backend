@@ -1,0 +1,163 @@
+{% extends "email/base.html" %}
+
+{% block title %}Offer Accepted - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">🎊 Welcome to {{ school_name }}!</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Congratulations! You have successfully accepted the admission offer for <strong>{{ student_name }}</strong>. We are thrilled to welcome your child to the {{ school_name }} family!
+</p>
+
+<!-- Confirmation Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #dcfce7; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 16px 0; color: #1f2937; font-weight: 600; font-size: 18px;">✅ Enrollment Confirmed:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Student Name:</strong> {{ student_name }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Class Level:</strong> {{ class_level }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>Academic Session:</strong> {{ academic_session }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Application Number:</strong> {{ application_number }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Next Steps:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">1️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Enrollment Formalities:</strong> Our admissions team will contact you within 2-3 business days with enrollment details</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">2️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Complete Documentation:</strong> Prepare all required documents for final enrollment</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">3️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Fee Payment:</strong> Complete tuition and other fee payments as per the schedule</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">4️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Orientation:</strong> Attend the new student orientation (date to be announced)</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Documents Needed -->
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Documents You'll Need:</h3>
+
+<table style="width: 100%; margin: 16px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <span style="color: #f59e0b;">📄</span> Birth certificate (original and photocopy)
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <span style="color: #f59e0b;">📄</span> Passport photographs (4 copies)
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <span style="color: #f59e0b;">📄</span> Immunization records
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <span style="color: #f59e0b;">📄</span> Previous school report/transfer certificate (if applicable)
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <span style="color: #f59e0b;">📄</span> Parent/Guardian ID card (photocopy)
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Fee Structure Info -->
+<table style="width: 100%; margin: 24px 0; background-color: #f0f9ff; border-left: 4px solid {{ school_primary_color|default:'#3b82f6' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Fee Payment Information:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                A detailed fee structure and payment schedule will be sent to you separately. Payment options include:
+            </p>
+            <p style="margin: 8px 0 0 0; color: #4b5563;">
+                • Bank transfer<br>
+                • Online payment portal<br>
+                • Cash/cheque at the school office
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Important Dates:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📅</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Orientation Date:</strong> To be announced</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📅</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Resumption Date:</strong> {{ resumption_date|default:"To be announced" }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#667eea' }}; font-size: 18px;">📅</span>
+            <span style="color: #4b5563; margin-left: 12px;"><strong>Document Submission Deadline:</strong> {{ document_deadline|default:"To be announced" }}</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Welcome Message -->
+<table style="width: 100%; margin: 24px 0; background-color: #ddd6fe; border-left: 4px solid #8b5cf6; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600; font-size: 16px;">A Message from Our Principal:</p>
+            <p style="margin: 0; color: #4b5563; font-style: italic; line-height: 1.6;">
+                "We are delighted to welcome {{ student_name }} to our school community. At {{ school_name }}, we are committed to providing quality education that nurtures academic excellence, character development, and holistic growth. We look forward to partnering with you in your child's educational journey."
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ tracking_url }}" style="display: inline-block; padding: 14px 32px; background-color: {{ school_primary_color|default:'#667eea' }}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                View Enrollment Details
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions about the enrollment process, please don't hesitate to contact our admissions office at {{ admissions_email }} or {{ admissions_phone }}.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    Once again, congratulations and welcome to {{ school_name }}!<br><br>
+    Warm regards,<br>
+    <strong>{{ school_name }} Management</strong>
+</p>
+{% endblock %}

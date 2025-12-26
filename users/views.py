@@ -14,13 +14,15 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from academic.models import Teacher, Subject, Parent
-from .models import CustomUser as User, Accountant
+from .models import CustomUser as User, Accountant, UserInvitation
 from .serializers import (
     UserSerializer,
     UserSerializerWithToken,
     AccountantSerializer,
     TeacherSerializer,
     ParentSerializer,
+    UserInvitationSerializer,
+    AcceptInvitationSerializer,
 )
 
 
@@ -354,12 +356,12 @@ class BulkUploadTeachersView(APIView):
                     teacher_data["email"] = generated_email
 
                     # Check for duplicate email
-                    if Teacher.objects.filter(email=generated_email).exists():
+                    if Teacher.objects.filter(user__email=generated_email).exists():
                         raise ValueError(f"Email '{generated_email}' already exists.")
 
                     # Check for duplicate phone number
                     if Teacher.objects.filter(
-                        phone_number=teacher_data["phone_number"]
+                        user__phone_number=teacher_data["phone_number"]
                     ).exists():
                         raise ValueError(
                             f"Phone number '{teacher_data['phone_number']}' already exists."
@@ -440,3 +442,435 @@ class BulkUploadTeachersView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# Teacher Dashboard View
+class TeacherDashboardView(APIView):
+    """
+    Teacher Dashboard API
+    GET /api/users/teacher/dashboard/
+    Returns: stats, today's schedule, my classes, activities, assessments
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.utils import timezone
+        from schedule.models import Period
+        from examination.models import ExaminationListHandler
+        from academic.models import AllocatedSubject
+
+        try:
+            # Get the teacher object for the logged-in user
+            teacher = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": "Teacher profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        today = timezone.now().date()
+        current_time = timezone.now().time()
+
+        # Get teacher's allocated subjects (classes they teach)
+        allocated_subjects = AllocatedSubject.objects.filter(
+            teacher_name=teacher
+        ).select_related('class_room', 'subject')
+
+        # ===== BASIC STATS =====
+        total_classes = allocated_subjects.count()
+        total_students = sum(
+            alloc.class_room.capacity if alloc.class_room else 0
+            for alloc in allocated_subjects
+        )
+
+        # Today's periods
+        todays_periods = Period.objects.filter(
+            teacher=teacher,
+            day_of_week=today.strftime('%A'),
+            is_active=True
+        ).select_related('classroom', 'subject').order_by('start_time')
+
+        # Pending grades (exams without full marks submitted)
+        from examination.models import MarksManagement
+        teacher_exams = ExaminationListHandler.objects.filter(
+            created_by=teacher
+        ).values_list('id', flat=True)
+
+        pending_grades = 0
+        for exam_id in teacher_exams:
+            exam = ExaminationListHandler.objects.get(id=exam_id)
+            expected_marks = sum(
+                classroom.capacity for classroom in exam.classrooms.all()
+            )
+            submitted_marks = MarksManagement.objects.filter(exam_name_id=exam_id).count()
+            if submitted_marks < expected_marks:
+                pending_grades += (expected_marks - submitted_marks)
+
+        stats = {
+            "totalClasses": total_classes,
+            "totalStudents": total_students,
+            "todaysClasses": todays_periods.count(),
+            "pendingGrades": pending_grades
+        }
+
+        # ===== TODAY'S SCHEDULE =====
+        todays_schedule = []
+        for period in todays_periods:
+            period_status = 'upcoming'
+            if period.end_time < current_time:
+                period_status = 'completed'
+            elif period.start_time <= current_time <= period.end_time:
+                period_status = 'ongoing'
+
+            todays_schedule.append({
+                "id": period.id,
+                "subject_name": period.subject.subject.name if period.subject and period.subject.subject else 'N/A',
+                "classroom_name": period.classroom.class_name if period.classroom else 'N/A',
+                "start_time": period.start_time.strftime('%H:%M'),
+                "end_time": period.end_time.strftime('%H:%M'),
+                "status": period_status
+            })
+
+        # ===== MY CLASSES =====
+        my_classes = []
+        for alloc in allocated_subjects[:5]:  # Top 5 classes
+            my_classes.append({
+                "id": alloc.id,
+                "name": alloc.class_room.class_name if alloc.class_room else 'N/A',
+                "subject": alloc.subject.name if alloc.subject else 'N/A',
+                "student_count": alloc.class_room.capacity if alloc.class_room else 0
+            })
+
+        # ===== RECENT ACTIVITIES =====
+        recent_activities = []
+
+        # Recent grade submissions
+        recent_marks = MarksManagement.objects.filter(
+            created_by=teacher
+        ).select_related('exam_name', 'student').order_by('-date_time')[:3]
+
+        for mark in recent_marks:
+            recent_activities.append({
+                "id": f"grade_{mark.id}",
+                "type": "grade",
+                "icon": "lucide:award",
+                "title": "Grades Submitted",
+                "description": f"{mark.exam_name.name if mark.exam_name else 'Assessment'} - {mark.student.first_name if mark.student else 'Student'}",
+                "time": f"{(timezone.now() - mark.date_time).days} days ago"
+            })
+
+        # ===== UPCOMING ASSESSMENTS =====
+        upcoming_assessments = []
+        future_exams = ExaminationListHandler.objects.filter(
+            created_by=teacher,
+            start_date__gte=today
+        ).order_by('start_date')[:3]
+
+        for exam in future_exams:
+            upcoming_assessments.append({
+                "id": exam.id,
+                "name": exam.name,
+                "type": "Exam",
+                "subject": "Multiple" if exam.classrooms.count() > 1 else "Single Class",
+                "classroom": f"{exam.classrooms.count()} classes",
+                "date": exam.start_date.strftime('%Y-%m-%d')
+            })
+
+        return Response({
+            "stats": stats,
+            "todaysSchedule": todays_schedule,
+            "myClasses": my_classes,
+            "recentActivities": recent_activities,
+            "upcomingAssessments": upcoming_assessments
+        })
+
+
+# Parent Dashboard View
+class ParentDashboardView(APIView):
+    """
+    Parent Dashboard API
+    GET /api/users/parent/dashboard/
+    Returns: children data, performance, attendance, fees, events, activities
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.utils import timezone
+        from finance.models import StudentFeeAssignment, Receipt
+        from attendance.models import StudentAttendance
+        from administration.models import SchoolEvent
+        from examination.models import Result
+
+        try:
+            # Get the parent object for the logged-in user
+            parent = Parent.objects.get(user=request.user)
+        except Parent.DoesNotExist:
+            return Response(
+                {"error": "Parent profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        today = timezone.now().date()
+        first_day_of_month = today.replace(day=1)
+
+        # Get all children of this parent
+        children_data = []
+        for student in parent.students.all():
+            # Performance data
+            latest_result = Result.objects.filter(student=student).order_by('-created_on').first()
+            performance = {
+                "average_grade": latest_result.overall_grade if latest_result and hasattr(latest_result, 'overall_grade') else 'N/A',
+                "position": latest_result.position if latest_result and hasattr(latest_result, 'position') else 'N/A'
+            }
+
+            # Attendance data (this month)
+            attendance_records = StudentAttendance.objects.filter(
+                student=student,
+                date__gte=first_day_of_month,
+                date__lte=today
+            )
+
+            total_days = attendance_records.count()
+            present_count = attendance_records.filter(
+                Q(status__name__iexact='PRESENT') | Q(status__name__iexact='present')
+            ).count()
+            absent_count = attendance_records.filter(
+                Q(status__name__iexact='ABSENT') | Q(status__name__iexact='absent')
+            ).count()
+            late_count = attendance_records.filter(
+                Q(status__name__iexact='LATE') | Q(status__name__iexact='late')
+            ).count()
+
+            attendance_rate = round((present_count / total_days * 100) if total_days > 0 else 0, 0)
+
+            # Fee data
+            fee_assignments = StudentFeeAssignment.objects.filter(student=student)
+            total_fee = sum(assignment.total_amount for assignment in fee_assignments)
+
+            receipts = Receipt.objects.filter(student=student)
+            total_paid = sum(receipt.amount_paid for receipt in receipts)
+            balance = total_fee - total_paid
+
+            fee_status = 'Paid' if balance == 0 else 'Partial' if total_paid > 0 else 'Unpaid'
+
+            children_data.append({
+                "id": student.id,
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "class_name": student.class_level.name if student.class_level else 'N/A',
+                "status": "active" if student.is_active else "inactive",
+                "performance": performance,
+                "attendance": {
+                    "rate": int(attendance_rate),
+                    "present": present_count,
+                    "absent": absent_count,
+                    "late": late_count
+                },
+                "fees": {
+                    "total": float(total_fee),
+                    "paid": float(total_paid),
+                    "balance": float(balance),
+                    "status": fee_status
+                }
+            })
+
+        # ===== UPCOMING EVENTS =====
+        upcoming_events = []
+        future_events = SchoolEvent.objects.filter(
+            start_date__gte=today
+        ).order_by('start_date')[:3]
+
+        for event in future_events:
+            upcoming_events.append({
+                "id": event.id,
+                "name": event.name,
+                "date": event.start_date.strftime('%B %d, %Y')
+            })
+
+        # ===== RECENT ACTIVITIES =====
+        recent_activities = []
+
+        for student in parent.students.all()[:2]:  # Latest 2 children
+            # Recent grades
+            recent_results = Result.objects.filter(student=student).order_by('-created_on')[:1]
+            for result in recent_results:
+                recent_activities.append({
+                    "id": f"grade_{result.id}",
+                    "type": "grade",
+                    "icon": "lucide:award",
+                    "child_name": f"{student.first_name} {student.last_name}",
+                    "description": f"Result published: {result.overall_grade if hasattr(result, 'overall_grade') else 'Grade available'}",
+                    "time": f"{(timezone.now().date() - result.created_on).days} days ago" if hasattr(result, 'created_on') else "Recently"
+                })
+
+            # Recent payments
+            recent_receipts = Receipt.objects.filter(student=student).order_by('-paid_on')[:1]
+            for receipt in recent_receipts:
+                recent_activities.append({
+                    "id": f"payment_{receipt.id}",
+                    "type": "payment",
+                    "icon": "lucide:wallet",
+                    "child_name": f"{student.first_name} {student.last_name}",
+                    "description": f"Fee payment of ₦{receipt.amount_paid:,.0f} received",
+                    "time": f"{(timezone.now().date() - receipt.paid_on).days} days ago"
+                })
+
+        return Response({
+            "children": children_data,
+            "upcomingEvents": upcoming_events,
+            "recentActivities": recent_activities
+        })
+
+
+# Invitation Views
+class UserInvitationListCreateView(generics.ListCreateAPIView):
+    """
+    API View for listing and creating user invitations
+    GET /api/users/invitations/ - List all invitations
+    GET /api/users/invitations/?role=teacher - Filter by role
+    POST /api/users/invitations/ - Create a new invitation
+    """
+    queryset = UserInvitation.objects.all()
+    serializer_class = UserInvitationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Filter invitations by role if provided"""
+        queryset = UserInvitation.objects.all()
+        role = self.request.query_params.get('role', None)
+        if role:
+            queryset = queryset.filter(role=role)
+        return queryset
+
+    def perform_create(self, serializer):
+        """Automatically set the invited_by field to current user"""
+        serializer.save(invited_by=self.request.user)
+
+
+class UserInvitationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    API View for retrieving, updating, or deleting a specific invitation
+    GET /api/users/invitations/{id}/ - Get invitation details
+    PUT /api/users/invitations/{id}/ - Update invitation
+    DELETE /api/users/invitations/{id}/ - Delete invitation
+    """
+    queryset = UserInvitation.objects.all()
+    serializer_class = UserInvitationSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class ValidateInvitationView(APIView):
+    """
+    API View to validate an invitation token
+    GET /api/users/invitations/validate/{token}/
+    Returns invitation details if valid
+    """
+    permission_classes = []  # Public endpoint
+
+    def get(self, request, token):
+        try:
+            invitation = UserInvitation.objects.get(token=token)
+
+            if not invitation.is_valid():
+                return Response(
+                    {
+                        "error": "This invitation has expired or has already been used.",
+                        "status": invitation.status,
+                        "is_expired": invitation.is_expired
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            serializer = UserInvitationSerializer(invitation)
+            return Response(serializer.data)
+
+        except UserInvitation.DoesNotExist:
+            return Response(
+                {"error": "Invalid invitation token."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AcceptInvitationView(APIView):
+    """
+    API View to accept an invitation and create user account
+    POST /api/users/invitations/accept/
+    Body: { token, password, password_confirm }
+    """
+    permission_classes = []  # Public endpoint
+
+    def post(self, request):
+        serializer = AcceptInvitationSerializer(data=request.data)
+
+        if serializer.is_valid():
+            user = serializer.save()
+
+            # Generate tokens for the new user
+            from rest_framework_simplejwt.tokens import RefreshToken
+            refresh = RefreshToken.for_user(user)
+
+            return Response({
+                "message": "Account created successfully",
+                "user": UserSerializer(user).data,
+                "tokens": {
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token)
+                }
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ResendInvitationView(APIView):
+    """
+    API View to resend an invitation email
+    POST /api/users/invitations/{id}/resend/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            invitation = UserInvitation.objects.get(pk=pk)
+
+            if invitation.status != 'pending':
+                return Response(
+                    {"error": "Can only resend pending invitations."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Send invitation email based on role
+            try:
+                from core.email_utils import (
+                    send_teacher_invitation,
+                    send_parent_invitation,
+                    send_accountant_invitation
+                )
+
+                if invitation.role == 'teacher':
+                    send_teacher_invitation(invitation)
+                elif invitation.role == 'parent':
+                    send_parent_invitation(invitation)
+                elif invitation.role == 'accountant':
+                    send_accountant_invitation(invitation)
+                else:
+                    return Response(
+                        {"error": f"Unknown invitation role: {invitation.role}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            except Exception as e:
+                return Response(
+                    {"error": f"Failed to send invitation email: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            return Response({
+                "message": "Invitation email resent successfully",
+                "invitation": UserInvitationSerializer(invitation).data
+            })
+
+        except UserInvitation.DoesNotExist:
+            return Response(
+                {"error": "Invitation not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )

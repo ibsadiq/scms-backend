@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
+
 from .models import AcademicYear, Term, Article, CarouselImage, SchoolEvent
 
 
@@ -22,6 +24,7 @@ class ArticleSerializer(serializers.ModelSerializer):
             "created_by",
         ]
 
+    @extend_schema_field(serializers.CharField)
     def get_created_by(self, obj):
         user = obj.created_by
         serializer = UserSerializer(user, many=False)
@@ -29,6 +32,7 @@ class ArticleSerializer(serializers.ModelSerializer):
             return serializer.data["first_name"]
         return serializer.data["email"]
 
+    @extend_schema_field(serializers.CharField)
     def get_short_content(self, obj):
         content = obj.content
         return content[:200]
@@ -85,3 +89,7 @@ class SchoolEventSerializer(serializers.ModelSerializer):
             "end_date",
             "description",
         ]
+
+
+class SchoolEventBulkUploadSerializer(serializers.Serializer):
+    file = serializers.FileField()

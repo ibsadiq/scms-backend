@@ -1,256 +1,329 @@
-from django.db import models
+# serializers.py
 from rest_framework import serializers
+from decimal import Decimal
 from .models import (
+    FeeStructure,
+    StudentFeeAssignment,
+    FeeAdjustment,
     Receipt,
+    FeePaymentAllocation,
     Payment,
-    ReceiptAllocation,
-    PaymentAllocation,
-    DebtRecord,
-    PaymentRecord,
+    PaymentCategory
 )
-from academic.models import Student
-from administration.models import Term
-from users.models import CustomUser, Accountant
-from administration.serializers import TermSerializer
-from sis.serializers import StudentSerializer
-from users.serializers import AccountantSerializer, UserSerializer
+# from academic.models import Student
+# from administration.models import Term, AcademicYear
+# from academic.models import GradeLevel, ClassLevel
 
 
-class ReceiptAllocationSerializer(serializers.ModelSerializer):
+
+class FeeStructureSerializer(serializers.ModelSerializer):
+    """Serializer for FeeStructure model."""
+    academic_year_name = serializers.CharField(
+        source='academic_year.name',
+        read_only=True
+    )
+    term_name = serializers.CharField(
+        source='term.name',
+        read_only=True,
+        allow_null=True
+    )
+    grade_level_names = serializers.SerializerMethodField()
+    class_level_names = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+
     class Meta:
-        model = ReceiptAllocation
-        fields = ["id", "name", "abbr"]
+        model = FeeStructure
+        fields = [
+            'id',
+            'name',
+            'fee_type',
+            'amount',
+            'academic_year',
+            'academic_year_name',
+            'term',
+            'term_name',
+            'grade_levels',
+            'grade_level_names',
+            'class_levels',
+            'class_level_names',
+            'is_mandatory',
+            'due_date',
+            'created_at',
+            'updated_at',
+            'created_by',
+            'created_by_name',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_grade_level_names(self, obj):
+        """Return list of grade level names."""
+        return [grade.name for grade in obj.grade_levels.all()]
+
+    def get_class_level_names(self, obj):
+        """Return list of class level names."""
+        return [cls.name for cls in obj.class_levels.all()]
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.username
+        return None
+
+    def validate(self, data):
+        """Validate fee structure data."""
+        if data.get('amount', 0) <= 0:
+            raise serializers.ValidationError({
+                'amount': 'Amount must be a positive value.'
+            })
+
+        if data.get('term') and data.get('due_date'):
+            term = data['term']
+            due_date = data['due_date']
+            if due_date < term.start_date or due_date > term.end_date:
+                raise serializers.ValidationError({
+                    'due_date': f'Due date must be between {term.start_date} and {term.end_date}'
+                })
+
+        return data
 
 
-class PaymentAllocationSerializer(serializers.ModelSerializer):
+class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
+    """Serializer for StudentFeeAssignment model."""
+    student_name = serializers.CharField(
+        source='student.full_name',
+        read_only=True
+    )
+    student_admission_number = serializers.CharField(
+        source='student.admission_number',
+        read_only=True
+    )
+    fee_structure_name = serializers.CharField(
+        source='fee_structure.name',
+        read_only=True
+    )
+    fee_type = serializers.CharField(
+        source='fee_structure.fee_type',
+        read_only=True
+    )
+    term_name = serializers.CharField(
+        source='term.name',
+        read_only=True
+    )
+    academic_year_name = serializers.CharField(
+        source='term.academic_year.name',
+        read_only=True
+    )
+    balance = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True
+    )
+    payment_status = serializers.CharField(read_only=True)
+    is_fully_paid = serializers.BooleanField(read_only=True)
+
     class Meta:
-        model = PaymentAllocation
-        fields = ["id", "name", "abbr"]
+        model = StudentFeeAssignment
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'student_admission_number',
+            'fee_structure',
+            'fee_structure_name',
+            'fee_type',
+            'term',
+            'term_name',
+            'academic_year_name',
+            'amount_owed',
+            'amount_paid',
+            'balance',
+            'is_waived',
+            'waived_reason',
+            'waived_by',
+            'waived_date',
+            'payment_status',
+            'is_fully_paid',
+            'assigned_date',
+            'last_payment_date',
+        ]
+        read_only_fields = [
+            'amount_paid',
+            'assigned_date',
+            'last_payment_date',
+            'waived_date'
+        ]
+
+
+class FeeAdjustmentSerializer(serializers.ModelSerializer):
+    """Serializer for fee adjustments."""
+    adjusted_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FeeAdjustment
+        fields = [
+            'id',
+            'fee_assignment',
+            'old_amount',
+            'new_amount',
+            'reason',
+            'adjusted_by',
+            'adjusted_by_name',
+            'adjusted_date',
+        ]
+        read_only_fields = ['adjusted_date']
+
+    def get_adjusted_by_name(self, obj):
+        if obj.adjusted_by:
+            return f"{obj.adjusted_by.first_name} {obj.adjusted_by.last_name}".strip()
+        return None
+
+
+class FeePaymentAllocationSerializer(serializers.ModelSerializer):
+    """Serializer for fee payment allocations."""
+    fee_structure_name = serializers.CharField(
+        source='fee_assignment.fee_structure.name',
+        read_only=True
+    )
+    fee_type = serializers.CharField(
+        source='fee_assignment.fee_structure.fee_type',
+        read_only=True
+    )
+
+    class Meta:
+        model = FeePaymentAllocation
+        fields = [
+            'id',
+            'receipt',
+            'fee_assignment',
+            'fee_structure_name',
+            'fee_type',
+            'amount',
+            'allocated_date',
+            'allocated_by',
+        ]
+        read_only_fields = ['allocated_date']
 
 
 class ReceiptSerializer(serializers.ModelSerializer):
-    student = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all())
-    paid_for = serializers.PrimaryKeyRelatedField(
-        queryset=ReceiptAllocation.objects.all()
+    """Serializer for Receipt model."""
+    student_name = serializers.CharField(
+        source='student.full_name',
+        read_only=True,
+        allow_null=True
     )
-    received_by = serializers.PrimaryKeyRelatedField(queryset=Accountant.objects.all())
-    term = serializers.PrimaryKeyRelatedField(queryset=Term.objects.all())
-
-    student_details = StudentSerializer(read_only=True, source="student")
-    paid_for_details = ReceiptAllocationSerializer(read_only=True, source="paid_for")
-    received_by_details = AccountantSerializer(read_only=True, source="received_by")
-    term_details = TermSerializer(read_only=True, source="term")
+    student_admission_number = serializers.CharField(
+        source='student.admission_number',
+        read_only=True,
+        allow_null=True
+    )
+    term_name = serializers.CharField(
+        source='term.name',
+        read_only=True,
+        allow_null=True
+    )
+    received_by_name = serializers.SerializerMethodField()
+    allocated_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True
+    )
+    unallocated_amount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True
+    )
+    fee_allocations = FeePaymentAllocationSerializer(many=True, read_only=True)
 
     class Meta:
         model = Receipt
-        fields = (
-            "id",
-            "receipt_number",
-            "date",
-            "payer",
-            "paid_for",
-            "paid_for_details",
-            "student",
-            "student_details",
-            "amount",
-            "term",
-            "term_details",
-            "paid_through",
-            "payment_date",
-            "status",
-            "received_by",
-            "received_by_details",
-        )
+        fields = [
+            'id',
+            'receipt_number',
+            'date',
+            'payer',
+            'student',
+            'student_name',
+            'student_admission_number',
+            'amount',
+            'paid_through',
+            'term',
+            'term_name',
+            'payment_date',
+            'reference_number',
+            'status',
+            'received_by',
+            'received_by_name',
+            'remarks',
+            'allocated_amount',
+            'unallocated_amount',
+            'fee_allocations',
+        ]
+        read_only_fields = ['receipt_number', 'date']
 
-    def validate_amount(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("Amount must be a positive value.")
-        return value
+    def get_received_by_name(self, obj):
+        if obj.received_by:
+            return f"{obj.received_by.user.first_name} {obj.received_by.user.last_name}".strip()
+        return None
 
-    def create(self, validated_data):
-        """
-        Override create to apply payment to student's DebtRecords.
-        """
-        receipt = Receipt.objects.create(**validated_data)
 
-        if (
-            receipt.student
-            and receipt.paid_for
-            and receipt.paid_for.name.lower() == "school fees"
-        ):
-            self.apply_payment_to_debt(receipt.student, receipt.amount, receipt)
+class PaymentCategorySerializer(serializers.ModelSerializer):
+    """Serializer for PaymentCategory model."""
 
-        return receipt
-
-    def apply_payment_to_debt(self, student, amount, receipt):
-        """
-        Distribute payment across unpaid DebtRecords (oldest first).
-        Create PaymentRecords linked to each DebtRecord.
-        """
-        unpaid_debts = student.debt_records.filter(is_reversed=False).order_by(
-            "term__start_date"
-        )
-        remaining = amount
-
-        for debt in unpaid_debts:
-            if remaining <= 0:
-                break
-
-            debt_balance = debt.balance
-            pay_amount = min(remaining, debt_balance)
-
-            if pay_amount > 0:
-                # Apply payment to debt
-                debt.apply_payment(pay_amount)
-
-                # Create a PaymentRecord
-                PaymentRecord.objects.create(
-                    student=student,
-                    debt_record=debt,
-                    amount=pay_amount,
-                    method=receipt.paid_through,
-                    reference=f"Receipt #{receipt.receipt_number}",
-                    note=f"Payment via receipt {receipt.id}",
-                    processed_by=receipt.received_by,
-                )
-
-                remaining -= pay_amount
+    class Meta:
+        model = PaymentCategory
+        fields = ['id', 'name', 'abbr', 'description']
 
 
 class PaymentSerializer(serializers.ModelSerializer):
-    paid_for = PaymentAllocationSerializer(read_only=True)
-    paid_by = AccountantSerializer(read_only=True)
-    user = UserSerializer(read_only=True)
-    paid_for_id = serializers.PrimaryKeyRelatedField(
-        queryset=PaymentAllocation.objects.all(), source="paid_for", write_only=True
+    """Serializer for outgoing Payment model."""
+    category_name = serializers.CharField(
+        source='category.name',
+        read_only=True,
+        allow_null=True
     )
-    paid_by_id = serializers.PrimaryKeyRelatedField(
-        queryset=Accountant.objects.all(), source="paid_by", write_only=True
-    )
-    user_id = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(),
-        source="user",
-        write_only=True,
-        required=False,
-    )
+    paid_by_name = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
         fields = [
-            "id",
-            "payment_number",
-            "date",
-            "paid_to",
-            "amount",
-            "status",
-            "paid_for",
-            "paid_through",
-            "paid_by",
-            "user",
-            "paid_for_id",
-            "paid_by_id",
-            "user_id",
+            'id',
+            'payment_number',
+            'date',
+            'paid_to',
+            'user',
+            'user_name',
+            'category',
+            'category_name',
+            'paid_through',
+            'amount',
+            'reference_number',
+            'description',
+            'status',
+            'paid_by',
+            'paid_by_name',
         ]
+        read_only_fields = ['payment_number', 'date']
 
-    def validate_amount(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("Amount must be a positive value.")
-        return value
+    def get_paid_by_name(self, obj):
+        if obj.paid_by:
+            return f"{obj.paid_by.user.first_name} {obj.paid_by.user.last_name}".strip()
+        return None
 
-
-class DebtRecordSerializer(serializers.ModelSerializer):
-    term_name = serializers.CharField(source="term.name", read_only=True)
-    student_name = serializers.CharField(source="student.full_name", read_only=True)
-    balance = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-
-    class Meta:
-        model = DebtRecord
-        fields = [
-            "id",
-            "student",
-            "student_name",
-            "term",
-            "term_name",
-            "amount_added",
-            "amount_paid",
-            "balance",
-            "note",
-            "timestamp",
-            "is_reversed",
-            "reversed_on",
-        ]
+    def get_user_name(self, obj):
+        if obj.user:
+            return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
+        return None
 
 
-class PaymentRecordSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source="student.full_name", read_only=True)
-    term_name = serializers.CharField(source="debt_record.term.name", read_only=True)
-    processed_by_name = serializers.CharField(
-        source="processed_by.full_name", read_only=True
-    )
-
-    class Meta:
-        model = PaymentRecord
-        fields = [
-            "id",
-            "student",
-            "student_name",
-            "debt_record",
-            "term_name",
-            "amount",
-            "method",
-            "reference",
-            "note",
-            "paid_on",
-            "processed_by",
-            "processed_by_name",
-        ]
-
-
-class DebtRecordSummarySerializer(serializers.ModelSerializer):
-    term = TermSerializer(read_only=True)
-    balance = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-
-    class Meta:
-        model = DebtRecord
-        fields = ["id", "term", "amount_added", "amount_paid", "balance", "is_reversed"]
-
-
-class PaymentRecordSummarySerializer(serializers.ModelSerializer):
-    term_name = serializers.CharField(source="debt_record.term.name", read_only=True)
-
-    class Meta:
-        model = PaymentRecord
-        fields = ["id", "amount", "method", "reference", "note", "paid_on", "term_name"]
-
-
-class StudentDebtOverviewSerializer(serializers.ModelSerializer):
-    full_name = serializers.CharField(read_only=True)
-    debt = serializers.SerializerMethodField()
-    unpaid_debts = serializers.SerializerMethodField()
-    payments = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Student
-        fields = [
-            "id",
-            "admission_number",
-            "full_name",
-            "class_level",
-            "class_of_year",
-            "debt",
-            "unpaid_debts",
-            "payments",
-        ]
-
-    def get_debt(self, obj):
-        return obj.debt  # Uses the @property method on Student model
-
-    def get_unpaid_debts(self, obj):
-        unpaid = obj.debt_records.filter(is_reversed=False).exclude(
-            amount_paid__gte=models.F("amount_added")
-        )
-        return DebtRecordSummarySerializer(unpaid, many=True).data
-
-    def get_payments(self, obj):
-        payments = obj.payments.order_by("-paid_on")[:10]  # Latest 10 payments
-        return PaymentRecordSummarySerializer(payments, many=True).data
+class StudentFeeBalanceSerializer(serializers.Serializer):
+    """Serializer for student fee balance summary."""
+    student = serializers.IntegerField()
+    student_name = serializers.CharField()
+    student_admission_number = serializers.CharField()
+    term = serializers.IntegerField(allow_null=True)
+    term_name = serializers.CharField(allow_null=True)
+    total_fees = serializers.DecimalField(max_digits=10, decimal_places=2)
+    total_paid = serializers.DecimalField(max_digits=10, decimal_places=2)
+    balance = serializers.DecimalField(max_digits=10, decimal_places=2)
+    status = serializers.CharField()
+    fee_breakdown = serializers.ListField()

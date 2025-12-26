@@ -1,0 +1,104 @@
+{% extends "email/base.html" %}
+
+{% block title %}Application Received - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Application Received</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Thank you for submitting an admission application for <strong>{{ student_name }}</strong> to {{ school_name }}.
+    We have received your application and it is now being reviewed by our admissions team.
+</p>
+
+<!-- Info Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #f0f9ff; border-left: 4px solid {{ school_primary_color|default:'#3b82f6' }}; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Application Details:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Application Number:</strong> {{ application_number }}
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Class Applied For:</strong> {{ class_level }}
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Academic Session:</strong> {{ academic_session }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Date Submitted:</strong> {{ submission_date }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">What Happens Next?</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">1️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">Our admissions team will review your application</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">2️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">You may be contacted for additional documents or information</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">3️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">If required, we will schedule an entrance exam or interview</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: {{ school_primary_color|default:'#3b82f6' }}; font-size: 18px;">4️⃣</span>
+            <span style="color: #4b5563; margin-left: 12px;">You will receive notification of our admission decision</span>
+        </td>
+    </tr>
+</table>
+
+<!-- Tracking Info -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Track Your Application:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px;">
+                You can track your application status at any time using your tracking token:
+            </p>
+            <p style="margin: 0 0 12px 0; color: #78350f; font-family: monospace; font-size: 14px; word-break: break-all;">
+                {{ tracking_token }}
+            </p>
+            <p style="margin: 0; color: #92400e; font-size: 12px;">
+                ⚠️ Please keep this token safe and confidential
+            </p>
+        </td>
+    </tr>
+</table>
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ tracking_url }}" style="display: inline-block; padding: 14px 32px; background-color: {{ school_primary_color|default:'#3b82f6' }}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                Track Application Status
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you have any questions about your application, please contact our admissions office at {{ admissions_email }} or {{ admissions_phone }}.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    Best regards,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "email/base.txt" %}
+
+{% block content %}
+Welcome, {{ parent_name }}!
+
+Your parent/guardian account has been successfully created. You can now log in to access the portal.
+
+Login Details:
+- Portal: {{ portal_url }}
+- Email: {{ recipient_email }}
+
+Features Available:
+• View your children's academic progress
+• Check attendance records
+• Monitor fee payments and balances
+• Access report cards and grades
+• Communicate with teachers and staff
+
+If you have any questions or need assistance, please contact the school administration.
+
+Best regards,
+{{ school_name }} Administration Team
+{% endblock %}

@@ -1,9 +1,11 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from academic.views import (
     SubjectListView,
     SubjectDetailView,
     BulkUploadSubjectsView,
     ClassRoomView,
+    ClassRoomDetailView,
     BulkUploadClassRoomsView,
     DepartmentListCreateView,
     DepartmentDetailView,
@@ -21,9 +23,40 @@ from academic.views import (
     StudentClassDetailView,
     BulkUploadStudentClassView,
 )
+from academic.teacher_views import (
+    TeacherMyClassesView,
+    ClassroomStudentsView,
+)
+from academic.views_promotions import (
+    PromotionRuleViewSet,
+    StudentPromotionViewSet
+)
+from academic.views_class_advancement import (
+    ClassAdvancementViewSet,
+    StreamAssignmentViewSet,
+    StudentEnrollmentViewSet
+)
+from academic.views_student_portal import (
+    StudentAuthViewSet,
+    StudentPortalViewSet
+)
 
+# Router for promotion and class advancement endpoints (Phase 2.1 & 2.2)
+router = DefaultRouter()
+router.register(r'promotion-rules', PromotionRuleViewSet, basename='promotion-rules')
+router.register(r'promotions', StudentPromotionViewSet, basename='promotions')
+router.register(r'class-advancement', ClassAdvancementViewSet, basename='class-advancement')
+router.register(r'stream-assignments', StreamAssignmentViewSet, basename='stream-assignments')
+router.register(r'enrollments', StudentEnrollmentViewSet, basename='enrollments')
+
+# Phase 1.6: Student Portal
+router.register(r'students/auth', StudentAuthViewSet, basename='student-auth')
+router.register(r'students/portal', StudentPortalViewSet, basename='student-portal')
 
 urlpatterns = [
+    # Promotion endpoints (Phase 2.1)
+    path('', include(router.urls)),
+
     # Department URLs
     path(
         "departments/",
@@ -76,8 +109,16 @@ urlpatterns = [
         name="reason-left-detail",
     ),
     # Stream URLs
-    path("streams/", StreamListCreateView.as_view(), name="stream-list-create"),
-    path("streams/<int:pk>/", StreamDetailView.as_view(), name="stream-detail"),
+    path(
+        "streams/",
+        StreamListCreateView.as_view(),
+        name="stream-list-create",
+    ),
+    path(
+        "streams/<int:pk>/",
+        StreamDetailView.as_view(),
+        name="stream-detail",
+    ),
     path("subjects/", SubjectListView.as_view(), name="subject-list"),
     path("subjects/<int:id>/", SubjectDetailView.as_view(), name="subject-detail"),
     path(
@@ -86,6 +127,8 @@ urlpatterns = [
         name="subject-bulk-upload",
     ),
     path("classrooms/", ClassRoomView.as_view(), name="classroom-list"),
+    path('classrooms/<int:pk>/', ClassRoomDetailView.as_view(), name='classroom-detail'),
+
     path(
         "classrooms/bulk-upload/",
         BulkUploadClassRoomsView.as_view(),
@@ -107,4 +150,17 @@ urlpatterns = [
         BulkUploadStudentClassView.as_view(),
         name="student-class-bulk-upload",
     ),
+    # Teacher-specific URLs
+    path(
+        "allocated-subjects/my-classes/",
+        TeacherMyClassesView.as_view(),
+        name="teacher-my-classes"
+    ),
+    path(
+        "classrooms/<int:classroom_id>/students/",
+        ClassroomStudentsView.as_view(),
+        name="classroom-students"
+    ),
+    # Examination/Assessment URLs (includes assessments, marks, results, grade-scales)
+    path("", include("api.examination.urls")),
 ]

@@ -1,4 +1,5 @@
 from rest_framework.views import APIView
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -33,125 +34,42 @@ class TeacherAttendanceListView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class TeacherAttendanceDetailView(APIView):
-    def get(self, request, pk):
-        try:
-            attendance = TeachersAttendance.objects.get(pk=pk)
-        except TeachersAttendance.DoesNotExist:
-            raise NotFound(detail="Teacher Attendance record not found.")
+class TeacherAttendanceDetailView(RetrieveUpdateDestroyAPIView):
+    """
+    API View to handle retrieve, update, and delete operations for a single TeacherAttendance record.
+    """
+    serializer_class = TeacherAttendanceSerializer
+    queryset = TeachersAttendance.objects.all()
+    lookup_field = 'pk'
 
-        serializer = TeacherAttendanceSerializer(attendance)
-        return Response(serializer.data)
+class StudentAttendanceListView(ListCreateAPIView):
+    """
+    API View to handle listing and creating StudentAttendance records.
+    """
+    serializer_class = StudentAttendanceSerializer
+    queryset = StudentAttendance.objects.all()
 
-    def put(self, request, pk):
-        try:
-            attendance = TeachersAttendance.objects.get(pk=pk)
-        except TeachersAttendance.DoesNotExist:
-            raise NotFound(detail="Teacher Attendance record not found.")
-
-        serializer = TeacherAttendanceSerializer(attendance, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk):
-        try:
-            attendance = TeachersAttendance.objects.get(pk=pk)
-        except TeachersAttendance.DoesNotExist:
-            raise NotFound(detail="Teacher Attendance record not found.")
-
-        attendance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+class StudentAttendanceDetailView(RetrieveUpdateDestroyAPIView):
+    """
+    API View to handle retrieve, update, and delete operations for a single StudentAttendance record.
+    """
+    serializer_class = StudentAttendanceSerializer
+    queryset = StudentAttendance.objects.all()
+    lookup_field = 'pk'
 
 
-class StudentAttendanceListView(APIView):
-    def get(self, request):
-        attendances = StudentAttendance.objects.all()
-        serializer = StudentAttendanceSerializer(attendances, many=True)
-        return Response(serializer.data)
-
-    def post(self, request):
-        serializer = StudentAttendanceSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class PeriodAttendanceListView(ListCreateAPIView):
+    """
+    API View to handle listing and creating PeriodAttendance records.
+    """
+    serializer_class = PeriodAttendanceSerializer
+    queryset = PeriodAttendance.objects.all()
 
 
-class StudentAttendanceDetailView(APIView):
-    def get(self, request, pk):
-        try:
-            attendance = StudentAttendance.objects.get(pk=pk)
-        except StudentAttendance.DoesNotExist:
-            raise NotFound(detail="Student Attendance record not found.")
-
-        serializer = StudentAttendanceSerializer(attendance)
-        return Response(serializer.data)
-
-    def put(self, request, pk):
-        try:
-            attendance = StudentAttendance.objects.get(pk=pk)
-        except StudentAttendance.DoesNotExist:
-            raise NotFound(detail="Student Attendance record not found.")
-
-        serializer = StudentAttendanceSerializer(attendance, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk):
-        try:
-            attendance = StudentAttendance.objects.get(pk=pk)
-        except StudentAttendance.DoesNotExist:
-            raise NotFound(detail="Student Attendance record not found.")
-
-        attendance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class PeriodAttendanceListView(APIView):
-    def get(self, request):
-        attendances = PeriodAttendance.objects.all()
-        serializer = PeriodAttendanceSerializer(attendances, many=True)
-        return Response(serializer.data)
-
-    def post(self, request):
-        serializer = PeriodAttendanceSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class PeriodAttendanceDetailView(APIView):
-    def get(self, request, pk):
-        try:
-            attendance = PeriodAttendance.objects.get(pk=pk)
-        except PeriodAttendance.DoesNotExist:
-            raise NotFound(detail="Period Attendance record not found.")
-
-        serializer = PeriodAttendanceSerializer(attendance)
-        return Response(serializer.data)
-
-    def put(self, request, pk):
-        try:
-            attendance = PeriodAttendance.objects.get(pk=pk)
-        except PeriodAttendance.DoesNotExist:
-            raise NotFound(detail="Period Attendance record not found.")
-
-        serializer = PeriodAttendanceSerializer(attendance, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk):
-        try:
-            attendance = PeriodAttendance.objects.get(pk=pk)
-        except PeriodAttendance.DoesNotExist:
-            raise NotFound(detail="Period Attendance record not found.")
-
-        attendance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+class PeriodAttendanceDetailView(RetrieveUpdateDestroyAPIView):
+    """
+    API View to handle retrieve, update, and delete operations for a single PeriodAttendance record.
+    """
+    serializer_class = PeriodAttendanceSerializer
+    queryset = PeriodAttendance.objects.all()
+    lookup_field = 'pk'

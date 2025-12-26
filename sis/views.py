@@ -1,5 +1,6 @@
 import openpyxl
 from django.db import transaction
+from django.db.models import Q
 from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend
 from rest_framework import views
 from rest_framework.views import APIView
@@ -16,25 +17,53 @@ from .serializers import StudentSerializer
 # Students filter
 
 
+class StudentPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class StudentFilter(FilterSet):
     first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
     middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
     last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
-    class_level = CharFilter(method="filter_by_class_level")
+    admission_number = CharFilter(field_name="admission_number", lookup_expr="icontains")
+    status = CharFilter(field_name="status", lookup_expr="iexact")
+    # grade_level filters by the grade level ID (derived from class_level.grade_level)
+    grade_level = CharFilter(field_name="class_level__grade_level", lookup_expr="exact")
+    # class_level filters by the class level ID directly
+    class_level = CharFilter(field_name="class_level", lookup_expr="exact")
+    search = CharFilter(method="filter_search")
 
     class Meta:
         model = Student
-        fields = ["first_name", "middle_name", "last_name", "class_level"]
+        fields = ["first_name", "middle_name", "last_name", "admission_number", "status", "grade_level", "class_level", "search"]
 
-    def filter_by_class_level(self, queryset, name, value):
-        return queryset.filter(class_level__name__icontains=value)
+    def filter_search(self, queryset, name, value):
+        """Search across multiple fields"""
+        return queryset.filter(
+            Q(first_name__icontains=value) |
+            Q(last_name__icontains=value) |
+            Q(middle_name__icontains=value) |
+            Q(admission_number__icontains=value)
+        )
 
 
 class StudentListView(generics.ListCreateAPIView):
-    queryset = Student.objects.all()
+    queryset = Student.objects.all().select_related(
+        'class_level',
+        'class_level__grade_level',
+        'classroom',
+        'classroom__name',
+        'classroom__stream',
+        'parent_guardian',
+        'reason_left'
+    )
     serializer_class = StudentSerializer
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_class = StudentFilter
+    pagination_class = StudentPagination
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -77,6 +106,7 @@ class BulkUploadStudentsView(APIView):
     """
     API View to handle bulk uploading of students from an Excel file.
     """
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         file = request.FILES.get("file")

@@ -1,0 +1,25 @@
+Welcome to the Team, {{ recipient_name }}!
+
+You've been invited to join {{ school_name }} as a Teacher. We're excited to have you on board!
+
+As a teacher, you'll have access to:
+- Class management and student records
+- Grade submissions and assessments
+- Attendance tracking
+- Lesson planning and curriculum management
+- Communication with parents and staff
+
+ACTION REQUIRED:
+Please complete your account setup within {{ days_until_expiry }} days. After this period, the invitation link will expire.
+
+To set up your password and access your account, visit:
+{{ invitation_url }}
+
+If you did not expect this invitation or have any questions, please contact the school administration.
+
+Best regards,
+{{ school_name }} Administration Team
+
+---
+This is an automated message from {{ app_name }}
+© 2025 {{ school_name }}. All rights reserved.

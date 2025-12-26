@@ -1,0 +1,133 @@
+{% extends "email/base.html" %}
+
+{% block title %}Entrance Exam Scheduled - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Entrance Exam Scheduled</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Your application for <strong>{{ student_name }}</strong> has been reviewed, and we are pleased to invite the applicant for an entrance examination.
+</p>
+
+<!-- Exam Details -->
+<table style="width: 100%; margin: 24px 0; background-color: #dcfce7; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 16px 0; color: #1f2937; font-weight: 600; font-size: 18px;">Examination Details:</p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>📅 Date:</strong> {{ exam_date }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>🕐 Time:</strong> {{ exam_time }}
+            </p>
+            <p style="margin: 0 0 12px 0; color: #4b5563;">
+                <strong>📍 Venue:</strong> {{ exam_venue }}
+            </p>
+            <p style="margin: 0; color: #4b5563;">
+                <strong>🎓 Application Number:</strong> {{ application_number }}
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">What to Bring:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">This email (printed or on your phone)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Valid photo ID (Birth Certificate or School ID)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Writing materials (pen, pencil, eraser)</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #22c55e; font-size: 18px;">✓</span>
+            <span style="color: #4b5563; margin-left: 12px;">Water bottle (if needed)</span>
+        </td>
+    </tr>
+</table>
+
+<h3 style="margin: 24px 0 16px 0; color: #1f2937; font-size: 18px;">Important Instructions:</h3>
+
+<table style="width: 100%; margin: 16px 0;">
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">⚠️</span>
+            <span style="color: #4b5563; margin-left: 12px;">Please arrive at least 30 minutes before the exam time</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">⚠️</span>
+            <span style="color: #4b5563; margin-left: 12px;">Late arrivals may not be allowed to take the exam</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">⚠️</span>
+            <span style="color: #4b5563; margin-left: 12px;">Electronic devices (phones, calculators) are not permitted during the exam</span>
+        </td>
+    </tr>
+    <tr>
+        <td style="padding: 8px 0;">
+            <span style="color: #f59e0b; font-size: 18px;">⚠️</span>
+            <span style="color: #4b5563; margin-left: 12px;">Parents/guardians may wait in the designated waiting area</span>
+        </td>
+    </tr>
+</table>
+
+{% if exam_fee_required %}
+<!-- Payment Notice -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Examination Fee:</p>
+            <p style="margin: 0; color: #4b5563;">
+                {% if exam_fee_paid %}
+                    ✅ Your examination fee has been paid. Thank you!
+                {% else %}
+                    ⚠️ Please ensure you have paid the examination fee of <strong>₦{{ exam_fee }}</strong> before the exam date.
+                {% endif %}
+            </p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
+<!-- Button -->
+<table style="width: 100%; margin: 32px 0;">
+    <tr>
+        <td align="center">
+            <a href="{{ tracking_url }}" style="display: inline-block; padding: 14px 32px; background-color: #22c55e; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                View Application Details
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 32px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+    If you need to reschedule or have any questions, please contact our admissions office at {{ admissions_email }} or {{ admissions_phone }} at least 48 hours before the exam date.
+</p>
+
+<p style="margin: 0; color: #4b5563; font-size: 16px;">
+    We look forward to seeing {{ student_name }} on exam day!<br><br>
+    Best regards,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

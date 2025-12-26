@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from administration.common_objs import *
 from .managers import CustomUserManager
+from .invitation_models import UserInvitation
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
@@ -20,7 +21,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(
         max_length=100, blank=True, null=True, verbose_name="last name"
     )
-    phone_number = models.CharField(blank=True, null=True)
+    phone_number = models.CharField(max_length=15, unique=True, blank=True, null=True)
     email = models.EmailField(_("email address"), unique=True)
     date_joined = models.DateTimeField(default=timezone.now)
     is_staff = models.BooleanField(default=False)
@@ -28,6 +29,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     is_accountant = models.BooleanField(default=False)
     is_teacher = models.BooleanField(default=False)
     is_parent = models.BooleanField(default=False)
+    is_student = models.BooleanField(default=False, help_text="Phase 1.6: Student portal access")
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -57,7 +59,6 @@ class Accountant(models.Model):
     email = models.EmailField(blank=True, null=True)
     empId = models.CharField(max_length=8, null=True, blank=True, unique=True)
     tin_number = models.CharField(max_length=9, null=True, blank=True)
-    nssf_number = models.CharField(max_length=9, null=True, blank=True)
     salary = models.IntegerField(blank=True, null=True)
     unpaid_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     national_id = models.CharField(max_length=100, blank=True, null=True)
