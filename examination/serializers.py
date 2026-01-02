@@ -8,7 +8,8 @@ from .models import (
     Result,
     TermResult,
     SubjectResult,
-    ReportCard
+    ReportCard,
+    MarkedScript
 )
 
 
@@ -526,3 +527,203 @@ class ReportCardSerializer(serializers.ModelSerializer):
         if obj.generated_by:
             return f"{obj.generated_by.first_name} {obj.generated_by.last_name}"
         return None
+
+
+# ============================================================================
+# MARKED SCRIPT SERIALIZERS
+# ============================================================================
+
+class MarkedScriptListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing marked scripts with readable nested data.
+    """
+    exam_name = serializers.CharField(source='exam.name', read_only=True)
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_admission_number = serializers.CharField(source='student.admission_number', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    subject_code = serializers.CharField(source='subject.subject_code', read_only=True)
+    classroom_name = serializers.SerializerMethodField()
+    uploaded_by_name = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
+    marks_score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MarkedScript
+        fields = [
+            'id',
+            'exam',
+            'exam_name',
+            'student',
+            'student_name',
+            'student_admission_number',
+            'subject',
+            'subject_name',
+            'subject_code',
+            'classroom_name',
+            'marks_entry',
+            'marks_score',
+            'script_file',
+            'file_url',
+            'file_name',
+            'file_size',
+            'uploaded_by',
+            'uploaded_by_name',
+            'uploaded_at',
+            'notes',
+            'visible_to_student',
+            'visible_to_parent'
+        ]
+        read_only_fields = [
+            'id',
+            'file_name',
+            'file_size',
+            'uploaded_at'
+        ]
+
+    def get_classroom_name(self, obj):
+        """
+        Get classroom name from student's current enrollment.
+        Format: "ClassLevel Stream" or just "ClassLevel" if no stream.
+        """
+        from academic.models import StudentClassEnrollment
+
+        # Try to get student's current classroom from enrollment
+        try:
+            enrollment = StudentClassEnrollment.objects.filter(
+                student=obj.student
+            ).order_by('-academic_year__start_date').first()
+
+            if enrollment and enrollment.class_room:
+                classroom = enrollment.class_room
+                class_name = str(classroom.name.name) if classroom.name else "Unknown"
+                if classroom.stream:
+                    return f"{class_name} {classroom.stream.name}"
+                return class_name
+        except Exception:
+            pass
+
+        return "Unknown"
+
+    def get_uploaded_by_name(self, obj):
+        """Get teacher's full name"""
+        if obj.uploaded_by:
+            return f"{obj.uploaded_by.first_name} {obj.uploaded_by.last_name}"
+        return None
+
+    def get_file_url(self, obj):
+        """Get download URL for the marked script"""
+        if obj.script_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.script_file.url)
+        return None
+
+    def get_marks_score(self, obj):
+        """Get associated marks if available"""
+        if obj.marks_entry:
+            return {
+                'points_scored': obj.marks_entry.points_scored,
+                'out_of': obj.marks_entry.exam_name.out_of,
+                'percentage': round((obj.marks_entry.points_scored / obj.marks_entry.exam_name.out_of) * 100, 2) if obj.marks_entry.exam_name.out_of > 0 else 0
+            }
+        return None
+
+
+class MarkedScriptCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating/uploading marked scripts.
+    """
+    class Meta:
+        model = MarkedScript
+        fields = [
+            'id',
+            'exam',
+            'student',
+            'subject',
+            'marks_entry',
+            'script_file',
+            'uploaded_by',
+            'notes',
+            'visible_to_student',
+            'visible_to_parent'
+        ]
+        read_only_fields = ['id']
+
+    def validate(self, data):
+        """
+        Custom validation to ensure teacher authorization.
+        """
+        # Validate that exam, student, and subject are compatible
+        exam = data.get('exam')
+        student = data.get('student')
+        subject = data.get('subject')
+
+        if exam and student:
+            from academic.models import StudentClassEnrollment
+
+            # Check if exam is for student's classroom
+            try:
+                enrollment = StudentClassEnrollment.objects.filter(
+                    student=student
+                ).order_by('-academic_year__start_date').first()
+
+                if enrollment and enrollment.class_room not in exam.classrooms.all():
+                    raise serializers.ValidationError({
+                        'exam': f'This exam is not assigned to {student.full_name}\'s classroom.'
+                    })
+            except Exception:
+                pass
+
+        return data
+
+
+class MarkedScriptBulkUploadSerializer(serializers.Serializer):
+    """
+    Serializer for bulk uploading marked scripts.
+    Accepts multiple files for different students in a single request.
+    """
+    exam_id = serializers.IntegerField(required=True)
+    subject_id = serializers.IntegerField(required=True)
+    student_id = serializers.IntegerField(required=True)
+    script_file = serializers.FileField(required=True)
+    marks_entry_id = serializers.IntegerField(required=False, allow_null=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    visible_to_student = serializers.BooleanField(default=False)
+    visible_to_parent = serializers.BooleanField(default=False)
+
+    def validate(self, data):
+        """Validate that exam, subject, and student exist"""
+        from .models import ExaminationListHandler
+        from academic.models import Student, Subject
+
+        try:
+            data['exam'] = ExaminationListHandler.objects.get(id=data['exam_id'])
+        except ExaminationListHandler.DoesNotExist:
+            raise serializers.ValidationError({
+                'exam_id': 'Exam not found.'
+            })
+
+        try:
+            data['subject'] = Subject.objects.get(id=data['subject_id'])
+        except Subject.DoesNotExist:
+            raise serializers.ValidationError({
+                'subject_id': 'Subject not found.'
+            })
+
+        try:
+            data['student'] = Student.objects.get(id=data['student_id'])
+        except Student.DoesNotExist:
+            raise serializers.ValidationError({
+                'student_id': 'Student not found.'
+            })
+
+        # Validate marks_entry if provided
+        if data.get('marks_entry_id'):
+            try:
+                data['marks_entry'] = MarksManagement.objects.get(id=data['marks_entry_id'])
+            except MarksManagement.DoesNotExist:
+                raise serializers.ValidationError({
+                    'marks_entry_id': 'Marks entry not found.'
+                })
+
+        return data

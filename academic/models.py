@@ -69,12 +69,12 @@ class Teacher(models.Model):
         blank=True,
     )
     empId = models.CharField(max_length=8, unique=True, null=True, blank=True)
-    tin_number = models.CharField(max_length=9, blank=True, null=True)
+    tin_number = models.CharField(max_length=9, blank=True, null=True, unique=True)
     short_name = models.CharField(max_length=3, blank=True, null=True, unique=True)
     salary = models.IntegerField(blank=True, null=True)
     unpaid_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     subject_specialization = models.ManyToManyField(Subject, blank=True)
-    national_id = models.CharField(max_length=100, blank=True, null=True)
+    national_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     address = models.CharField(max_length=255, blank=True)
     alt_email = models.EmailField(blank=True, null=True)
     designation = models.CharField(max_length=255, blank=True, null=True)
@@ -318,7 +318,6 @@ class Parent(models.Model):
         max_length=10, choices=GENDER_CHOICE, blank=True, null=True
     )
     email = models.EmailField(blank=True, null=True, unique=True)
-    date_of_birth = models.DateField(blank=True, null=True)
     parent_type = models.CharField(
         choices=PARENT_CHOICE, max_length=10, blank=True, null=True
     )
@@ -326,7 +325,7 @@ class Parent(models.Model):
     phone_number = models.CharField(
         max_length=150, unique=True, help_text="Personal phone number"
     )
-    national_id = models.CharField(max_length=100, blank=True, null=True)
+    national_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     occupation = models.CharField(
         max_length=255, blank=True, null=True, help_text="Current occupation"
     )

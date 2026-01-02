@@ -551,3 +551,137 @@ class ReportCard(models.Model):
         self.download_count += 1
         self.last_downloaded = timezone.now()
         self.save(update_fields=['download_count', 'last_downloaded'])
+
+
+# ============================================================================
+# MARKED EXAM SCRIPTS MODEL
+# ============================================================================
+
+class MarkedScript(models.Model):
+    """
+    Stores marked exam/test scripts uploaded by teachers.
+    Allows teachers to upload scanned or digital copies of graded assessments.
+    """
+    exam = models.ForeignKey(
+        ExaminationListHandler,
+        on_delete=models.CASCADE,
+        related_name='marked_scripts',
+        help_text="Associated examination/assessment"
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='marked_scripts',
+        help_text="Student whose script this is"
+    )
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name='marked_scripts',
+        help_text="Subject of the assessment"
+    )
+    marks_entry = models.ForeignKey(
+        MarksManagement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='marked_scripts',
+        help_text="Associated marks entry (if applicable)"
+    )
+
+    # File upload
+    script_file = models.FileField(
+        upload_to='examination/marked_scripts/%Y/%m/',
+        help_text="Marked exam script file (PDF, images, etc.)"
+    )
+    file_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Original filename"
+    )
+    file_size = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="File size in bytes"
+    )
+
+    # Metadata
+    uploaded_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name='uploaded_marked_scripts',
+        help_text="Teacher who uploaded the script"
+    )
+    uploaded_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Upload timestamp"
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Additional notes about the marked script"
+    )
+
+    # Visibility control
+    visible_to_student = models.BooleanField(
+        default=False,
+        help_text="Whether student can view this marked script"
+    )
+    visible_to_parent = models.BooleanField(
+        default=False,
+        help_text="Whether parent can view this marked script"
+    )
+
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['exam', 'student', 'subject']),
+            models.Index(fields=['student']),
+            models.Index(fields=['uploaded_by']),
+            models.Index(fields=['uploaded_at']),
+        ]
+        verbose_name = "Marked Script"
+        verbose_name_plural = "Marked Scripts"
+
+    def __str__(self):
+        return f"{self.exam.name} - {self.student.full_name} - {self.subject.name}"
+
+    def save(self, *args, **kwargs):
+        """Auto-capture file metadata"""
+        if self.script_file:
+            if not self.file_name:
+                self.file_name = self.script_file.name
+            if not self.file_size:
+                self.file_size = self.script_file.size
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        """Validate that teacher is authorized to upload for this subject/student"""
+        if self.uploaded_by and self.subject and self.student:
+            from academic.models import AllocatedSubject, StudentClassEnrollment
+
+            # Get student's classroom
+            try:
+                enrollment = StudentClassEnrollment.objects.filter(
+                    student=self.student
+                ).order_by('-academic_year__start_date').first()
+
+                if enrollment:
+                    student_classroom = enrollment.class_room
+
+                    # Check if teacher is allocated to this subject and classroom
+                    is_allocated = AllocatedSubject.objects.filter(
+                        teacher_name=self.uploaded_by,
+                        subject=self.subject,
+                        class_room=student_classroom
+                    ).exists()
+
+                    if not is_allocated:
+                        raise ValidationError(
+                            f"You are not authorized to upload marked scripts for {self.subject.name} "
+                            f"in {student_classroom}. Please check your subject allocations."
+                        )
+            except Exception:
+                pass
+
+        super().clean()

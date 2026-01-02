@@ -20,6 +20,7 @@ from .models import (
 )
 from attendance.models import StudentAttendance, AttendanceStatus
 from administration.models import AcademicYear
+from schedule.models import Period
 
 
 class TeacherMyClassesView(APIView):
@@ -48,13 +49,34 @@ class TeacherMyClassesView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Get all subject allocations for this teacher in the current academic year
+        # Get homeroom classes (where teacher is class_teacher)
+        homeroom_classes = []
+        homeroom_classrooms = ClassRoom.objects.filter(
+            class_teacher=teacher
+        ).select_related('name')
+
+        for classroom in homeroom_classrooms:
+            # Count active students in this classroom
+            student_count = Student.objects.filter(
+                classroom=classroom,
+                is_active=True
+            ).count()
+
+            homeroom_classes.append({
+                'id': f'homeroom_{classroom.id}',
+                'classroom_id': classroom.id,
+                'classroom_name': str(classroom),
+                'grade_level_name': classroom.name.name if classroom.name else '',
+                'student_count': student_count,
+            })
+
+        # Get subject allocations (teaching assignments)
+        teaching_assignments = []
         allocations = AllocatedSubject.objects.filter(
             teacher_name=teacher,
             academic_year=current_academic_year
         ).select_related('class_room', 'subject', 'class_room__name')
 
-        classes_data = []
         for allocation in allocations:
             classroom = allocation.class_room
 
@@ -64,7 +86,7 @@ class TeacherMyClassesView(APIView):
                 is_active=True
             ).count()
 
-            # Check if teacher is the classroom teacher (homeroom)
+            # Check if teacher is also the homeroom teacher for this class
             is_class_teacher = classroom.class_teacher == teacher
 
             # Get schedule (you can expand this based on your timetable model)
@@ -79,7 +101,7 @@ class TeacherMyClassesView(APIView):
             #         'end_time': entry.end_time.strftime('%H:%M:%S')
             #     })
 
-            classes_data.append({
+            teaching_assignments.append({
                 'id': allocation.id,
                 'classroom_id': classroom.id,
                 'classroom_name': str(classroom),
@@ -90,7 +112,10 @@ class TeacherMyClassesView(APIView):
                 'schedule': schedule
             })
 
-        return Response(classes_data, status=status.HTTP_200_OK)
+        return Response({
+            'homeroom_classes': homeroom_classes,
+            'teaching_assignments': teaching_assignments
+        }, status=status.HTTP_200_OK)
 
 
 class ClassroomStudentsView(APIView):
@@ -143,14 +168,15 @@ class ClassroomStudentsView(APIView):
         students = Student.objects.filter(
             classroom=classroom,
             is_active=True
-        ).values(
+        ).select_related('user').values(
             'id',
             'admission_number',
             'first_name',
             'last_name',
-            'email',
             'parent_contact',
-            'image'
+            'phone_number',
+            'image',
+            'user__email'
         ).order_by('admission_number')
 
         # Format the response
@@ -160,8 +186,8 @@ class ClassroomStudentsView(APIView):
                 'admission_number': student['admission_number'],
                 'first_name': student['first_name'].capitalize() if student['first_name'] else '',
                 'last_name': student['last_name'].capitalize() if student['last_name'] else '',
-                'email': student['email'] or '',
-                'phone': student['parent_contact'] or '',
+                'email': student['user__email'] or '',
+                'phone': student['parent_contact'] or student['phone_number'] or '',
                 'photo': student['image'] if student['image'] else None,
                 'status': 'active',
                 'grade_level_name': classroom.name.name if classroom.name else ''
@@ -319,3 +345,57 @@ class BulkMarkAttendanceView(APIView):
         }
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class TeacherMyScheduleView(APIView):
+    """
+    GET /api/academic/timetable/my-schedule/
+    Returns the timetable/schedule for the logged-in teacher.
+    Optionally filter by day: ?day=Monday
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Get the teacher associated with the logged-in user
+        try:
+            teacher = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": "Teacher profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get optional day filter
+        day_filter = request.query_params.get('day')
+
+        # Query all periods for this teacher
+        periods_query = Period.objects.filter(
+            teacher=teacher,
+            is_active=True
+        ).select_related(
+            'classroom',
+            'subject',
+            'subject__subject',
+            'classroom__name'
+        ).order_by('day_of_week', 'start_time')
+
+        # Apply day filter if provided
+        if day_filter:
+            periods_query = periods_query.filter(day_of_week=day_filter)
+
+        # Format the response
+        schedule_data = []
+        for period in periods_query:
+            schedule_data.append({
+                'id': period.id,
+                'day_of_week': period.day_of_week,
+                'start_time': period.start_time.strftime('%H:%M:%S') if period.start_time else '',
+                'end_time': period.end_time.strftime('%H:%M:%S') if period.end_time else '',
+                'subject_name': period.subject.subject.name if period.subject and period.subject.subject else '',
+                'classroom_name': str(period.classroom) if period.classroom else '',
+                'grade_level_name': period.classroom.name.name if period.classroom and period.classroom.name else '',
+                'room_number': period.room_number or '',
+                'is_active': period.is_active
+            })
+
+        return Response(schedule_data, status=status.HTTP_200_OK)

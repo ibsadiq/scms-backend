@@ -298,6 +298,29 @@ class TeacherDetailView(views.APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def patch(self, request, pk, format=None):
+        teacher = self.get_object(pk)
+        serializer = TeacherSerializer(teacher, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated_teacher = serializer.save()
+
+            # Update the linked CustomUser when teacher details change
+            if 'email' in request.data or 'first_name' in request.data or 'last_name' in request.data:
+                try:
+                    user = User.objects.get(email=teacher.email)
+                    if 'email' in request.data:
+                        user.email = updated_teacher.email
+                    if 'first_name' in request.data:
+                        user.first_name = updated_teacher.first_name
+                    if 'last_name' in request.data:
+                        user.last_name = updated_teacher.last_name
+                    user.save()
+                except User.DoesNotExist:
+                    pass  # If user does not exist, no update is needed
+
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     def delete(self, request, pk, format=None):
         teacher = self.get_object(pk)
         teacher.delete()

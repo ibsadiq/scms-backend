@@ -4,7 +4,8 @@ from examination.views import (
     ExaminationViewSet,
     MarksViewSet,
     ResultViewSet,
-    GradeScaleViewSet
+    GradeScaleViewSet,
+    MarkedScriptViewSet
 )
 from examination.views_result_computation import (
     TermResultViewSet,
@@ -36,6 +37,9 @@ router.register(r'subject-results', SubjectResultViewSet, basename='subject-resu
 
 # Report Card endpoints (Phase 1.2)
 router.register(r'report-cards', ReportCardViewSet, basename='report-cards')
+
+# Marked Scripts endpoints (Teacher uploads)
+router.register(r'marked-scripts', MarkedScriptViewSet, basename='marked-scripts')
 
 # Teacher-specific endpoints (Phase 1.3)
 router.register(r'teacher', TeacherDashboardViewSet, basename='teacher')

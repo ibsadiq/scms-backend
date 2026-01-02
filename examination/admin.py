@@ -229,3 +229,84 @@ class ReportCardAdmin(admin.ModelAdmin):
         return bool(obj.pdf_file)
     has_pdf.boolean = True
     has_pdf.short_description = 'PDF Generated'
+
+
+# ============================================================================
+# MARKED SCRIPT ADMIN
+# ============================================================================
+
+@admin.register(MarkedScript)
+class MarkedScriptAdmin(admin.ModelAdmin):
+    list_display = [
+        'get_student_name', 'exam', 'subject', 'uploaded_by',
+        'uploaded_at', 'file_size_display', 'visible_to_student', 'visible_to_parent'
+    ]
+    list_filter = [
+        'exam', 'subject', 'uploaded_by', 'uploaded_at',
+        'visible_to_student', 'visible_to_parent'
+    ]
+    search_fields = [
+        'student__first_name', 'student__last_name',
+        'student__admission_number', 'exam__name',
+        'subject__name', 'file_name'
+    ]
+    readonly_fields = [
+        'file_name', 'file_size', 'uploaded_at'
+    ]
+    fieldsets = (
+        ('Assignment Information', {
+            'fields': ('exam', 'student', 'subject', 'marks_entry')
+        }),
+        ('File Information', {
+            'fields': ('script_file', 'file_name', 'file_size', 'notes')
+        }),
+        ('Upload Details', {
+            'fields': ('uploaded_by', 'uploaded_at')
+        }),
+        ('Visibility Settings', {
+            'fields': ('visible_to_student', 'visible_to_parent')
+        }),
+    )
+
+    actions = ['make_visible_to_students', 'make_visible_to_parents', 'hide_from_students', 'hide_from_parents']
+
+    def get_student_name(self, obj):
+        return obj.student.full_name
+    get_student_name.short_description = 'Student'
+    get_student_name.admin_order_field = 'student__first_name'
+
+    def file_size_display(self, obj):
+        """Display file size in human-readable format"""
+        if obj.file_size:
+            if obj.file_size < 1024:
+                return f"{obj.file_size} B"
+            elif obj.file_size < 1024 * 1024:
+                return f"{obj.file_size / 1024:.2f} KB"
+            else:
+                return f"{obj.file_size / (1024 * 1024):.2f} MB"
+        return "N/A"
+    file_size_display.short_description = 'File Size'
+
+    def make_visible_to_students(self, request, queryset):
+        """Bulk action to make scripts visible to students"""
+        count = queryset.update(visible_to_student=True)
+        self.message_user(request, f'{count} script(s) made visible to students.')
+    make_visible_to_students.short_description = 'Make visible to students'
+
+    def make_visible_to_parents(self, request, queryset):
+        """Bulk action to make scripts visible to parents"""
+        count = queryset.update(visible_to_parent=True)
+        self.message_user(request, f'{count} script(s) made visible to parents.')
+    make_visible_to_parents.short_description = 'Make visible to parents'
+
+    def hide_from_students(self, request, queryset):
+        """Bulk action to hide scripts from students"""
+        count = queryset.update(visible_to_student=False)
+        self.message_user(request, f'{count} script(s) hidden from students.')
+    hide_from_students.short_description = 'Hide from students'
+
+    def hide_from_parents(self, request, queryset):
+        """Bulk action to hide scripts from parents"""
+        count = queryset.update(visible_to_parent=False)
+        self.message_user(request, f'{count} script(s) hidden from parents.')
+    hide_from_parents.short_description = 'Hide from parents'

@@ -26,6 +26,7 @@ from academic.views import (
 from academic.teacher_views import (
     TeacherMyClassesView,
     ClassroomStudentsView,
+    TeacherMyScheduleView,
 )
 from academic.views_promotions import (
     PromotionRuleViewSet,
@@ -160,6 +161,11 @@ urlpatterns = [
         "classrooms/<int:classroom_id>/students/",
         ClassroomStudentsView.as_view(),
         name="classroom-students"
+    ),
+    path(
+        "timetable/my-schedule/",
+        TeacherMyScheduleView.as_view(),
+        name="teacher-my-schedule"
     ),
     # Examination/Assessment URLs (includes assessments, marks, results, grade-scales)
     path("", include("api.examination.urls")),

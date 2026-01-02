@@ -56,11 +56,17 @@ class PublicAdmissionSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
         if not session:
             return Response({
-                'error': 'No active admission session available at this time.'
-            }, status=status.HTTP_404_NOT_FOUND)
+                'active': False,
+                'message': 'No active admission session available at this time.',
+                'session': None
+            }, status=status.HTTP_200_OK)
 
         serializer = self.get_serializer(session)
-        return Response(serializer.data)
+        return Response({
+            'active': True,
+            'message': 'Admission session is currently open',
+            'session': serializer.data
+        })
 
 
 class PublicAdmissionFeeStructureViewSet(viewsets.ReadOnlyModelViewSet):

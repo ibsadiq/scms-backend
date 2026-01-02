@@ -452,7 +452,6 @@ class ParentSerializer(serializers.ModelSerializer):
             "phone_number",
             "address",
             "gender",
-            "date_of_birth",
             "parent_type",
             "national_id",
             "occupation",

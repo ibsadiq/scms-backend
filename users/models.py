@@ -58,10 +58,10 @@ class Accountant(models.Model):
     gender = models.CharField(max_length=10, choices=GENDER_CHOICE, blank=True)
     email = models.EmailField(blank=True, null=True)
     empId = models.CharField(max_length=8, null=True, blank=True, unique=True)
-    tin_number = models.CharField(max_length=9, null=True, blank=True)
+    tin_number = models.CharField(max_length=9, null=True, blank=True, unique=True)
     salary = models.IntegerField(blank=True, null=True)
     unpaid_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    national_id = models.CharField(max_length=100, blank=True, null=True)
+    national_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     address = models.CharField(max_length=255, blank=True)
     phone_number = models.CharField(max_length=150, blank=True)
     alt_email = models.EmailField(

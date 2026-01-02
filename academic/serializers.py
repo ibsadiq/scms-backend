@@ -63,7 +63,8 @@ class GradeLevelSerializer(serializers.ModelSerializer):
 
 
 class ClassRoomSerializer(serializers.ModelSerializer):
-    name = serializers.SerializerMethodField()
+    # For read operations (GET), return ClassLevel name as string
+    name_display = serializers.SerializerMethodField(read_only=True)
     class_teacher_name = serializers.SerializerMethodField()
     stream_name = serializers.SerializerMethodField()
     stream_id = serializers.IntegerField(source='stream.id', read_only=True, allow_null=True)
@@ -72,17 +73,22 @@ class ClassRoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ClassRoom
-        fields = "__all__"
-        extra_fields = ['class_teacher_name', 'stream_name', 'stream_id']
+        fields = [
+            'id', 'name', 'name_display', 'stream', 'stream_name', 'stream_id',
+            'class_teacher', 'class_teacher_name', 'capacity', 'occupied_sits',
+            'available_sits', 'class_status'
+        ]
 
-    def get_fields(self):
-        fields = super().get_fields()
-        # Add the extra fields to the fields dict
-        return fields
+    def to_representation(self, instance):
+        """Customize the output representation"""
+        representation = super().to_representation(instance)
+        # Replace the name ID with the readable name in responses
+        representation['name_display'] = instance.name.name if instance.name else None
+        return representation
 
     @extend_schema_field(serializers.CharField)
-    def get_name(self, obj):
-        return obj.name.name
+    def get_name_display(self, obj):
+        return obj.name.name if obj.name else None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_stream_name(self, obj):
