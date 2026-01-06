@@ -3,11 +3,22 @@
 # ==============================================================================
 # SSync Quick VPS Deployment Script
 # VPS IP: 72.61.184.120
+#
+# Usage:
+#   ./deploy-to-vps.sh           # Deploy backend + frontend
+#   ./deploy-to-vps.sh --backend-only   # Deploy backend only (skip frontend)
 # ==============================================================================
 
 set -e  # Exit on error
 
-echo "🚀 Starting SSync deployment on VPS..."
+# Check for backend-only flag
+SKIP_FRONTEND=false
+if [[ "$1" == "--backend-only" ]]; then
+    SKIP_FRONTEND=true
+    echo "🚀 Starting SSync BACKEND-ONLY deployment on VPS..."
+else
+    echo "🚀 Starting SSync FULL deployment on VPS..."
+fi
 echo ""
 
 # Colors for output
@@ -87,11 +98,37 @@ echo -e "${GREEN}✅ Cleanup complete${NC}"
 echo ""
 
 # ==============================================================================
+# Step 3.5: Copy fixed frontend Dockerfile (if building frontend)
+# ==============================================================================
+if [ "$SKIP_FRONTEND" = false ]; then
+    echo -e "${YELLOW}Step 3.5: Setting up frontend Dockerfile...${NC}"
+
+    # Check if frontend directory exists
+    if [ -d "../scms" ]; then
+        echo "Copying optimized Dockerfile to frontend..."
+        cp nuxt-pnpm.Dockerfile ../scms/Dockerfile
+        echo -e "${GREEN}✅ Frontend Dockerfile updated (with memory optimization)${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Frontend directory not found at ../scms${NC}"
+        echo "Frontend build may fail if Dockerfile is not configured properly"
+    fi
+
+    echo ""
+else
+    echo -e "${YELLOW}Skipping frontend setup (backend-only mode)${NC}"
+    echo ""
+fi
+
+# ==============================================================================
 # Step 4: Build Docker images
 # ==============================================================================
-echo -e "${YELLOW}Step 4: Building Docker images (this may take 5-10 minutes)...${NC}"
-
-docker compose build --no-cache
+if [ "$SKIP_FRONTEND" = false ]; then
+    echo -e "${YELLOW}Step 4: Building ALL services (backend + frontend, 5-10 minutes)...${NC}"
+    docker compose build --no-cache
+else
+    echo -e "${YELLOW}Step 4: Building BACKEND services only (2-3 minutes)...${NC}"
+    docker compose build --no-cache backend celery_worker celery_beat flower
+fi
 
 echo -e "${GREEN}✅ Docker images built successfully${NC}"
 echo ""
@@ -101,7 +138,13 @@ echo ""
 # ==============================================================================
 echo -e "${YELLOW}Step 5: Starting services...${NC}"
 
-docker compose --profile production up -d
+if [ "$SKIP_FRONTEND" = false ]; then
+    # Start all services including frontend and nginx
+    docker compose --profile production up -d
+else
+    # Start only backend services (postgres, redis, backend, celery, flower)
+    docker compose up -d postgres redis backend celery_worker celery_beat flower
+fi
 
 echo "Waiting 30 seconds for services to initialize..."
 sleep 30
@@ -153,24 +196,54 @@ echo ""
 # ==============================================================================
 echo ""
 echo "=========================================="
-echo -e "${GREEN}🎉 Deployment Complete!${NC}"
+if [ "$SKIP_FRONTEND" = false ]; then
+    echo -e "${GREEN}🎉 Full Deployment Complete!${NC}"
+else
+    echo -e "${GREEN}🎉 Backend Deployment Complete!${NC}"
+fi
 echo "=========================================="
 echo ""
-echo "Your SSync application is now running!"
-echo ""
-echo "Access URLs:"
-echo "  • Frontend:  http://72.61.184.120/"
-echo "  • API:       http://72.61.184.120/api/"
-echo "  • Admin:     http://72.61.184.120/admin/"
-echo "  • Flower:    http://72.61.184.120:5555/"
+
+if [ "$SKIP_FRONTEND" = false ]; then
+    echo "Your SSync application is now running!"
+    echo ""
+    echo "Access URLs:"
+    echo "  • Frontend:  http://72.61.184.120/"
+    echo "  • API:       http://72.61.184.120/api/"
+    echo "  • Admin:     http://72.61.184.120/admin/"
+    echo "  • Flower:    http://72.61.184.120:5555/"
+else
+    echo "Backend services are now running!"
+    echo ""
+    echo "Access URLs:"
+    echo "  • API:       http://72.61.184.120:8000/api/"
+    echo "  • Admin:     http://72.61.184.120:8000/admin/"
+    echo "  • Flower:    http://72.61.184.120:5555/"
+    echo ""
+    echo -e "${YELLOW}Note: Frontend is NOT deployed${NC}"
+fi
+
 echo ""
 echo "Next Steps:"
 echo "  1. Create superuser: docker compose exec backend python manage.py createsuperuser"
 echo "  2. Configure firewall: sudo ufw allow 80/tcp && sudo ufw allow 8000/tcp"
-echo "  3. Login to admin panel and set up your school"
+
+if [ "$SKIP_FRONTEND" = false ]; then
+    echo "  3. Login to admin panel and set up your school"
+else
+    echo "  3. Test backend: curl http://72.61.184.120:8000/api/"
+    echo ""
+    echo "To add frontend later:"
+    echo "  • Fix Dockerfile: cp nuxt-pnpm.Dockerfile ../scms/Dockerfile"
+    echo "  • Build frontend: docker compose build frontend"
+    echo "  • Start frontend: docker compose --profile production up -d frontend nginx"
+fi
+
 echo ""
 echo "View logs:"
 echo "  docker compose logs -f backend"
-echo "  docker compose logs -f frontend"
+if [ "$SKIP_FRONTEND" = false ]; then
+    echo "  docker compose logs -f frontend"
+fi
 echo ""
 echo "=========================================="

@@ -77,6 +77,8 @@ ARG NUXT_PUBLIC_API_BASE
 ENV NUXT_PUBLIC_API_URL=${NUXT_PUBLIC_API_URL}
 ENV NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE}
 ENV NODE_ENV=production
+# Increase Node.js memory limit for build (4GB)
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # Build the application
 RUN pnpm run build
