@@ -26,6 +26,7 @@ from decimal import Decimal
 from academic.models import Subject, Student, Teacher
 from finance.models import StudentFeeAssignment, Receipt, FeePaymentAllocation
 from attendance.models import StudentAttendance
+from examination.models import TermResult
 
 
 # Article Views
@@ -375,17 +376,86 @@ class DashboardStatsView(APIView):
             })
         
         # ===== PERFORMANCE STATS =====
-        # Placeholder - update when you have grades model
-        performance_stats = {
-            'averageGrade': 'B+',
-            'passRate': 87,
-            'grades': {
-                'a': 28,
-                'b': 35,
-                'c': 24,
-                'df': 13
+        # Calculate real performance data from TermResult model
+        try:
+            # Get the current or most recent academic year
+            current_academic_year = AcademicYear.objects.filter(
+                is_current=True
+            ).first()
+
+            # Get the current or most recent term
+            if current_academic_year:
+                current_term = Term.objects.filter(
+                    academic_year=current_academic_year
+                ).order_by('-start_date').first()
+            else:
+                # If no current academic year, get the most recent term
+                current_term = Term.objects.order_by('-start_date').first()
+
+            if current_term:
+                # Get all term results for the current term
+                term_results = TermResult.objects.filter(term=current_term)
+
+                # Calculate total number of results
+                total_results = term_results.count()
+
+                if total_results > 0:
+                    # Count grade distribution
+                    grade_counts = term_results.values('overall_grade').annotate(
+                        count=Count('id')
+                    )
+
+                    # Initialize grade percentages
+                    grade_dist = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0}
+
+                    # Calculate percentages for each grade
+                    for grade_count in grade_counts:
+                        grade = grade_count['overall_grade']
+                        count = grade_count['count']
+                        if grade in grade_dist:
+                            grade_dist[grade] = round((count / total_results) * 100)
+
+                    # Calculate pass rate (A, B, C, D are passing grades)
+                    passing_count = term_results.filter(
+                        overall_grade__in=['A', 'B', 'C', 'D']
+                    ).count()
+                    pass_rate = round((passing_count / total_results) * 100)
+
+                    # Get the most common grade as average
+                    most_common_grade = max(grade_counts, key=lambda x: x['count'], default=None)
+                    average_grade = most_common_grade['overall_grade'] if most_common_grade else 'N/A'
+
+                    performance_stats = {
+                        'averageGrade': average_grade,
+                        'passRate': pass_rate,
+                        'grades': {
+                            'a': grade_dist['A'],
+                            'b': grade_dist['B'],
+                            'c': grade_dist['C'],
+                            'df': grade_dist['D'] + grade_dist['F']
+                        }
+                    }
+                else:
+                    # No results available
+                    performance_stats = {
+                        'averageGrade': 'N/A',
+                        'passRate': 0,
+                        'grades': {'a': 0, 'b': 0, 'c': 0, 'df': 0}
+                    }
+            else:
+                # No current term
+                performance_stats = {
+                    'averageGrade': 'N/A',
+                    'passRate': 0,
+                    'grades': {'a': 0, 'b': 0, 'c': 0, 'df': 0}
+                }
+        except Exception as e:
+            # Fallback if there's an error
+            performance_stats = {
+                'averageGrade': 'N/A',
+                'passRate': 0,
+                'grades': {'a': 0, 'b': 0, 'c': 0, 'df': 0}
             }
-        }
         
         # ===== RECENT PAYMENTS (BONUS) =====
         try:

@@ -29,7 +29,7 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 DATE_VALIDATORS = [MinValueValidator(date(1970, 1, 1))]  # Unix epoch!
 
 # Application branding
-APP_NAME = env('APP_NAME', default='SCMS')
+APP_NAME = env('APP_NAME', default='SSync')
 SCHOOL_NAME = env('SCHOOL_NAME', default='School Management System')
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 BASE_URL = env('BASE_URL', default='http://localhost:8000')
@@ -48,6 +48,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "rest_framework_simplejwt",
+    "django_celery_results",
+    "django_celery_beat",
     "core.apps.CoreConfig",
     "academic.apps.AcademicConfig",
     "administration.apps.AdministrationConfig",
@@ -270,3 +272,46 @@ else:
 
 # Email timeout (applies to both dev and prod)
 EMAIL_TIMEOUT = 10
+
+# ==============================================================================
+# CELERY CONFIGURATION
+# ==============================================================================
+# Celery settings for asynchronous task processing
+# Requires Redis server running (see documentation)
+
+# Celery broker URL (Redis)
+CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='redis://localhost:6379/0')
+
+# Celery result backend (store results in Django database)
+CELERY_RESULT_BACKEND = 'django-db'
+
+# Use JSON for serialization (more secure than pickle)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Time zone settings
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = USE_TZ
+
+# Task result expiration (7 days)
+CELERY_RESULT_EXPIRES = 60 * 60 * 24 * 7
+
+# Task time limits (prevent hanging tasks)
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes hard limit
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes soft limit
+
+# Celery Beat schedule for periodic tasks (if needed in future)
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# Task routing (optional - for organizing tasks)
+CELERY_TASK_ROUTES = {
+    'academic.tasks.*': {'queue': 'academic'},
+    'users.tasks.*': {'queue': 'users'},
+    'examination.tasks.*': {'queue': 'examination'},
+    'finance.tasks.*': {'queue': 'finance'},
+}
+
+# Worker configuration
+CELERY_WORKER_PREFETCH_MULTIPLIER = 4
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # Restart worker after 1000 tasks to prevent memory leaks

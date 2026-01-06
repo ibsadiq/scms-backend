@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from django.http import JsonResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from api.celery_views import TaskStatusView, CeleryHealthView
 
 
 
@@ -76,6 +77,10 @@ urlpatterns = [
 
     # Public admission portal (no authentication required)
     path("api/public/admissions/", include("api.admissions_public.urls")),
+
+    # Celery task monitoring
+    path("api/tasks/<str:task_id>/", TaskStatusView.as_view(), name="task-status"),
+    path("api/celery/health/", CeleryHealthView.as_view(), name="celery-health"),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

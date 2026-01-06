@@ -1,0 +1,235 @@
+# SSync - Docker Compose Configuration
+# Complete stack: Backend API + Frontend + Database + Redis + Celery + Nginx
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ssync-postgres
+    env_file:
+      - .env.docker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ssync_db}
+      POSTGRES_USER: ${DB_USER:-ssync_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    ports:
+      - "5433:5432"  # Changed to 5433 to avoid conflict with local PostgreSQL
+    networks:
+      - ssync-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ssync_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache & Celery Broker
+  redis:
+    image: redis:7-alpine
+    container_name: ssync-redis
+    ports:
+      - "6380:6379"  # Changed to 6380 to avoid conflict with local Redis
+    networks:
+      - ssync-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  # Django Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: ssync-backend
+    env_file:
+      - .env.docker
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,backend}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      # Email, DB, and app settings come from env_file (.env.docker)
+    ports:
+      - "8000:8000"
+    networks:
+      - ssync-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/admin/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Celery Worker
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: ssync-celery-worker
+    command: celery -A school worker --loglevel=info --concurrency=4
+    env_file:
+      - .env.docker
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      # Email, DB, and app settings come from env_file (.env.docker)
+    networks:
+      - ssync-network
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    restart: unless-stopped
+
+  # Celery Beat Scheduler
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: ssync-celery-beat
+    command: celery -A school beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_NAME=${DB_NAME:-ssync_db}
+      - DB_USER=${DB_USER:-ssync_user}
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    networks:
+      - ssync-network
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    restart: unless-stopped
+
+  # Celery Flower (Monitoring)
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: ssync-flower
+    command: celery -A school flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=django-db
+    networks:
+      - ssync-network
+    depends_on:
+      - redis
+      - backend
+    restart: unless-stopped
+
+  # Mailpit (Development Email Testing)
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: ssync-mailpit
+    ports:
+      - "8025:8025"  # Web UI
+      - "1025:1025"  # SMTP
+    networks:
+      - ssync-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  # Frontend (Nuxt.js)
+  frontend:
+    build:
+      context: ../scms  # Update this path to your Nuxt project location
+      dockerfile: Dockerfile
+      target: ${FRONTEND_BUILD_TARGET:-development}  # 'development' or 'production'
+    container_name: ssync-frontend
+    volumes:
+      # Development: mount source code for hot reload
+      - ../scms:/app
+      - /app/node_modules
+      - /app/.nuxt
+      - /app/.output
+    ports:
+      - "3000:3000"
+    environment:
+      # API URL for server-side rendering (inside Docker network)
+      - NUXT_PUBLIC_API_URL=${NUXT_PUBLIC_API_URL:-http://backend:8000/api}
+      # For client-side (browser), use localhost
+      - NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE:-http://localhost:8000/api}
+      - NUXT_HOST=0.0.0.0
+      - NUXT_PORT=3000
+      - NODE_ENV=${NODE_ENV:-development}
+    networks:
+      - ssync-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    # No profiles - starts automatically with docker compose up
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: ssync-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - ssync-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  static_volume:
+    driver: local
+  media_volume:
+    driver: local
+
+networks:
+  ssync-network:
+    driver: bridge

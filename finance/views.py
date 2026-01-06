@@ -116,6 +116,44 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(applicable_fees, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'])
+    def send_reminder(self, request, pk=None):
+        """
+        Send payment reminder for this specific fee structure.
+        POST /api/financial/fee-structures/{id}/send_reminder/
+        Body: { "message": "Custom message (optional)" }
+        """
+        from finance.tasks import send_custom_fee_reminder
+
+        fee_structure = self.get_object()
+        custom_message = request.data.get('message', None)
+
+        # Trigger async task
+        task = send_custom_fee_reminder.delay(fee_structure.id, custom_message)
+
+        return Response({
+            'message': 'Reminder task queued successfully',
+            'task_id': task.id,
+            'fee_structure': fee_structure.name
+        })
+
+    @action(detail=False, methods=['post'])
+    def send_all_reminders(self, request):
+        """
+        Trigger fee reminders for all due fees.
+        POST /api/financial/fee-structures/send_all_reminders/
+        """
+        from finance.tasks import send_fee_reminders
+
+        # Trigger async task
+        task = send_fee_reminders.delay()
+
+        return Response({
+            'message': 'Fee reminders task queued successfully',
+            'task_id': task.id,
+            'check_status': f'/api/tasks/{task.id}/'
+        })
+
 
 class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
     """
