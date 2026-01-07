@@ -80,6 +80,9 @@ ENV NODE_ENV=production
 # Increase Node.js memory limit for build (4GB)
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
+# Generate Nuxt configuration and TypeScript files
+RUN pnpm exec nuxt prepare || true
+
 # Build the application
 RUN pnpm run build
 

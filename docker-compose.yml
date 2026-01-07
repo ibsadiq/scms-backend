@@ -175,7 +175,12 @@ services:
       context: ../scms  # Update this path to your Nuxt project location
       dockerfile: Dockerfile
       target: ${FRONTEND_BUILD_TARGET:-development}  # 'development' or 'production'
+      args:
+        - NUXT_PUBLIC_API_URL=${NUXT_PUBLIC_API_URL:-http://backend:8000/api}
+        - NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE:-http://localhost:8000/api}
     container_name: ssync-frontend
+    env_file:
+      - .env.docker
     volumes:
       # Development: mount source code for hot reload
       - ../scms:/app
@@ -185,10 +190,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # API URL for server-side rendering (inside Docker network)
-      - NUXT_PUBLIC_API_URL=${NUXT_PUBLIC_API_URL:-http://backend:8000/api}
-      # For client-side (browser), use localhost
-      - NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE:-http://localhost:8000/api}
       - NUXT_HOST=0.0.0.0
       - NUXT_PORT=3000
       - NODE_ENV=${NODE_ENV:-development}
