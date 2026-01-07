@@ -78,6 +78,9 @@ urlpatterns = [
     # Public admission portal (no authentication required)
     path("api/public/admissions/", include("api.admissions_public.urls")),
 
+    # Reports
+    path("api/reports/", include("api.reports.urls")),
+
     # Celery task monitoring
     path("api/tasks/<str:task_id>/", TaskStatusView.as_view(), name="task-status"),
     path("api/celery/health/", CeleryHealthView.as_view(), name="celery-health"),
