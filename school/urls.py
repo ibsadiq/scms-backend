@@ -50,7 +50,7 @@ def custom_400_handler(request, exception):
 
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path("django-admin/", admin.site.urls),
     # path("", TemplateView.as_view(template_name="index.html")),
     path("", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
