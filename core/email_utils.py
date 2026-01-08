@@ -19,7 +19,11 @@ def get_school_settings():
         # Get logo URL (full URL for emails)
         logo_url = None
         if school_settings.logo:
-            base_url = getattr(settings, 'BASE_URL', 'http://localhost:8000')
+            # Use FRONTEND_URL for public-facing URLs (goes through nginx)
+            # If FRONTEND_URL is not set, fall back to BASE_URL
+            base_url = getattr(settings, 'FRONTEND_URL', None) or getattr(settings, 'BASE_URL', 'http://localhost:8000')
+            # Remove any trailing slashes from base_url
+            base_url = base_url.rstrip('/')
             logo_url = f"{base_url}{school_settings.logo.url}"
 
         return {
