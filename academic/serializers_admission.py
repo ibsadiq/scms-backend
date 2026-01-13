@@ -89,7 +89,7 @@ class AdmissionFeeStructureSerializer(serializers.ModelSerializer):
     """
     Full fee structure details.
     """
-    class_room_name = serializers.CharField(source='class_room.name', read_only=True)
+    grade_level_names = serializers.StringRelatedField(source='grade_levels', many=True, read_only=True)
     current_applications_count = serializers.IntegerField(read_only=True)
     has_capacity = serializers.BooleanField(read_only=True)
 
@@ -103,13 +103,17 @@ class AdmissionFeeStructurePublicSerializer(serializers.ModelSerializer):
     Public fee structure for external portal.
     Shows what parents need to pay.
     """
-    class_room_name = serializers.CharField(source='class_room.name', read_only=True)
+    grade_level_names = serializers.StringRelatedField(
+        source='grade_levels', 
+        many=True, 
+        read_only=True
+    )
     has_capacity = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = AdmissionFeeStructure
         fields = [
-            'id', 'class_room', 'class_room_name',
+            'id', 'grade_levels', 'grade_level_names',
             'application_fee', 'application_fee_required',
             'entrance_exam_required', 'entrance_exam_fee',
             'interview_required',
@@ -203,9 +207,10 @@ class AdmissionApplicationCreateSerializer(serializers.ModelSerializer):
             )
 
         # Check class capacity
+        applying_for_class = data.get('applying_for_class')
         fee_structure = AdmissionFeeStructure.objects.filter(
             admission_session=session,
-            class_room=data.get('applying_for_class')
+            grade_levels__in=[applying_for_class]
         ).first()
 
         if not fee_structure:
@@ -215,7 +220,7 @@ class AdmissionApplicationCreateSerializer(serializers.ModelSerializer):
 
         if not fee_structure.has_capacity:
             raise serializers.ValidationError(
-                f"{data.get('applying_for_class').name} has reached maximum application capacity."
+                f"{applying_for_class.name} has reached maximum application capacity."
             )
 
         # Age validation
@@ -233,7 +238,6 @@ class AdmissionApplicationCreateSerializer(serializers.ModelSerializer):
                 )
 
         return data
-
 
 class AdmissionApplicationUpdateSerializer(serializers.ModelSerializer):
     """

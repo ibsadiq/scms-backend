@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.db.models import Q, Count
 from django.utils import timezone
 from datetime import timedelta
+from django.contrib import admin
 
 from .models import (
     AdmissionSession,
@@ -135,9 +136,11 @@ class AdmissionFeeStructureAdminViewSet(viewsets.ModelViewSet):
     """
     permission_classes = [IsAuthenticated, IsAdminUser]
     serializer_class = AdmissionFeeStructureSerializer
-    queryset = AdmissionFeeStructure.objects.all().select_related(
-        'admission_session', 'class_room'
-    ).order_by('-admission_session__start_date', 'class_room__name')
+    queryset = AdmissionFeeStructure.objects.all().prefetch_related(
+        'grade_levels'
+    ).select_related(
+        'admission_session'
+    ).order_by('-admission_session__start_date', 'id')
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -842,3 +845,15 @@ class AssessmentCriterionAdminViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
     serializer_class = AssessmentCriterionSerializer
     queryset = AssessmentCriterion.objects.all().order_by('name')
+
+
+class AdmissionFeeStructureInline(admin.TabularInline):
+    """Inline for fee structures in admission session"""
+    model = AdmissionFeeStructure
+    extra = 1
+    fields = [
+        'grade_levels', 'application_fee', 'application_fee_required',
+        'entrance_exam_required', 'entrance_exam_fee', 'entrance_exam_pass_score',
+        'interview_required', 'acceptance_fee', 'acceptance_fee_required',
+        'acceptance_fee_is_part_of_tuition', 'max_applications'
+    ]

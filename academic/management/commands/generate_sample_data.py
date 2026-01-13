@@ -256,7 +256,7 @@ class Command(BaseCommand):
 
         grade_levels = {}
         for gl_id, gl_name in grade_levels_data:
-            gl, _ = GradeLevel.objects.get_or_create(id=gl_id, defaults={'name': gl_name})
+            gl, _ = GradeLevel.objects.get_or_create(name=gl_name)
             grade_levels[gl_name] = gl
 
         class_levels_data = [
@@ -280,11 +280,9 @@ class Command(BaseCommand):
 
         class_count = 0
         for cl_name, gl_name in class_levels_data:
-            cl_id = class_count + 1
             ClassLevel.objects.get_or_create(
-                id=cl_id,
+                name=cl_name,
                 defaults={
-                    'name': cl_name,
                     'grade_level': grade_levels[gl_name]
                 }
             )

@@ -32,6 +32,7 @@ class ClassLevelSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClassLevel
         fields = "__all__"
+        read_only_fields = ['id']  # id is auto-generated
 
 
 class StreamSerializer(serializers.ModelSerializer):
@@ -60,6 +61,7 @@ class GradeLevelSerializer(serializers.ModelSerializer):
     class Meta:
         model = GradeLevel
         fields = "__all__"
+        read_only_fields = ['id']  # id is auto-generated
 
 
 class ClassRoomSerializer(serializers.ModelSerializer):

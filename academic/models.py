@@ -16,19 +16,15 @@ from administration.common_objs import *
 
 class Department(models.Model):
     name = models.CharField(max_length=255, unique=True)
-    order_rank = models.IntegerField(
-        blank=True, null=True, help_text="Rank for subject reports"
-    )
 
     class Meta:
-        ordering = ("order_rank", "name")
+        ordering = ("name",)
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
         self.name = self.name.lower()
-
         super().save(*args, **kwargs)
 
 
@@ -159,7 +155,6 @@ class Teacher(models.Model):
 
 
 class GradeLevel(models.Model):
-    id = models.IntegerField(unique=True, primary_key=True, verbose_name="Grade Level")
     name = models.CharField(max_length=150, unique=True)
 
     class Meta:
@@ -170,7 +165,6 @@ class GradeLevel(models.Model):
 
 
 class ClassLevel(models.Model):
-    id = models.IntegerField(unique=True, primary_key=True, verbose_name="Class Level")
     name = models.CharField(max_length=150, unique=True)
     grade_level = models.ForeignKey(
         GradeLevel, blank=True, null=True, on_delete=models.SET_NULL
@@ -1482,10 +1476,11 @@ class AdmissionFeeStructure(models.Model):
         on_delete=models.CASCADE,
         related_name='fee_structures'
     )
-    class_room = models.ForeignKey(
-        ClassLevel,
-        on_delete=models.CASCADE,
-        help_text="Class level (e.g., Primary 1, JSS 1)"
+    grade_levels = models.ManyToManyField(
+        GradeLevel,
+        blank=True,
+        related_name='admission_fee_structures',
+        help_text="Grade levels this fee applies to (e.g., JSS1, SS1)"
     )
 
     # Application fee
@@ -1564,13 +1559,13 @@ class AdmissionFeeStructure(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ['admission_session', 'class_room']
-        ordering = ['class_room__id']
+        ordering = ['admission_session']
         verbose_name = "Admission Fee Structure"
         verbose_name_plural = "Admission Fee Structures"
 
     def __str__(self):
-        return f"{self.class_room} - {self.admission_session.name}"
+        grade_names = ", ".join([grade.name for grade in self.grade_levels.all()])
+        return f"{grade_names} - {self.admission_session.name}"
 
     def clean(self):
         """Validate fee structure"""
@@ -1581,12 +1576,15 @@ class AdmissionFeeStructure(models.Model):
         if self.entrance_exam_required and not self.entrance_exam_pass_score:
             raise ValidationError("Pass score is required when entrance exam is required")
 
+
     @property
     def current_applications_count(self):
-        """Get count of applications for this class in this session"""
-        return self.admission_session.applications.filter(
-            applying_for_class=self.class_room
-        ).count()
+        """Count applications whose applying_for_class.grade_level is in this fee's grade_levels,
+        or match class_room if grade_levels empty (backwards compatibility)."""
+        qs = self.admission_session.applications
+        if self.grade_levels.exists():
+            return qs.filter(applying_for_class__grade_level__in=self.grade_levels.all()).count()
+        return 0
 
     @property
     def has_capacity(self):
@@ -1625,7 +1623,7 @@ class AdmissionApplication(models.Model):
         related_name='applications'
     )
     applying_for_class = models.ForeignKey(
-        ClassLevel,
+        GradeLevel,
         on_delete=models.CASCADE,
         help_text="Class student is applying for"
     )
@@ -1857,10 +1855,9 @@ class AdmissionApplication(models.Model):
 
     def clean(self):
         """Validate application"""
-        # Check age requirements if configured
         fee_structure = AdmissionFeeStructure.objects.filter(
             admission_session=self.admission_session,
-            class_room=self.applying_for_class
+            grade_levels__in=[self.applying_for_class]
         ).first()
 
         if fee_structure and self.date_of_birth:
@@ -1896,7 +1893,7 @@ class AdmissionApplication(models.Model):
         """Check if all required fees are paid"""
         fee_structure = AdmissionFeeStructure.objects.filter(
             admission_session=self.admission_session,
-            class_room=self.applying_for_class
+            grade_levels__in=[self.applying_for_class]
         ).first()
 
         if not fee_structure:
@@ -1923,7 +1920,7 @@ class AdmissionApplication(models.Model):
         """Check if application can be submitted"""
         fee_structure = AdmissionFeeStructure.objects.filter(
             admission_session=self.admission_session,
-            class_room=self.applying_for_class
+            grade_levels__in=[self.applying_for_class]
         ).first()
 
         if not fee_structure:
@@ -1943,7 +1940,7 @@ class AdmissionApplication(models.Model):
 
         fee_structure = AdmissionFeeStructure.objects.filter(
             admission_session=self.admission_session,
-            class_room=self.applying_for_class
+            grade_levels__in=[self.applying_for_class]
         ).first()
 
         if not fee_structure:
@@ -1958,6 +1955,7 @@ class AdmissionApplication(models.Model):
             return False
 
         return True
+
 
 
 class AdmissionDocument(models.Model):

@@ -317,7 +317,7 @@ class AdmissionFeeStructureInline(admin.TabularInline):
     model = AdmissionFeeStructure
     extra = 1
     fields = [
-        'class_room', 'application_fee', 'application_fee_required',
+        'grade_levels', 'application_fee', 'application_fee_required',
         'entrance_exam_required', 'entrance_exam_fee', 'entrance_exam_pass_score',
         'interview_required', 'acceptance_fee', 'acceptance_fee_required',
         'acceptance_fee_is_part_of_tuition', 'max_applications'
@@ -374,7 +374,7 @@ class AdmissionSessionAdmin(admin.ModelAdmin):
 class AdmissionFeeStructureAdmin(admin.ModelAdmin):
     """Admin for fee structures"""
     list_display = [
-        'admission_session', 'class_room', 'application_fee',
+        'admission_session', 'get_grade_levels_display', 'application_fee',
         'entrance_exam_required', 'acceptance_fee_required',
         'current_applications_count', 'has_capacity'
     ]
@@ -382,12 +382,13 @@ class AdmissionFeeStructureAdmin(admin.ModelAdmin):
         'admission_session', 'entrance_exam_required',
         'interview_required', 'acceptance_fee_required'
     ]
-    search_fields = ['admission_session__name', 'class_room__name']
+    search_fields = ['admission_session__name', 'grade_levels__name']
     readonly_fields = ['created_at', 'updated_at', 'current_applications_count', 'has_capacity']
+    filter_horizontal = ['grade_levels']
 
     fieldsets = (
-        ('Session & Class', {
-            'fields': ('admission_session', 'class_room')
+        ('Session & Grade Levels', {
+            'fields': ('admission_session', 'grade_levels')
         }),
         ('Application Fee', {
             'fields': ('application_fee', 'application_fee_required')
@@ -423,6 +424,11 @@ class AdmissionFeeStructureAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+    def get_grade_levels_display(self, obj):
+        """Display all grade levels for this fee structure"""
+        return ", ".join([g.name for g in obj.grade_levels.all()]) or "N/A"
+    get_grade_levels_display.short_description = "Grade Levels"
 
 
 class AdmissionDocumentInline(admin.TabularInline):
