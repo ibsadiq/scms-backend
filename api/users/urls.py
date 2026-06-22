@@ -1,5 +1,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenRefreshView, TokenBlacklistView
+from users.views import MyTokenRefreshView
+
+
 
 from users.views import (
     MyTokenObtainPairView,
@@ -8,8 +12,6 @@ from users.views import (
     UserDetailView,
     ParentListView,
     ParentDetailView,
-    AccountantListView,
-    AccountantDetailView,
     TeacherListView,
     TeacherDetailView,
     BulkUploadTeachersView,
@@ -20,12 +22,16 @@ from users.views import (
     ValidateInvitationView,
     AcceptInvitationView,
     ResendInvitationView,
+    AccountantListView,
+    AccountantDetailView,
 )
 
 
 urlpatterns = [
     # JWT Token endpoint
     path("login/", MyTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", MyTokenRefreshView.as_view(), name="token_refresh"),
+    path("logout/", TokenBlacklistView.as_view(), name="token_blacklist"),
     path("profile/", getUserProfile, name="users-profile"),
     path("users/", UserListView.as_view(), name="users-list"),
     path("users/<int:pk>/", UserDetailView.as_view(), name="user-detail"),
@@ -36,14 +42,10 @@ urlpatterns = [
         BulkUploadTeachersView.as_view(),
         name="teacher-bulk-upload",
     ),
-    path("teachers/<int:pk>/", TeacherDetailView.as_view(), name="accountant-detail"),
+    path("teachers/<int:pk>/", TeacherDetailView.as_view(), name="teacher-detail"),
     # Accountant URLs
     path("accountants/", AccountantListView.as_view(), name="accountant-list-create"),
-    path(
-        "accountants/<int:pk>/",
-        AccountantDetailView.as_view(),
-        name="accountant-detail",
-    ),
+    path("accountants/<int:pk>/", AccountantDetailView.as_view(), name="accountant-detail"),
     # Parent URLs
     path("parents/", ParentListView.as_view(), name="parent-list-create"),
     path("parents/<int:pk>/", ParentDetailView.as_view(), name="parent-detail"),

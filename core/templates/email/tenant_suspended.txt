@@ -1,0 +1,24 @@
+🚫 Account Suspended
+
+This is to notify you that access to {{ school_name }} has been temporarily suspended.
+
+REASON FOR SUSPENSION
+=====================
+{{ suspension_reason }}
+
+WHAT THIS MEANS
+===============
+✗ Your school's portal is temporarily inaccessible
+✗ Teachers, students, and parents cannot log in
+✓ All data remains secure and intact
+✓ No data will be deleted during suspension
+
+ACTION REQUIRED
+===============
+To resolve this issue and restore access to your account, please contact our support team immediately.
+
+CONTACT SUPPORT
+===============
+Email: {{ support_email }}
+
+{{ app_name }} Team

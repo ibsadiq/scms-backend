@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
 from .forms import CustomUserCreationForm, CustomUserChangeForm
-from .models import CustomUser, Accountant, UserInvitation
+from .models import CustomUser, UserInvitation
 
 
 class UserTypeFilter(admin.SimpleListFilter):
@@ -44,17 +44,17 @@ class CustomUserAdmin(UserAdmin):
     form = CustomUserChangeForm
     model = CustomUser
     list_display = ('email', 'get_full_name', 'phone_number', 'get_user_type', 'is_active', 'date_joined')
-    list_filter = (UserTypeFilter, 'is_staff', 'is_active', 'is_accountant', 'is_teacher', 'is_parent')
+    list_filter = (UserTypeFilter, 'is_staff', 'is_active', 'is_admin', 'is_accountant', 'is_teacher', 'is_parent')
     fieldsets = (
         ('Personal Information', {'fields': ('first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'password')}),
-        ('User Types', {'fields': ('is_accountant', 'is_teacher', 'is_parent')}),
+        ('User Types', {'fields': ('is_admin', 'is_accountant', 'is_teacher', 'is_parent', 'is_student', 'is_inspector')}),
         ('Permissions', {'fields': ('is_staff', 'is_active', 'is_superuser', 'groups', 'user_permissions')}),
         ('Important Dates', {'fields': ('last_login', 'date_joined')}),
     )
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'password1', 'password2', 'is_staff', 'is_active', 'is_accountant', 'is_teacher', 'is_parent')}
+            'fields': ('first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'password1', 'password2', 'is_staff', 'is_active', 'is_admin', 'is_accountant', 'is_teacher', 'is_parent')}
         ),
     )
     search_fields = ('email', 'first_name', 'last_name', 'phone_number')
@@ -75,12 +75,18 @@ class CustomUserAdmin(UserAdmin):
             types.append('Superuser')
         if obj.is_staff:
             types.append('Staff')
+        if obj.is_admin:
+            types.append('Admin')
         if obj.is_teacher:
             types.append('Teacher')
         if obj.is_parent:
             types.append('Parent')
         if obj.is_accountant:
             types.append('Accountant')
+        if obj.is_student:
+            types.append('Student')
+        if obj.is_inspector:
+            types.append('Inspector')
 
         return ', '.join(types) if types else 'No Role'
     get_user_type.short_description = 'User Type'
@@ -96,4 +102,3 @@ class UserInvitationAdmin(admin.ModelAdmin):
 
 
 admin.site.register(CustomUser, CustomUserAdmin)
-admin.site.register(Accountant)

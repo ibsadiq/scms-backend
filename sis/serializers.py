@@ -136,7 +136,8 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_grade_level_name(self, obj):
         if obj.class_level and obj.class_level.grade_level:
-            return obj.class_level.grade_level.name
+            gl = obj.class_level.grade_level
+            return gl.alias if gl.alias else gl.default_name
         return None
 
     def validate_and_create_student(self, data):

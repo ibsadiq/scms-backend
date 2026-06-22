@@ -56,6 +56,7 @@ class ParentDashboardViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsAuthenticated, IsParentOfStudent]
+    serializer_class = None  # Will specify per action
 
     @action(detail=False, methods=['get'])
     def dashboard(self, request):

@@ -1,132 +1,312 @@
-from rest_framework import serializers
+"""
+Tenant API Serializers
+"""
 from django.contrib.auth import get_user_model
-from django.contrib.sites.models import Site
-from .models import SchoolSettings, OnboardingStep
+from django.contrib.auth.models import Group
+from django.db import transaction
+from rest_framework import serializers
+from .models import Client, Domain, Inspector
+
+
+class SchoolSignupSerializer(serializers.Serializer):
+    """Serializer for school registration"""
+    school_name = serializers.CharField(
+        max_length=100,
+        help_text="Official name of the school"
+    )
+    subdomain = serializers.CharField(
+        max_length=50,
+        help_text="Subdomain for school portal (e.g., 'myschool' for myschool.yourdomain.com)"
+    )
+    admin_first_name = serializers.CharField(max_length=100)
+    admin_last_name = serializers.CharField(max_length=100)
+    admin_email = serializers.EmailField()
+
+    # School contact info (separate from the admin account)
+    contact_email = serializers.EmailField(required=False, allow_blank=True, default='')
+    contact_phone = serializers.CharField(max_length=20, required=False, allow_blank=True, default='')
+
+    enable_mobile = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Enable mobile app access (Premium feature)"
+    )
+    
+    def validate_subdomain(self, value):
+        """Validate subdomain format"""
+        import re
+        if not re.match(r'^[a-z0-9-]+$', value):
+            raise serializers.ValidationError(
+                "Subdomain must contain only lowercase letters, numbers, and hyphens"
+            )
+        if len(value) < 3:
+            raise serializers.ValidationError(
+                "Subdomain must be at least 3 characters long"
+            )
+        return value.lower()
+    
+    def validate_admin_email(self, value):
+        """Check if email is already used by another school admin"""
+        from django.contrib.auth import get_user_model
+        from django_tenants.utils import schema_context
+        
+        # Check across all tenant schemas
+        for tenant in Client.objects.exclude(schema_name='public'):
+            try:
+                with schema_context(tenant.schema_name):
+                    User = get_user_model()
+                    if User.objects.filter(email=value, is_admin=True).exists():
+                        raise serializers.ValidationError(
+                            "This email is already registered as a school administrator"
+                        )
+            except:
+                continue
+        
+        return value
+
+
+class TenantListSerializer(serializers.ModelSerializer):
+    plan = serializers.SerializerMethodField()
+    domain = serializers.SerializerMethodField()
+    student_count = serializers.SerializerMethodField()
+    teacher_count = serializers.SerializerMethodField()
+    logo_url = serializers.SerializerMethodField()
+    admin_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Client
+        fields = [
+            'id', 'schema_name', 'name', 'status',
+            'created_on', 'has_mobile_access', 'plan',
+            'domain', 'student_count', 'teacher_count',
+            'admin_email', 'contact_email', 'contact_phone',
+            'logo_url', 'website', 'address',
+            'approved_at', 'rejection_reason',
+        ]
+
+    def get_plan(self, obj):
+        return obj.get_plan_name()
+
+    def get_domain(self, obj):
+        domain = obj.domains.filter(is_primary=True).first()
+        return domain.domain if domain else None
+
+    def get_student_count(self, obj):
+        return obj.cached_student_count
+
+    def get_teacher_count(self, obj):
+        return obj.cached_teacher_count
+
+    def get_logo_url(self, obj):
+        return obj.get_logo_url()
+
+    def get_admin_email(self, obj):
+        try:
+            from django_tenants.utils import schema_context
+            User = get_user_model()
+            with schema_context(obj.schema_name):
+                admin = User.objects.filter(is_admin=True).first()
+                return admin.email if admin else None
+        except Exception:
+            return None
+
+
+
+class TenantDetailSerializer(TenantListSerializer):
+    """Detailed serializer for tenant information"""
+    total_revenue = serializers.SerializerMethodField()
+    mobile_access_granted = serializers.DateField(read_only=True)
+    
+    class Meta(TenantListSerializer.Meta):
+        fields = TenantListSerializer.Meta.fields + ['total_revenue', 'mobile_access_granted']
+    
+    def get_total_revenue(self, obj):
+        """Get total revenue for this tenant"""
+        try:
+            from .services import TenantService
+            stats = TenantService.get_tenant_stats(obj.schema_name)
+            return float(stats.get('total_revenue', 0))
+        except:
+            return 0.0
+        
+
+# tenants/inspector_serializers.py
+# Add these to tenants/serializers.py
+
+
 
 User = get_user_model()
 
 
-class OnboardingCheckSerializer(serializers.Serializer):
-    """Serializer to check onboarding status"""
-    onboarding_completed = serializers.BooleanField(read_only=True)
-    onboarding_step = serializers.IntegerField(read_only=True)
-    onboarding_step_label = serializers.CharField(read_only=True)
-    needs_onboarding = serializers.BooleanField(read_only=True)
-    school_name = serializers.CharField(read_only=True)
-    tenant_id = serializers.IntegerField(read_only=True)
+class InspectorSerializer(serializers.ModelSerializer):
+    """Read serializer — used for list and detail views."""
 
+    email        = serializers.EmailField(source='user.email',      read_only=True)
+    first_name   = serializers.CharField(source='user.first_name',  read_only=True)
+    last_name    = serializers.CharField(source='user.last_name',   read_only=True)
+    full_name    = serializers.SerializerMethodField()
+    access_label = serializers.CharField(
+        source='get_access_level_display', read_only=True
+    )
+    assigned_tenant_count = serializers.SerializerMethodField()
 
-class TenantCreateSerializer(serializers.Serializer):
-    school_name = serializers.CharField(max_length=255)
-    primary_color = serializers.CharField(max_length=20, default="#047857")
-    secondary_color = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    address = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    contact_email = serializers.EmailField(required=False, allow_blank=True)
-    contact_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
-
-    def create(self, validated_data):
-        # Get or create the single school settings instance
-        school = SchoolSettings.get_settings()
-
-        # Update with provided data
-        school.school_name = validated_data["school_name"]
-        school.primary_color = validated_data.get("primary_color", "#047857")
-        school.secondary_color = validated_data.get("secondary_color", "")
-        school.address = validated_data.get("address", "")
-        school.contact_email = validated_data.get("contact_email", "")
-        school.contact_phone = validated_data.get("contact_phone", "")
-        school.onboarding_step = OnboardingStep.SCHOOL_INFO
-        school.save()
-
-        return school
-
-
-
-class AdminUserCreateSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, min_length=8)
-    confirm_password = serializers.CharField(write_only=True)
-    first_name = serializers.CharField()
-    last_name = serializers.CharField()
-
-    def validate(self, data):
-        if data["password"] != data["confirm_password"]:
-            raise serializers.ValidationError("Passwords do not match")
-        return data
-
-    def create(self, validated_data):
-        validated_data.pop("confirm_password")
-
-        return User.objects.create_user(
-            email=validated_data["email"],
-            password=validated_data["password"],
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-            is_staff=True,
-            is_superuser=True
-        )
-
-
-class TenantSettingsUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating school branding (Step 3)"""
     class Meta:
-        model = SchoolSettings
+        model  = Inspector
         fields = [
-            "school_name",
-            "logo",
-            "primary_color",
-            "secondary_color",
-            "address",
-            "contact_email",
-            "contact_phone",
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'full_name',
+            'title',
+            'organisation',
+            'access_level',
+            'access_label',
+            'assigned_tenants',
+            'assigned_tenant_count',
+            'is_active',
+            'notes',
+            'created_at',
         ]
 
+    def get_full_name(self, obj):
+        u = obj.user
+        name = f"{u.first_name or ''} {u.last_name or ''}".strip()
+        return name or u.email
 
-class CompleteOnboardingSerializer(serializers.Serializer):
-    """Final step: Mark onboarding as complete"""
-    confirm = serializers.BooleanField(required=True)
+    def get_assigned_tenant_count(self, obj):
+        return obj.assigned_tenants.count()
 
-    def validate_confirm(self, value):
-        if not value:
-            raise serializers.ValidationError("You must confirm to complete onboarding")
+
+class InspectorCreateSerializer(serializers.Serializer):
+    """
+    Write serializer — creates both the CustomUser and Inspector profile
+    in a single transaction, then sends credentials by email.
+    """
+    # User fields
+    email      = serializers.EmailField()
+    first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    last_name  = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    phone_number = serializers.CharField(
+        max_length=15, required=False, allow_blank=True, default=''
+    )
+
+    # Inspector profile fields
+    title        = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    organisation = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
+    access_level = serializers.ChoiceField(
+        choices=Inspector.AccessLevel.choices,
+        default=Inspector.AccessLevel.ASSIGNED,
+    )
+    assigned_tenant_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        help_text='List of Client PKs — only needed when access_level=assigned',
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError(
+                'A user with this email already exists.'
+            )
         return value
 
-    def save(self, **kwargs):
-        school = self.context.get("school") or SchoolSettings.get_settings()
+    def validate(self, data):
+        # If access_level is assigned, warn if no tenants provided
+        # (not a hard error — super admin may assign later)
+        return data
 
-        if school.onboarding_step != OnboardingStep.COMPLETED:
-            raise serializers.ValidationError("Onboarding steps not completed")
+    @transaction.atomic
+    def save(self):
+        data = self.validated_data
 
-        school.complete_onboarding()
-        return school
+        # ── 1. Generate temp password ─────────────────────────────────────────
+        temp_password = User.objects.make_random_password(length=12)
+
+        # ── 2. Create CustomUser ──────────────────────────────────────────────
+        user = User.objects.create_user(
+            email=data['email'],
+            password=temp_password,
+            first_name=data.get('first_name', ''),
+            last_name=data.get('last_name', ''),
+            phone_number=data.get('phone_number') or None,
+            is_active=True,
+            is_inspector=True,       # ← the new flag on CustomUser
+        )
+
+        # Add to inspector group (consistent with teacher/parent/accountant pattern)
+        group, _ = Group.objects.get_or_create(name='inspector')
+        user.groups.add(group)
+
+        # ── 3. Create Inspector profile ───────────────────────────────────────
+        inspector = Inspector.objects.create(
+            user=user,
+            title=data.get('title', ''),
+            organisation=data.get('organisation', ''),
+            access_level=data.get('access_level', Inspector.AccessLevel.ASSIGNED),
+            notes=data.get('notes', ''),
+        )
+
+        if data.get('assigned_tenant_ids'):
+            inspector.assigned_tenants.set(data['assigned_tenant_ids'])
+
+        # ── 4. Send credentials email ─────────────────────────────────────────
+        try:
+            from core.email_utils import send_inspector_credentials
+            send_inspector_credentials(
+                email=user.email,
+                first_name=user.first_name or 'Inspector',
+                organisation=inspector.organisation,
+                temp_password=temp_password,
+            )
+        except Exception as e:
+            # Don't fail creation if email fails — log it
+            import logging
+            logging.getLogger(__name__).warning(
+                'Failed to send inspector credentials to %s: %s', user.email, e
+            )
+
+        # Return inspector + temp_password so the view can show it on screen
+        return inspector, temp_password
 
 
-class TenantSerializer(serializers.ModelSerializer):
-    """Serializer for school settings (backward compatible with Tenant name)"""
-    needs_onboarding = serializers.BooleanField(read_only=True)
-    admin_email = serializers.EmailField(source="admin_user.email", read_only=True)
-    onboarding_step_label = serializers.CharField(
-        source="get_onboarding_step_display",
-        read_only=True
+class InspectorUpdateSerializer(serializers.ModelSerializer):
+    """
+    Partial update — allows changing profile fields and reassigning tenants.
+    Does NOT change email or password (separate endpoints for those).
+    """
+    assigned_tenant_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        write_only=True,
     )
 
     class Meta:
-        model = SchoolSettings
+        model  = Inspector
         fields = [
-            "id",
-            "school_name",
-            "logo",
-            "primary_color",
-            "secondary_color",
-            "address",
-            "contact_email",
-            "contact_phone",
-            "onboarding_step",
-            "onboarding_step_label",
-            "onboarding_completed",
-            "needs_onboarding",
-            "admin_email",
-            "created_at",
-            "updated_at",
+            'title',
+            'organisation',
+            'access_level',
+            'assigned_tenant_ids',
+            'is_active',
+            'notes',
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def update(self, instance, validated_data):
+        tenant_ids = validated_data.pop('assigned_tenant_ids', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if tenant_ids is not None:
+            instance.assigned_tenants.set(tenant_ids)
+
+        # Sync is_active on user account too
+        if 'is_active' in validated_data:
+            instance.user.is_active = validated_data['is_active']
+            instance.user.save(update_fields=['is_active'])
+
+        return instance

@@ -26,8 +26,9 @@ echo -e "${GREEN}✅ PostgreSQL is ready${NC}"
 echo ""
 
 # Wait for Redis
+# Wait for Redis
 echo -e "${BLUE}🔍 Waiting for Redis...${NC}"
-until python -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('redis', 6379)); s.close()" 2>/dev/null; do
+until python -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('$REDIS_HOST', $REDIS_PORT)); s.close()" 2>/dev/null; do
     echo "Redis is unavailable - sleeping"
     sleep 1
 done

@@ -1,57 +1,111 @@
-from django.contrib.sites.models import Site
+"""
+Tenant Access Control Middleware
+Blocks suspended tenants from accessing the API.
+"""
 from django.http import JsonResponse
-from django.urls import resolve
+from django.db import connection
+import logging
 
-class TenantMiddleware:
+logger = logging.getLogger(__name__)
+
+
+class TenantAccessMiddleware:
     """
-    Middleware to detect tenant from subdomain and enforce onboarding.
-
-    - Detects tenant from the request's host/domain
-    - Attaches tenant to request object
-    - Redirects to onboarding if tenant exists but onboarding is not completed
-    - Allows access to onboarding endpoints and admin without restriction
+    Middleware to check if tenant is active.
+    Blocks API access for suspended schools.
     """
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        # Skip check for public schema
+        if connection.schema_name == 'public':
+            return self.get_response(request)
+        
+        # Get current tenant
+        tenant = connection.tenant
+        
+        # Check if tenant is active
+        if not tenant.is_active:
+            return JsonResponse({
+                'error': 'School Suspended',
+                'detail': f'Access to {tenant.name} has been suspended. Please contact support.',
+                'school_name': tenant.name,
+                'schema_name': tenant.schema_name,
+                'contact_email': 'support@yourdomain.com',
+                'support_url': 'https://yourdomain.com/contact'
+            }, status=403)
+        
+        # Tenant is active, proceed normally
+        response = self.get_response(request)
+        return response
+    
 
-    # Paths that should bypass onboarding check
-    ALLOWED_PATHS = [
-        '/api/tenants/onboarding/',
-        '/api/tenants/debug/',
-        '/api/schema/',
-        '/admin/',
-        '/static/',
-        '/media/',
-    ]
+class TenantHeaderMiddleware:
+    """
+    Middleware to resolve tenant from X-Tenant-Slug header.
+    
+    Precedence:
+    1. X-Tenant-Slug header (used by frontend/API clients)
+    2. django-tenants subdomain routing (Host header)
+    3. Fallback to public schema for main domain
+    """
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        host = request.get_host().split(":")[0]
+        # Extract tenant slug from header
+        tenant_slug = request.headers.get('X-Tenant-Slug', '').strip()
 
+        # If no header, try to resolve from subdomain (django-tenants default behavior)
+        # This happens before this middleware, so connection.schema_name is already set
+        if not tenant_slug:
+            # Already handled by TenantMainMiddleware
+            return self.get_response(request)
+
+        # Validate and switch to the specified tenant
+        if not self._validate_and_set_tenant(request, tenant_slug):
+            return JsonResponse({
+                'error': 'Invalid Tenant',
+                'detail': f"Tenant '{tenant_slug}' not found or inaccessible.",
+                'tenant_slug': tenant_slug,
+            }, status=400)
+
+        # Store tenant info in request for view-level access
+        request.tenant_slug = tenant_slug
+
+        response = self.get_response(request)
+        return response
+
+    def _validate_and_set_tenant(self, request, tenant_slug):
+        """
+        Validate tenant exists and activate its schema.
+        
+        Returns:
+            bool: True if tenant activated successfully, False otherwise.
+        """
         try:
-            site = Site.objects.get(domain=host)
-            request.site = site
-            request.tenant = site.tenant
-        except Site.DoesNotExist:
-            request.site = None
-            request.tenant = None
+            # Import here to avoid circular imports
+            from tenants.models import Client
 
-        # Check if onboarding is required
-        if request.tenant and not request.tenant.onboarding_completed:
-            # Check if the current path is allowed
-            if not self._is_allowed_path(request.path):
-                return JsonResponse({
-                    "error": "Onboarding required",
-                    "message": "This tenant has not completed onboarding. Please complete the setup process.",
-                    "onboarding_required": True,
-                    "redirect_to": "/api/tenants/onboarding/check/"
-                }, status=403)
+            # Find tenant by slug (which maps to schema_name in django-tenants)
+            tenant = Client.objects.get(schema_name=tenant_slug)
 
-        return self.get_response(request)
+            # Check if tenant is active
+            if not tenant.is_active:
+                logger.warning(f"Access attempted to inactive tenant: {tenant_slug} (status: {tenant.status})")
+                return False
 
-    def _is_allowed_path(self, path):
-        """Check if the path is allowed to bypass onboarding"""
-        for allowed_path in self.ALLOWED_PATHS:
-            if path.startswith(allowed_path):
-                return True
-        return False
+            # Activate the tenant's schema
+            connection.set_tenant(tenant)
+            logger.debug(f"Tenant schema activated: {tenant_slug}")
+            return True
+
+        except Client.DoesNotExist:
+            logger.warning(f"Tenant not found: {tenant_slug}")
+            return False
+        except Exception as e:
+            logger.error(f"Error validating tenant {tenant_slug}: {str(e)}")
+            return False

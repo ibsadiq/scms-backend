@@ -1,0 +1,30 @@
+🌟 Mobile Access Enabled!
+
+Great news for {{ school_name }}!
+
+Your school has been upgraded to Premium Plan with mobile app access.
+
+WHAT'S NEW
+==========
+✓ iOS & Android mobile apps for teachers
+✓ Mobile access for parents
+✓ Student mobile portal
+✓ Real-time notifications on mobile
+✓ Offline access to key features
+
+DOWNLOAD OUR MOBILE APPS
+========================
+iOS App Store: {{ download_links.ios }}
+Google Play: {{ download_links.android }}
+
+GETTING STARTED
+===============
+1. Download the app from App Store or Google Play
+2. Select your school: {{ school_name }}
+3. Log in with your existing credentials
+4. Enable push notifications for updates
+
+Questions about the mobile app? Contact us at {{ support_email }}
+
+Enjoy your Premium features!
+The {{ app_name }} Team

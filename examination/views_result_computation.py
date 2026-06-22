@@ -48,28 +48,42 @@ class TermResultViewSet(viewsets.ModelViewSet):
         return TermResultListSerializer
 
     def get_queryset(self):
-        """Filter results based on user permissions and query params"""
+        """Filter results based on user role and query params"""
         queryset = super().get_queryset()
+        user = self.request.user
 
-        # If not staff, only show published results
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(is_published=True)
+        # Admins and teachers see all (unpublished included)
+        if user.is_superuser or user.is_admin or hasattr(user, 'teacher'):
+            pass  # no extra filter
+        else:
+            # Students: only their own published results
+            try:
+                queryset = queryset.filter(student=user.student_profile, is_published=True)
+            except AttributeError:
+                pass
+            else:
+                # Already scoped; skip parent check
+                return self._apply_param_filters(queryset)
 
-        # Filter by student if provided
-        student_id = self.request.query_params.get('student')
-        if student_id:
-            queryset = queryset.filter(student_id=student_id)
+            # Parents: only their children's published results
+            try:
+                queryset = queryset.filter(
+                    student__parent_guardian=user.parent,
+                    is_published=True
+                )
+            except AttributeError:
+                queryset = queryset.none()
 
-        # Filter by term if provided
-        term_id = self.request.query_params.get('term')
-        if term_id:
-            queryset = queryset.filter(term_id=term_id)
+        return self._apply_param_filters(queryset)
 
-        # Filter by classroom if provided
-        classroom_id = self.request.query_params.get('classroom')
-        if classroom_id:
-            queryset = queryset.filter(classroom_id=classroom_id)
-
+    def _apply_param_filters(self, queryset):
+        p = self.request.query_params
+        if p.get('student'):
+            queryset = queryset.filter(student_id=p['student'])
+        if p.get('term'):
+            queryset = queryset.filter(term_id=p['term'])
+        if p.get('classroom'):
+            queryset = queryset.filter(classroom_id=p['classroom'])
         return queryset
 
     @action(detail=False, methods=['post'])

@@ -1,0 +1,45 @@
+{% extends "email/base.html" %}
+
+{% block title %}Document Update - {{ app_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Document Requires Attention</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ parent_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    We have reviewed the documents submitted for <strong>{{ student_name }}</strong>'s application and one of your documents requires attention.
+</p>
+
+<!-- Document Info -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; color: #1f2937; font-weight: 600;">Document Details:</p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Application Number:</strong> {{ application_number }}
+            </p>
+            <p style="margin: 0 0 8px 0; color: #4b5563;">
+                <strong>Document:</strong> {{ document_name }}
+            </p>
+            {% if rejection_reason %}
+            <p style="margin: 0; color: #4b5563;">
+                <strong>Reason:</strong> {{ rejection_reason }}
+            </p>
+            {% endif %}
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Please log in to the admissions portal and upload a corrected version of this document to continue your application process.
+</p>
+
+<p style="margin: 32px 0 0 0; color: #4b5563; font-size: 16px;">
+    If you have questions, please contact our admissions office at {{ admissions_email }}.<br><br>
+    Regards,<br>
+    <strong>{{ school_name }} Admissions Team</strong>
+</p>
+{% endblock %}

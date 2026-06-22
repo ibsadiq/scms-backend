@@ -1,0 +1,25 @@
+✅ Account Reactivated!
+
+Great news! Access to {{ school_name }} has been fully restored.
+
+YOUR ACCOUNT IS ACTIVE
+=======================
+Your school portal is now fully operational. Teachers, students, and parents can log in and resume normal activities.
+
+WHAT'S RESTORED
+===============
+✓ Full access to school portal
+✓ Teacher, student, and parent logins
+✓ All features and modules
+✓ Complete access to your data
+
+ACCESS YOUR PORTAL
+==================
+{{ login_url }}
+
+Thank you for your patience and cooperation during the suspension period.
+
+Questions? Contact us at {{ support_email }}
+
+Welcome back!
+The {{ app_name }} Team

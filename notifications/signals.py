@@ -126,9 +126,10 @@ def notify_result_published(sender, instance, created, **kwargs):
     parent_user = student.parent_guardian.user
 
     # Calculate performance indicator
-    performance = "excellent" if instance.annual_average >= 75 else \
-                  "good" if instance.annual_average >= 60 else \
-                  "satisfactory" if instance.annual_average >= 50 else \
+    avg = float(instance.average_percentage or 0)
+    performance = "excellent" if avg >= 75 else \
+                  "good" if avg >= 60 else \
+                  "satisfactory" if avg >= 50 else \
                   "needs improvement"
 
     try:
@@ -137,7 +138,7 @@ def notify_result_published(sender, instance, created, **kwargs):
             notification_type='result',
             title=f"Results Published: {student.full_name}",
             message=f"{student.full_name}'s {instance.term} results are now available. "
-                    f"Annual Average: {instance.annual_average:.1f}%. "
+                    f"Average: {avg:.1f}%. "
                     f"Performance: {performance}. "
                     f"Log in to view detailed results.",
             priority='normal',

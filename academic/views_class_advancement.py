@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.utils import extend_schema
 
 from .models import StudentClassEnrollment, Student
 from administration.models import AcademicYear
@@ -45,6 +46,10 @@ class ClassAdvancementViewSet(viewsets.ViewSet):
         super().__init__(*args, **kwargs)
         self.service = ClassAdvancementService()
 
+    @extend_schema(
+        request=ClassMovementPreviewSerializer,
+        responses={200: ClassMovementPreviewSerializer} # Or appropriate response serializer
+    )
     @action(detail=False, methods=['post'])
     def preview(self, request):
         """
@@ -107,7 +112,11 @@ class ClassAdvancementViewSet(viewsets.ViewSet):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
+        
+    @extend_schema(
+        request=ClassMovementExecutionSerializer,
+        responses={201: dict} 
+    )
     @action(detail=False, methods=['post'])
     def execute(self, request):
         """
@@ -235,6 +244,7 @@ class StreamAssignmentViewSet(viewsets.ViewSet):
     - GET /api/academic/stream-assignments/pending/ - List students needing assignment
     """
     permission_classes = [IsAuthenticated]
+    
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -484,7 +494,7 @@ class StudentEnrollmentViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='academic-year/(?P<year_id>[^/.]+)')
-    def by_academic_year(self, request, year_id=None):
+    def by_academic_year(self, request, year_id: int=None):
         """
         Get all enrollments for a specific academic year.
 

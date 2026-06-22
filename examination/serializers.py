@@ -51,20 +51,11 @@ class ExaminationListSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_on', 'status']
 
-    def get_classroom_names(self, obj):
-        """
-        Get classroom names as a list.
-        ClassRoom model has 'name' (ClassLevel FK) and optional 'stream' (Stream FK).
-        Display format: "ClassLevel Stream" or just "ClassLevel" if no stream.
-        """
-        classrooms = []
-        for classroom in obj.classrooms.all():
-            class_name = str(classroom.name.name) if classroom.name else "Unknown"
-            if classroom.stream:
-                classrooms.append(f"{class_name} {classroom.stream.name}")
-            else:
-                classrooms.append(class_name)
-        return classrooms
+    def get_classroom_names(self, obj) -> str:
+        return ", ".join([c.name.name for c in obj.classrooms.all() if c.name])
+        
+    def status(self, obj) -> str:
+        return obj.get_status_display()
 
     def get_created_by_name(self, obj):
         if obj.created_by:

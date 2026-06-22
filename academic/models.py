@@ -8,6 +8,8 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.crypto import get_random_string
 from django.utils import timezone
 from users.models import CustomUser
+from django.conf import settings
+
 from administration.models import AcademicYear, Term
 
 from .validators import *
@@ -57,8 +59,16 @@ class Subject(models.Model):
 
 
 class Teacher(models.Model):
+    teacher_id = models.CharField(
+        max_length=20,
+        unique=True,
+        editable=False,
+        db_index=True,
+        blank=True,
+        help_text="Globally unique teacher identifier (e.g., TCH-B3N8Y6P1)"
+    )
     user = models.OneToOneField(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="teacher",
         null=True,
@@ -130,6 +140,12 @@ class Teacher(models.Model):
         """
         if not self.user:
             raise ValidationError("Teacher must have an associated user account. Create the CustomUser first.")
+        
+        if not self.teacher_id:
+            from django_tenants.utils import schema_context
+            with schema_context('public'):
+                from core.models import GlobalIDRegistry
+                self.teacher_id = GlobalIDRegistry.generate_unique_id('teacher')
 
         # Ensure user is marked as teacher
         if not self.user.is_teacher:
@@ -142,6 +158,21 @@ class Teacher(models.Model):
 
         super().save(*args, **kwargs)
 
+        # Sync identity snapshot + current school to public GlobalIDRegistry
+        if self.teacher_id:
+            from django.db import connection
+            from django_tenants.utils import schema_context
+            _schema = connection.schema_name
+            with schema_context('public'):
+                from core.models import GlobalIDRegistry
+                GlobalIDRegistry.sync(
+                    unique_id=self.teacher_id,
+                    first_name=self.first_name or '',
+                    last_name=self.last_name or '',
+                    date_of_birth=getattr(self, 'date_of_birth', None),
+                    current_schema=_schema,
+                )
+
     def update_unpaid_salary(self):
         # Update unpaid salary at the start of each month
         current_month = timezone.now().month
@@ -153,28 +184,162 @@ class Teacher(models.Model):
             )  # If unpaid salary is 0, set the first month's salary
         self.save()
 
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.teacher_id})"
+
+
+class SectionType(models.TextChoices):
+    PRE_PRIMARY = 'PRE_PRIMARY', _('Pre-Primary Education')
+    PRIMARY = 'PRIMARY', _('Primary Education')
+    JUNIOR_SECONDARY = 'JSS', _('Junior Secondary School')
+    SENIOR_SECONDARY = 'SSS', _('Senior Secondary School')
+
+class StandardClassCode(models.TextChoices):
+    """
+    Hardcoded codes for Data Analysis. 
+    These keys (e.g., 'BASIC_1') will NEVER change, ensuring reports stay consistent
+    even if the School Administrator changes the alias.
+    """
+    # 1. Pre-Primary
+    CRECHE = 'CRECHE', _('Creche/Playgroup')
+    PRE_NURSERY = 'PRE_NURSERY', _('Pre-Nursery')
+    NURSERY_1 = 'NURSERY_1', _('Nursery 1')
+    NURSERY_2 = 'NURSERY_2', _('Nursery 2')
+    
+    # 2. Primary (Basic)
+    BASIC_1 = 'BASIC_1', _('Basic 1 (Primary 1)')
+    BASIC_2 = 'BASIC_2', _('Basic 2 (Primary 2)')
+    BASIC_3 = 'BASIC_3', _('Basic 3 (Primary 3)')
+    BASIC_4 = 'BASIC_4', _('Basic 4 (Primary 4)')
+    BASIC_5 = 'BASIC_5', _('Basic 5 (Primary 5)')
+    BASIC_6 = 'BASIC_6', _('Basic 6 (Primary 6)')
+    
+    # 3. Junior Secondary
+    JSS_1 = 'JSS_1', _('JSS 1 (Basic 7)')
+    JSS_2 = 'JSS_2', _('JSS 2 (Basic 8)')
+    JSS_3 = 'JSS_3', _('JSS 3 (Basic 9)')
+    
+    # 4. Senior Secondary
+    SS_1 = 'SS_1', _('SS 1')
+    SS_2 = 'SS_2', _('SS 2')
+    SS_3 = 'SS_3', _('SS 3')
 
 class GradeLevel(models.Model):
-    name = models.CharField(max_length=150, unique=True)
-
-    class Meta:
-        ordering = ("id",)
-
-    def __str__(self):
-        return self.name
-
-
-class ClassLevel(models.Model):
-    name = models.CharField(max_length=150, unique=True)
-    grade_level = models.ForeignKey(
-        GradeLevel, blank=True, null=True, on_delete=models.SET_NULL
+    """
+    The Master Configuration for Classes.
+    Contains the standardized structure and the editable aliases.
+    """
+    system_code = models.CharField(
+        max_length=20, 
+        choices=StandardClassCode.choices, 
+        unique=True,
+        help_text="Internal code for data analysis. Cannot be changed."
+    )
+    section = models.CharField(max_length=20, choices=SectionType.choices)
+    
+    # Display Fields
+    default_name = models.CharField(max_length=100, help_text="Standard Universal Name")
+    alias = models.CharField(
+        max_length=100, 
+        blank=True, 
+        help_text="School-specific name (e.g., 'Year 1' instead of 'Basic 1'). Admin editable."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Age & Sequence Logic
+    sequence_order = models.PositiveIntegerField(help_text="Order for promotion (1, 2, 3...)")
+    min_age = models.PositiveIntegerField(default=0)
+    max_age = models.PositiveIntegerField(default=0)
+    
+    # Certification Notes
+    graduation_note = models.CharField(
+        max_length=255, 
+        blank=True, 
+        null=True,
+        help_text="E.g., 'Graduates receive FSLC' or 'Graduates take WAEC'"
     )
 
     class Meta:
-        ordering = ("id",)
+        ordering = ("sequence_order",)
+        verbose_name = "Grade Configuration"
+
+    def __str__(self):
+        # Return the Alias if set, otherwise the Standard Name
+        return self.alias if self.alias else self.default_name
+
+    @classmethod
+    def initialize_defaults(cls):
+        """
+        Run this method to populate the database with the hardcoded structure.
+        Usage: GradeLevel.initialize_defaults()
+        """
+        defaults = [
+            # Pre-Primary
+            {'code': 'CRECHE', 'name': 'Creche/Playgroup', 'section': 'PRE_PRIMARY', 'order': 1, 'min': 0, 'max': 2},
+            {'code': 'PRE_NURSERY', 'name': 'Pre-Nursery', 'section': 'PRE_PRIMARY', 'order': 2, 'min': 2, 'max': 3},
+            {'code': 'NURSERY_1', 'name': 'Nursery 1', 'section': 'PRE_PRIMARY', 'order': 3, 'min': 3, 'max': 4},
+            {'code': 'NURSERY_2', 'name': 'Nursery 2', 'section': 'PRE_PRIMARY', 'order': 4, 'min': 4, 'max': 5},
+            
+            # Primary
+            {'code': 'BASIC_1', 'name': 'Basic 1', 'section': 'PRIMARY', 'order': 5, 'min': 6, 'max': 6},
+            {'code': 'BASIC_2', 'name': 'Basic 2', 'section': 'PRIMARY', 'order': 6, 'min': 7, 'max': 7},
+            {'code': 'BASIC_3', 'name': 'Basic 3', 'section': 'PRIMARY', 'order': 7, 'min': 8, 'max': 8},
+            {'code': 'BASIC_4', 'name': 'Basic 4', 'section': 'PRIMARY', 'order': 8, 'min': 9, 'max': 9},
+            {'code': 'BASIC_5', 'name': 'Basic 5', 'section': 'PRIMARY', 'order': 9, 'min': 10, 'max': 10},
+            {'code': 'BASIC_6', 'name': 'Basic 6', 'section': 'PRIMARY', 'order': 10, 'min': 11, 'max': 11, 'note': 'First School Leaving Certificate'},
+            
+            # JSS
+            {'code': 'JSS_1', 'name': 'JSS 1', 'section': 'JSS', 'order': 11, 'min': 12, 'max': 12},
+            {'code': 'JSS_2', 'name': 'JSS 2', 'section': 'JSS', 'order': 12, 'min': 13, 'max': 13},
+            {'code': 'JSS_3', 'name': 'JSS 3', 'section': 'JSS', 'order': 13, 'min': 14, 'max': 14, 'note': 'BECE/JSCE'},
+            
+            # SSS
+            {'code': 'SS_1', 'name': 'SS 1', 'section': 'SSS', 'order': 14, 'min': 15, 'max': 15},
+            {'code': 'SS_2', 'name': 'SS 2', 'section': 'SSS', 'order': 15, 'min': 16, 'max': 16},
+            {'code': 'SS_3', 'name': 'SS 3', 'section': 'SSS', 'order': 16, 'min': 17, 'max': 17, 'note': 'SSCE (WAEC/NECO)'},
+        ]
+
+        for item in defaults:
+            obj, created = cls.objects.update_or_create(
+                system_code=item['code'],
+                defaults={
+                    'default_name': item['name'],
+                    'section': item['section'],
+                    'sequence_order': item['order'],
+                    'min_age': item['min'],
+                    'max_age': item['max'],
+                    'graduation_note': item.get('note', '')
+                }
+            )
+            if created and not obj.alias:
+                # Set default alias to name initially
+                obj.alias = item['name']
+                obj.save()
+
+
+class ClassLevel(models.Model):
+    """
+    Represents the active classes in the school linked to the Master Grade.
+    Examples: 'JSS 1 Gold', 'Basic 1A'.
+    """
+    name = models.CharField(max_length=150, help_text="e.g. JSS 1 Gold")
+    grade_level = models.ForeignKey(
+        GradeLevel, 
+        on_delete=models.CASCADE, 
+        related_name='classes'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ("grade_level__sequence_order", "name")
 
     def __str__(self):
         return self.name
+
+    @property
+    def section(self):
+        return self.grade_level.get_section_display()
 
 
 class ClassYear(models.Model):
@@ -217,7 +382,7 @@ class ClassRoom(models.Model):
     stream = models.ForeignKey(
         Stream, on_delete=models.CASCADE, blank=True, null=True, related_name="class_stream"
     )
-    class_teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, blank=True)
+    class_teacher = models.ForeignKey(Teacher, on_delete=models.SET_NULL, blank=True, null=True)
     capacity = models.PositiveIntegerField(default=40, blank=True)
     occupied_sits = models.PositiveIntegerField(default=0, blank=True)
 
@@ -293,7 +458,7 @@ class AllocatedSubject(models.Model):
 
 class Parent(models.Model):
     user = models.OneToOneField(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="parent",
         null=True,
@@ -382,11 +547,16 @@ class Parent(models.Model):
 
 
 class Student(models.Model):
-    id = models.AutoField(primary_key=True)
-
-    # Phase 1.6: Optional Student Portal - User Account
+    student_id = models.CharField(
+        max_length=20,
+        unique=True,
+        editable=False,
+        db_index=True,
+        blank=True,
+        help_text="Globally unique student identifier (e.g., STU-A7K9X2M4)"
+    )
     user = models.OneToOneField(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -463,8 +633,7 @@ class Student(models.Model):
     class Meta:
         ordering = ["admission_number", "last_name", "first_name"]
 
-    def __str__(self):
-        return f"{self.admission_number} - {self.full_name}"
+ 
 
     # --- PROPERTIES ---
 
@@ -476,7 +645,7 @@ class Student(models.Model):
 
     @property
     def total_paid(self):
-        return self.payments.aggregate(total=models.Sum("amount"))["total"] or Decimal("0.00")
+        return self.receipts.filter(status='Completed').aggregate(total=models.Sum("amount"))["total"] or Decimal("0.00")
 
     def unpaid_terms(self):
         return self.debt_records.filter(is_reversed=False).exclude(
@@ -504,6 +673,13 @@ class Student(models.Model):
     # --- SAVE AUTOMATION ---
 
     def save(self, *args, **kwargs):
+
+        if not self.student_id:
+            from django_tenants.utils import schema_context
+            with schema_context('public'):
+                from core.models import GlobalIDRegistry
+                self.student_id = GlobalIDRegistry.generate_unique_id('student')
+
         # Validate parent contact
         if not self.parent_contact:
             raise ValidationError("Parent contact is required.")
@@ -539,6 +715,22 @@ class Student(models.Model):
 
         super().save(*args, **kwargs)
 
+        # Sync identity snapshot + current school to public GlobalIDRegistry
+        if self.student_id:
+            from django.db import connection
+            from django_tenants.utils import schema_context
+            _schema = connection.schema_name
+            with schema_context('public'):
+                from core.models import GlobalIDRegistry
+                GlobalIDRegistry.sync(
+                    unique_id=self.student_id,
+                    first_name=self.first_name or '',
+                    last_name=self.last_name or '',
+                    date_of_birth=self.date_of_birth,
+                    # Clear current_schema when student leaves (transferred / dismissed / graduated)
+                    current_schema=_schema if self.is_active else '',
+                )
+
         # Link siblings automatically
         existing_siblings = Student.objects.filter(
             parent_contact=self.parent_contact
@@ -572,6 +764,11 @@ class Student(models.Model):
             first_term_of_new_year = Term.objects.filter(academic_year=next_year).order_by("start_date").first()
             if first_term_of_new_year:
                 self.update_debt_for_term(first_term_of_new_year)
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.student_id})"
+
+    
 
 class StudentsMedicalHistory(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
@@ -744,18 +941,6 @@ class MessageToTeacher(models.Model):
         return self.start_date <= today <= self.end_date
 
 
-class FamilyAccessUser(CustomUser):
-    """A person who can log into the non-admin side and see the same view as a student."""
-
-    class Meta:
-        proxy = True
-
-    def save(self, *args, **kwargs):
-        """Override save to assign user to 'family' group."""
-        super(FamilyAccessUser, self).save(*args, **kwargs)
-        group, created = Group.objects.get_or_create(name="family")
-        if not self.groups.filter(name="family").exists():
-            self.groups.add(group)
 
 
 # ============================================================================
@@ -764,40 +949,32 @@ class FamilyAccessUser(CustomUser):
 
 class PromotionRule(models.Model):
     """
-    Configurable promotion rules per school/class level.
-
-    Phase 2.1: Student Promotions & Class Advancement
-
-    Supports both Nigerian-style (annual average) and International-style (GPA) systems.
-    Schools can configure their own promotion criteria.
-
-    Nigerian schools typically use:
-    - Annual Average = (Term1 + Term2 + Term3) / 3
-    - Promotion if Annual Average >= 50%
-    - Must pass English and Mathematics
-    - Minimum number of subjects passed
+    Configuration for how students move from one Grade Level to another.
+    Now leverages 'sequence_order' to strictly validate progression.
     """
 
     PROMOTION_METHODS = [
         ('annual_average', 'Annual Average (Nigeria Standard)'),
         ('gpa', 'GPA (International)'),
-        ('custom', 'Custom Formula'),
+        ('cumulative', 'Cumulative Average (All Years)'),
     ]
 
-    from_class_level = models.ForeignKey(
-        ClassLevel,
+    # CHANGED: Now links to GradeLevel (e.g., JSS 1) instead of ClassLevel (e.g., JSS 1A)
+    from_grade = models.ForeignKey(
+        'GradeLevel',
         on_delete=models.CASCADE,
         related_name='promotion_rules_from',
-        help_text="Class level students are promoted FROM"
+        help_text="The current grade level of the student"
     )
-    to_class_level = models.ForeignKey(
-        ClassLevel,
+    
+    to_grade = models.ForeignKey(
+        'GradeLevel',
         on_delete=models.CASCADE,
         related_name='promotion_rules_to',
-        help_text="Class level students are promoted TO"
+        help_text="The destination grade level (or same if repeating)"
     )
 
-    # ===== PROMOTION METHOD =====
+    # ===== PROMOTION LOGIC =====
     promotion_method = models.CharField(
         max_length=20,
         choices=PROMOTION_METHODS,
@@ -805,155 +982,112 @@ class PromotionRule(models.Model):
         help_text="Method used to calculate promotion eligibility"
     )
 
-    # ===== ANNUAL AVERAGE SETTINGS (Nigerian Standard) =====
-    minimum_annual_average = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=50.0,
-        help_text="Minimum annual average required (e.g., 50.00%)"
-    )
-    use_weighted_terms = models.BooleanField(
-        default=False,
-        help_text="If True, Term 3 weighted more than Term 1/2"
-    )
-    term1_weight = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        default=0.30,
-        help_text="Weight for Term 1 (default 30%)"
-    )
-    term2_weight = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        default=0.30,
-        help_text="Weight for Term 2 (default 30%)"
-    )
-    term3_weight = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        default=0.40,
-        help_text="Weight for Term 3 (default 40%)"
+    # Nigeria Standard: Average of Term 1, 2, 3
+    min_average_score = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=50.00,
+        help_text="Minimum Annual Average (0-100%) required to promote."
     )
 
-    # ===== SUBJECT-SPECIFIC REQUIREMENTS =====
-    require_english_pass = models.BooleanField(
-        default=True,
-        help_text="Student must pass English to be promoted"
+    # Specific Subject Requirements (Critical for JSS -> SSS)
+    must_pass_english = models.BooleanField(
+        default=True, 
+        help_text="Student must pass English Language?"
     )
-    require_mathematics_pass = models.BooleanField(
-        default=True,
-        help_text="Student must pass Mathematics to be promoted"
+    must_pass_math = models.BooleanField(
+        default=True, 
+        help_text="Student must pass Mathematics?"
     )
-    minimum_subject_pass_percentage = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=40.0,
-        help_text="Minimum % to consider a subject 'passed'"
-    )
-    minimum_passed_subjects = models.IntegerField(
-        default=6,
-        help_text="Minimum number of subjects student must pass"
+    
+    # Minimum number of subjects passed (e.g., Must pass 6 subjects total)
+    min_subjects_passed = models.PositiveIntegerField(
+        default=5,
+        help_text="Minimum count of subjects the student must pass."
     )
 
-    # ===== ATTENDANCE REQUIREMENTS =====
-    minimum_attendance_percentage = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=70.0,
-        help_text="Minimum attendance % required (e.g., 70.00)"
+    # ===== VALIDATION & META =====
+    description = models.CharField(
+        max_length=255, 
+        blank=True, 
+        help_text="Auto-generated description of this rule"
     )
-
-    # ===== GPA SETTINGS (International) =====
-    minimum_gpa = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        default=2.0,
-        null=True,
-        blank=True,
-        help_text="Minimum GPA required (for GPA method)"
-    )
-
-    # ===== APPROVAL & CONFIGURATION =====
-    requires_approval = models.BooleanField(
-        default=False,
-        help_text="If True, promotion requires manual admin approval"
-    )
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Only active rules are applied during promotion"
-    )
-
+    
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+
     class Meta:
-        ordering = ['from_class_level__id']
-        unique_together = ['from_class_level', 'to_class_level']
+        unique_together = ['from_grade', 'to_grade']
+        ordering = ['from_grade__sequence_order']
         verbose_name = "Promotion Rule"
-        verbose_name_plural = "Promotion Rules"
 
     def __str__(self):
-        if self.promotion_method == 'annual_average':
-            return f"{self.from_class_level} → {self.to_class_level} (Avg≥{self.minimum_annual_average}%)"
-        elif self.promotion_method == 'gpa':
-            return f"{self.from_class_level} → {self.to_class_level} (GPA≥{self.minimum_gpa})"
-        return f"{self.from_class_level} → {self.to_class_level}"
+        return f"{self.from_grade} → {self.to_grade}"
 
     def clean(self):
-        """Validate promotion rule"""
-        if self.from_class_level == self.to_class_level:
-            raise ValidationError("Cannot promote to the same class level")
+        """
+        Uses the new 'sequence_order' to ensure promotion logic is sound.
+        """
+        # 1. Prevent Demotion (Moving backwards)
+        if self.to_grade.sequence_order < self.from_grade.sequence_order:
+            raise ValidationError({
+                'to_grade': _(
+                    f"Cannot define a promotion rule that demotes students from "
+                    f"{self.from_grade} (Order {self.from_grade.sequence_order}) to "
+                    f"{self.to_grade} (Order {self.to_grade.sequence_order})."
+                )
+            })
 
-        if self.minimum_annual_average < 0 or self.minimum_annual_average > 100:
-            raise ValidationError("Annual average must be between 0 and 100")
+        # 2. Handle "Double Promotion" (Skipping a class)
+        # If moving more than 1 step up (e.g., JSS1 to JSS3), logic is valid but unusual.
+        step_difference = self.to_grade.sequence_order - self.from_grade.sequence_order
+        
+        if step_difference > 1:
+            # We allow it, but maybe we want to tag it in the description
+            pass 
 
-        if self.minimum_attendance_percentage < 0 or self.minimum_attendance_percentage > 100:
-            raise ValidationError("Attendance percentage must be between 0 and 100")
+        # 3. Prevent mixing Sections illegitimately (Optional)
+        # e.g., Preventing Primary 6 directly to SS 1 (skipping JSS) if that's a business rule.
 
-        if self.use_weighted_terms:
-            total_weight = self.term1_weight + self.term2_weight + self.term3_weight
-            if abs(total_weight - Decimal('1.0')) > Decimal('0.01'):
-                raise ValidationError("Term weights must sum to 1.0 (100%)")
+    def save(self, *args, **kwargs):
+        # Auto-generate a human-readable description
+        direction = "Repeat" if self.from_grade == self.to_grade else "Promote to"
+        criteria = f"Avg ≥ {self.min_average_score}%"
+        
+        if self.must_pass_english:
+            criteria += ", Eng"
+        if self.must_pass_math:
+            criteria += ", Math"
+            
+        self.description = f"{direction} {self.to_grade}: Requires {criteria}"
+        super().save(*args, **kwargs)
 
-    def get_config_dict(self):
-        """Return rule configuration as dictionary for service layer"""
-        return {
-            'promotion_method': self.promotion_method,
-            'minimum_annual_average': float(self.minimum_annual_average),
-            'use_weighted_terms': self.use_weighted_terms,
-            'term1_weight': float(self.term1_weight) if self.use_weighted_terms else 0.333,
-            'term2_weight': float(self.term2_weight) if self.use_weighted_terms else 0.333,
-            'term3_weight': float(self.term3_weight) if self.use_weighted_terms else 0.334,
-            'require_english_pass': self.require_english_pass,
-            'require_mathematics_pass': self.require_mathematics_pass,
-            'minimum_subject_pass_percentage': float(self.minimum_subject_pass_percentage),
-            'minimum_passed_subjects': self.minimum_passed_subjects,
-            'minimum_attendance_percentage': float(self.minimum_attendance_percentage),
-            'minimum_gpa': float(self.minimum_gpa) if self.minimum_gpa else None,
-            'requires_approval': self.requires_approval,
-        }
+    @property
+    def is_repeat_year(self):
+        """Returns True if this rule is for repeating the same class."""
+        return self.from_grade == self.to_grade
+
+    @property
+    def is_double_promotion(self):
+        """Returns True if this rule skips a class."""
+        return (self.to_grade.sequence_order - self.from_grade.sequence_order) > 1
 
 
 class StudentPromotion(models.Model):
     """
-    Records student promotion decisions at the end of an academic year.
-
-    Phase 2.1: Student Promotions & Class Advancement
-
-    Tracks complete promotion details including:
-    - Annual average across all terms
-    - Individual term averages
-    - Subject pass counts
-    - English/Math performance
-    - Attendance statistics
-    - Promotion decision and reason
+    Records the historical movement of a student from one academic level to another.
+    Uses GradeLevel.sequence_order to validate that students are moving forward correctly.
     """
 
     PROMOTION_STATUS_CHOICES = [
-        ('promoted', 'Promoted'),
-        ('repeated', 'Repeated'),
-        ('conditional', 'Conditional Promotion'),
-        ('graduated', 'Graduated'),
+        ('PROMOTED', 'Promoted'),
+        ('REPEATED', 'Repeated'),
+        ('DOUBLE_PROMOTION', 'Double Promotion'),
+        ('PROMOTED_ON_TRIAL', 'Promoted on Trial'),
+        ('GRADUATED', 'Graduated'),
+        ('WITHDRAWN', 'Withdrawn'),
     ]
 
     student = models.ForeignKey(
@@ -961,207 +1095,135 @@ class StudentPromotion(models.Model):
         on_delete=models.CASCADE,
         related_name='promotion_history'
     )
+    
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        help_text="The academic year of this result (e.g., 2023/2024)"
+    )
+
+    # ===== LOCATION: FROM =====
     from_class = models.ForeignKey(
         ClassRoom,
         on_delete=models.SET_NULL,
         null=True,
-        related_name='promotions_from',
-        help_text="Classroom student was promoted FROM"
+        related_name='promotions_out',
+        help_text="The classroom the student is leaving (e.g., JSS 1 Gold)"
     )
+    
+    # We auto-populate this in save() so you don't have to select it manually
+    from_grade = models.ForeignKey(
+        GradeLevel,
+        on_delete=models.CASCADE,
+        related_name='grade_promotions_out',
+        null=True,
+        blank=True,
+        help_text="Auto-populated: The grade level being completed (e.g., JSS 1)"
+    )
+
+    # ===== LOCATION: TO =====
     to_class = models.ForeignKey(
         ClassRoom,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='promotions_to',
-        help_text="Classroom student was promoted TO (null if repeated/graduated)"
+        related_name='promotions_in',
+        help_text="The destination classroom. Null if Graduated or Withdrawn."
     )
-    from_class_level = models.ForeignKey(
-        ClassLevel,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='class_level_promotions_from'
-    )
-    to_class_level = models.ForeignKey(
-        ClassLevel,
+    
+    to_grade = models.ForeignKey(
+        GradeLevel,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='class_level_promotions_to'
+        related_name='grade_promotions_in',
+        help_text="Auto-populated: The destination grade level."
     )
-    academic_year = models.ForeignKey(
-        'administration.AcademicYear',
-        on_delete=models.CASCADE,
-        help_text="Academic year this promotion occurred"
-    )
+
+    # ===== DECISION METADATA =====
     status = models.CharField(
         max_length=20,
         choices=PROMOTION_STATUS_CHOICES,
-        default='promoted'
+        default='PROMOTED'
     )
-
-    # ===== ACADEMIC PERFORMANCE =====
-    term1_average = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Average for Term 1"
-    )
-    term2_average = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Average for Term 2"
-    )
-    term3_average = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Average for Term 3"
-    )
+    
     annual_average = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        null=True,
+        max_digits=5, 
+        decimal_places=2, 
+        null=True, 
         blank=True,
-        help_text="Overall annual average (Nigerian method)"
+        help_text="The student's final average score used for this decision."
     )
-    final_gpa = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Student's final GPA (International method)"
-    )
-
-    # ===== SUBJECT PERFORMANCE =====
-    total_subjects = models.IntegerField(
-        default=0,
-        help_text="Total subjects taken"
-    )
-    subjects_passed = models.IntegerField(
-        default=0,
-        help_text="Number of subjects passed"
-    )
-    subjects_failed = models.IntegerField(
-        default=0,
-        help_text="Number of subjects failed"
-    )
-    english_passed = models.BooleanField(
-        default=False,
-        help_text="Whether English was passed"
-    )
-    mathematics_passed = models.BooleanField(
-        default=False,
-        help_text="Whether Mathematics was passed"
-    )
-
-    # ===== ATTENDANCE =====
-    attendance_percentage = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Student's attendance % for the year"
-    )
-    total_school_days = models.IntegerField(
-        default=0,
-        help_text="Total school days in the year"
-    )
-    days_present = models.IntegerField(
-        default=0,
-        help_text="Days student was present"
-    )
-    days_absent = models.IntegerField(
-        default=0,
-        help_text="Days student was absent"
-    )
-
-    # ===== POSITION & RANKING =====
-    class_position = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Student's final position in class"
-    )
-    total_students_in_class = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Total students in the class"
-    )
-
-    # ===== PROMOTION DECISION =====
-    meets_criteria = models.BooleanField(
-        default=True,
-        help_text="Whether student met automatic promotion criteria"
-    )
-    reason = models.TextField(
-        blank=True,
-        help_text="Explanation for promotion decision (especially if repeated/overridden)"
-    )
-    approved_by = models.ForeignKey(
-        CustomUser,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='approved_promotions'
-    )
+    
     promotion_date = models.DateField(default=timezone.now)
-    created_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField(blank=True, help_text="Optional remarks (e.g., 'Failed Math twice')")
 
     class Meta:
-        ordering = ['-promotion_date', '-created_at']
-        verbose_name = "Student Promotion"
-        verbose_name_plural = "Student Promotions"
+        ordering = ['-promotion_date']
         indexes = [
             models.Index(fields=['student', 'academic_year']),
             models.Index(fields=['status']),
-            models.Index(fields=['academic_year']),
         ]
+        verbose_name = "Promotion Record"
 
     def __str__(self):
-        if self.status == 'graduated':
-            return f"{self.student.full_name} - Graduated ({self.academic_year})"
-        elif self.status == 'repeated':
-            return f"{self.student.full_name} - Repeated {self.from_class} ({self.academic_year})"
-        return f"{self.student.full_name} - {self.from_class} → {self.to_class} ({self.academic_year})"
+        return f"{self.student} ({self.academic_year}): {self.get_status_display()}"
 
     def clean(self):
-        """Validate promotion record"""
-        if self.status == 'promoted' and not self.to_class:
-            raise ValidationError("Promoted students must have a 'to_class'")
+        """
+        Validates the promotion logic using sequence_order.
+        """
+        # Ensure grades are populated for validation if classes are selected
+        if self.from_class and not self.from_grade:
+             self.from_grade = self.from_class.grade_level.grade_level # Accessing GradeLevel model from ClassRoom
+        
+        if self.to_class and not self.to_grade:
+             self.to_grade = self.to_class.grade_level.grade_level
 
-        if self.status == 'graduated' and self.to_class:
-            raise ValidationError("Graduated students should not have a 'to_class'")
+        # 1. Logic for PROMOTED students
+        if self.status in ['PROMOTED', 'DOUBLE_PROMOTION', 'PROMOTED_ON_TRIAL']:
+            if not self.to_class:
+                raise ValidationError("A promoted student must have a destination class.")
+            
+            # Ensure they are moving FORWARD in sequence (JSS 1 -> JSS 2)
+            if self.to_grade.sequence_order <= self.from_grade.sequence_order:
+                raise ValidationError(
+                    f"Invalid Promotion: Cannot promote from {self.from_grade} (Order {self.from_grade.sequence_order}) "
+                    f"to {self.to_grade} (Order {self.to_grade.sequence_order}). Sequence must increase."
+                )
 
-        if self.status == 'repeated' and self.to_class and self.to_class != self.from_class:
-            raise ValidationError("Repeated students should stay in the same class or have no 'to_class'")
+        # 2. Logic for REPEATED students
+        if self.status == 'REPEATED':
+            if self.to_grade and self.to_grade != self.from_grade:
+                raise ValidationError(
+                    f"Invalid Repeat: Destination grade ({self.to_grade}) must match current grade ({self.from_grade})."
+                )
+
+        # 3. Logic for GRADUATED/WITHDRAWN
+        if self.status in ['GRADUATED', 'WITHDRAWN']:
+            if self.to_class or self.to_grade:
+                raise ValidationError(f"Students marked as {self.status} should not have a destination class.")
 
     def save(self, *args, **kwargs):
-        """Auto-populate class levels from classrooms and calculate derived fields"""
-        if self.from_class and not self.from_class_level:
-            self.from_class_level = self.from_class.class_level
+        """
+        Auto-populates GradeLevels from the selected ClassRooms.
+        """
+        # Auto-fill 'from_grade' based on 'from_class'
+        # Note: In your original model, ClassRoom.name links to ClassLevel. 
+        # So the path is: ClassRoom -> name (ClassLevel) -> grade_level (GradeLevel)
+        if self.from_class:
+            self.from_grade = self.from_class.name.grade_level
 
-        if self.to_class and not self.to_class_level:
-            self.to_class_level = self.to_class.class_level
-
-        # Calculate subjects failed if not set
-        if self.total_subjects and self.subjects_passed:
-            self.subjects_failed = self.total_subjects - self.subjects_passed
+        # Auto-fill 'to_grade' based on 'to_class'
+        if self.to_class:
+            self.to_grade = self.to_class.name.grade_level
+        
+        # Clear destination fields if Graduated/Withdrawn
+        if self.status in ['GRADUATED', 'WITHDRAWN']:
+            self.to_grade = None
+            self.to_class = None
 
         super().save(*args, **kwargs)
-
-    @property
-    def promotion_summary(self):
-        """Get human-readable promotion summary"""
-        if self.status == 'graduated':
-            return f"Graduated with {self.annual_average}% average"
-        elif self.status == 'promoted':
-            return f"Promoted to {self.to_class} - Annual Average: {self.annual_average}%"
-        elif self.status == 'repeated':
-            return f"Repeated {self.from_class} - Annual Average: {self.annual_average}%"
-        return f"{self.status.title()} - {self.annual_average}%"
 
 
 class StudentClassEnrollment(models.Model):
@@ -1542,19 +1604,6 @@ class AdmissionFeeStructure(models.Model):
         blank=True,
         help_text="Maximum number of applications for this class (optional)"
     )
-
-    # Age requirements (Nigerian schools often have strict age limits)
-    minimum_age = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Minimum age in years (optional)"
-    )
-    maximum_age = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Maximum age in years (optional)"
-    )
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1569,9 +1618,6 @@ class AdmissionFeeStructure(models.Model):
 
     def clean(self):
         """Validate fee structure"""
-        if self.minimum_age and self.maximum_age:
-            if self.maximum_age < self.minimum_age:
-                raise ValidationError("Maximum age must be greater than minimum age")
 
         if self.entrance_exam_required and not self.entrance_exam_pass_score:
             raise ValidationError("Pass score is required when entrance exam is required")
@@ -1759,7 +1805,7 @@ class AdmissionApplication(models.Model):
     # Tracking
     submitted_at = models.DateTimeField(null=True, blank=True)
     reviewed_by = models.ForeignKey(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -2001,7 +2047,7 @@ class AdmissionDocument(models.Model):
         help_text="Has admin verified this document?"
     )
     verified_by = models.ForeignKey(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -2069,7 +2115,7 @@ class AdmissionAssessment(models.Model):
     )
     venue = models.CharField(max_length=255, blank=True)
     assessor = models.ForeignKey(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

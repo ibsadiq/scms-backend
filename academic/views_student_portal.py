@@ -16,6 +16,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import Group
 from django.shortcuts import get_object_or_404
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema
 
 from .models import Student
 from users.models import CustomUser
@@ -36,6 +37,11 @@ class StudentAuthViewSet(viewsets.ViewSet):
     - POST /api/students/auth/login/ - Login with phone + password
     - POST /api/students/auth/change-password/ - Change password
     """
+
+    @extend_schema(
+        request=StudentRegistrationSerializer,
+        responses={201: dict}
+    )
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
@@ -147,7 +153,12 @@ class StudentAuthViewSet(viewsets.ViewSet):
                 'classroom_name': classroom_name
             }
         }, status=status.HTTP_201_CREATED)
+    
 
+    @extend_schema(
+        request=StudentLoginSerializer,
+        responses={200: dict}
+    )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def login(self, request):
         """

@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.core.exceptions import ValidationError as DjangoValidationError
-from .permissions import CanEnterMarks, CanViewResults, CanManageExaminations
+from .permissions import CanEnterMarks, CanViewResults, CanManageExaminations, CanManageScript
 from .models import (
     ExaminationListHandler,
     MarksManagement,
@@ -55,7 +55,8 @@ class ExaminationViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Set the created_by user when creating an assessment"""
-        serializer.save(created_by=self.request.user)
+        teacher = getattr(self.request.user, 'teacher', None)
+        serializer.save(created_by=teacher)
 
     @action(detail=False, methods=['get'])
     def active(self, request):
@@ -96,7 +97,12 @@ class MarksViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Set the created_by user when entering marks"""
-        serializer.save(created_by=self.request.user)
+        teacher = getattr(self.request.user, 'teacher', None)
+        if not teacher:
+            raise serializers.ValidationError(
+                {"detail": "This user account does not have an associated Teacher profile. Marks can only be entered by users with a Teacher profile."}
+            )
+        serializer.save(created_by=teacher)
 
     @action(detail=False, methods=['get'])
     def by_exam(self, request):
@@ -187,41 +193,50 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
     - POST /api/examination/marked-scripts/bulk_upload/ - Upload multiple marked scripts
     - PATCH /api/examination/marked-scripts/{id}/toggle_visibility/ - Toggle visibility to student/parent
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanManageScript]
     queryset = MarkedScript.objects.all().select_related(
         'exam', 'student', 'subject', 'uploaded_by', 'marks_entry'
     )
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
     def get_serializer_class(self):
-        """Use different serializers for list vs create/update"""
         if self.action in ['create', 'update', 'partial_update']:
             return MarkedScriptCreateSerializer
         return MarkedScriptListSerializer
 
     def get_queryset(self):
-        """
-        Filter queryset based on user role.
-        Teachers see only their uploads, admins see all.
-        """
         user = self.request.user
         queryset = super().get_queryset()
 
-        # Admins see everything
-        if user.is_superuser:
+        if user.is_superuser or user.is_admin:
             return queryset
 
-        # Teachers see only their uploads
-        if user.is_staff and hasattr(user, 'teacher'):
+        if hasattr(user, 'teacher'):
             return queryset.filter(uploaded_by=user.teacher)
 
-        # Default: no access
+        # Students see their own visible scripts
+        try:
+            return queryset.filter(student=user.student_profile, visible_to_student=True)
+        except AttributeError:
+            pass
+
+        # Parents see their children's visible scripts
+        try:
+            return queryset.filter(
+                student__parent_guardian=user.parent,
+                visible_to_parent=True
+            )
+        except AttributeError:
+            pass
+
         return queryset.none()
 
     def perform_create(self, serializer):
-        """Set the uploaded_by teacher when creating a marked script"""
-        # Get teacher from user
-        teacher = self.request.user.teacher
+        teacher = getattr(self.request.user, 'teacher', None)
+        if not teacher:
+            raise serializers.ValidationError(
+                {"detail": "This user account does not have an associated Teacher profile. Scripts can only be uploaded by users with a Teacher profile."}
+            )
         serializer.save(uploaded_by=teacher)
 
     @action(detail=False, methods=['get'])
@@ -308,7 +323,12 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
         # Create marked scripts
         created_scripts = []
         errors = []
-        teacher = request.user.teacher
+        teacher = getattr(request.user, 'teacher', None)
+        if not teacher:
+            return Response(
+                {'error': 'This user account does not have an associated Teacher profile. Scripts can only be uploaded by users with a Teacher profile.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         for idx, (file, student_id) in enumerate(zip(files, student_ids)):
             try:

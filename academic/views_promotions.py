@@ -66,33 +66,21 @@ class PromotionRuleViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
-    def by_class_level(self, request):
+    def by_grade(self, request):
         """
-        Get promotion rule for a specific class level.
-
-        Query params:
-        - class_level_id: ClassLevel ID (required)
+        Get rule for a specific Grade Level ID (e.g., ID for JSS 1).
+        Usage: /api/academic/promotion-rules/by_grade/?grade_id=5
         """
-        class_level_id = request.query_params.get('class_level_id')
-        if not class_level_id:
-            return Response(
-                {'error': 'class_level_id parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        grade_id = request.query_params.get('grade_id')
+        if not grade_id:
+            return Response({'error': 'grade_id is required'}, status=400)
 
-        try:
-            rule = PromotionRule.objects.get(
-                from_class_level_id=class_level_id,
-                is_active=True
-            )
-            serializer = self.get_serializer(rule)
-            return Response(serializer.data)
-        except PromotionRule.DoesNotExist:
-            return Response(
-                {'error': f'No active promotion rule found for class level {class_level_id}'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
+        rule = PromotionRule.objects.filter(from_grade_id=grade_id, is_active=True).first()
+        if not rule:
+             return Response({'error': 'No promotion rule found for this grade'}, status=404)
+             
+        serializer = self.get_serializer(rule)
+        return Response(serializer.data)
 
 class StudentPromotionViewSet(viewsets.ModelViewSet):
     """
@@ -194,16 +182,7 @@ class StudentPromotionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def preview(self, request):
         """
-        Preview promotion recommendations for a classroom.
-
-        Request body:
-        {
-            "classroom_id": 1,
-            "academic_year_id": 1
-        }
-
-        Returns:
-        List of promotion recommendations with detailed criteria evaluation.
+        Preview promotion recommendations based on Grade Level rules.
         """
         classroom_id = request.data.get('classroom_id')
         academic_year_id = request.data.get('academic_year_id')
@@ -218,47 +197,65 @@ class StudentPromotionViewSet(viewsets.ModelViewSet):
             classroom = ClassRoom.objects.get(id=classroom_id)
             academic_year = AcademicYear.objects.get(id=academic_year_id)
         except ClassRoom.DoesNotExist:
-            return Response(
-                {'error': f'Classroom {classroom_id} not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({'error': f'Classroom {classroom_id} not found'}, status=404)
         except AcademicYear.DoesNotExist:
+            return Response({'error': f'Academic year {academic_year_id} not found'}, status=404)
+
+        # 1. NEW: Identify the Grade Level (e.g., JSS 1) from the Class (e.g., JSS 1 Gold)
+        # Path: ClassRoom -> ClassLevel (name) -> GradeLevel
+        current_grade = classroom.name.grade_level
+
+        # 2. NEW: Fail fast if no rule exists for this Grade
+        rule = PromotionRule.objects.filter(from_grade=current_grade, is_active=True).first()
+        if not rule:
             return Response(
-                {'error': f'Academic year {academic_year_id} not found'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': f'No active promotion rule configured for {current_grade}. Please contact admin.'},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         # Get promotion service
         service = PromotionService()
 
         try:
+            # Service logic should now use 'rule' to evaluate students
             evaluations = service.bulk_evaluate_classroom(classroom, academic_year)
         except DjangoValidationError as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Serialize evaluations
+        # 3. Serialize evaluations
         preview_data = []
         for evaluation in evaluations:
+            # Handle destination: It might be a Grade (JSS 2) or a Status (Graduated)
+            recommended_grade = "N/A"
+            if evaluation.get('to_grade'):
+                recommended_grade = str(evaluation['to_grade'])
+            elif evaluation.get('recommended_status') == 'graduated':
+                recommended_grade = "Graduated"
+
             preview_data.append({
                 'student_id': evaluation['student'].id,
                 'student_name': evaluation['student'].full_name,
                 'admission_number': evaluation['student'].admission_number,
-                'current_class': str(evaluation['from_class']),
-                'recommended_class': str(evaluation['to_class']) if evaluation['to_class'] else 'Graduated',
+                
+                # Context info
+                'current_class': str(classroom.name),  # e.g., "JSS 1 Gold"
+                'current_grade': str(current_grade),   # e.g., "JSS 1"
+                
+                # Recommendation (Changed from 'recommended_class' to 'recommended_grade')
+                'recommended_grade': recommended_grade,
                 'recommended_status': evaluation['recommended_status'],
-                'annual_average': float(evaluation['annual_average']) if evaluation['annual_average'] else None,
-                'subjects_passed': evaluation['subjects_passed'],
-                'total_subjects': evaluation['total_subjects'],
-                'english_passed': evaluation['english_passed'],
-                'mathematics_passed': evaluation['mathematics_passed'],
-                'attendance_percentage': float(evaluation['attendance_percentage']) if evaluation['attendance_percentage'] else None,
-                'class_position': evaluation['class_position'],
-                'meets_criteria': evaluation['meets_criteria'],
-                'criteria_met': evaluation['criteria_met'],
-                'criteria_failed': evaluation['criteria_failed'],
+                
+                # Stats
+                'annual_average': float(evaluation['annual_average']) if evaluation.get('annual_average') else 0.0,
+                'subjects_passed': evaluation.get('subjects_passed', 0),
+                'total_subjects': evaluation.get('total_subjects', 0),
+                'english_passed': evaluation.get('english_passed', False),
+                'mathematics_passed': evaluation.get('mathematics_passed', False),
+                'attendance_percentage': float(evaluation['attendance_percentage']) if evaluation.get('attendance_percentage') else 0.0,
+                
+                # Debug info
+                'meets_criteria': evaluation.get('meets_criteria', False),
+                'criteria_failed': evaluation.get('criteria_failed', []),
             })
 
         # Calculate summary statistics
@@ -272,11 +269,13 @@ class StudentPromotionViewSet(viewsets.ModelViewSet):
 
         return Response({
             'classroom': str(classroom),
+            'grade_level': str(current_grade),
             'academic_year': str(academic_year),
+            'promotion_rule_used': str(rule),
             'summary': summary,
             'students': preview_data
         })
-
+    
     @action(detail=False, methods=['post'])
     def execute(self, request):
         """

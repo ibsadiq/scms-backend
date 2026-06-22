@@ -65,7 +65,8 @@ class FeeStructureSerializer(serializers.ModelSerializer):
 
     def get_created_by_name(self, obj):
         if obj.created_by:
-            return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.username
+            name = f"{obj.created_by.first_name} {obj.created_by.last_name}".strip()
+            return name or obj.created_by.email
         return None
 
     def validate(self, data):
@@ -261,7 +262,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
 
     def get_received_by_name(self, obj):
         if obj.received_by:
-            return f"{obj.received_by.user.first_name} {obj.received_by.user.last_name}".strip()
+            return f"{obj.received_by.first_name} {obj.received_by.last_name}".strip() or obj.received_by.email
         return None
 
 
@@ -306,12 +307,12 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def get_paid_by_name(self, obj):
         if obj.paid_by:
-            return f"{obj.paid_by.user.first_name} {obj.paid_by.user.last_name}".strip()
+            return f"{obj.paid_by.first_name} {obj.paid_by.last_name}".strip() or obj.paid_by.email
         return None
 
     def get_user_name(self, obj):
         if obj.user:
-            return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
+            return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.email
         return None
 
 
@@ -320,6 +321,7 @@ class StudentFeeBalanceSerializer(serializers.Serializer):
     student = serializers.IntegerField()
     student_name = serializers.CharField()
     student_admission_number = serializers.CharField()
+    class_level_name = serializers.CharField(required=False)
     term = serializers.IntegerField(allow_null=True)
     term_name = serializers.CharField(allow_null=True)
     total_fees = serializers.DecimalField(max_digits=10, decimal_places=2)

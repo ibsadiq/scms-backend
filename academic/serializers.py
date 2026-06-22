@@ -29,10 +29,17 @@ class DepartmentSerializer(serializers.ModelSerializer):
 
 
 class ClassLevelSerializer(serializers.ModelSerializer):
+    grade_level_name = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = ClassLevel
-        fields = "__all__"
-        read_only_fields = ['id']  # id is auto-generated
+        fields = ['id', 'name', 'grade_level', 'grade_level_name']
+        read_only_fields = ['id', 'grade_level_name']
+
+    def get_grade_level_name(self, obj):
+        if obj.grade_level:
+            return obj.grade_level.alias or obj.grade_level.default_name
+        return None
 
 
 class StreamSerializer(serializers.ModelSerializer):
@@ -42,15 +49,28 @@ class StreamSerializer(serializers.ModelSerializer):
 
 
 class SubjectSerializer(serializers.ModelSerializer):
-    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all())
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(), allow_null=True, required=False
+    )
+    department_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Subject
-        fields = "__all__"
+        fields = [
+            'id', 'name', 'subject_code', 'description',
+            'department', 'department_name', 'graded', 'is_selectable',
+        ]
+
+    def get_department_name(self, obj):
+        return obj.department.name.title() if obj.department else None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['name'] = instance.name.title() if instance.name else instance.name
+        return data
 
     def validate_subject_code(self, value):
-        # Add custom validation if needed (e.g., regex validation)
-        if len(value) < 3:
+        if value and len(value) < 3:
             raise serializers.ValidationError(
                 "Subject code must be at least 3 characters."
             )
@@ -58,10 +78,16 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 
 class GradeLevelSerializer(serializers.ModelSerializer):
+    section_display = serializers.CharField(source='get_section_display', read_only=True)
+
     class Meta:
         model = GradeLevel
-        fields = "__all__"
-        read_only_fields = ['id']  # id is auto-generated
+        fields = [
+            'id', 'system_code', 'default_name', 'alias', 
+            'section', 'section_display', 'sequence_order', 
+            'min_age', 'max_age', 'updated_at'
+        ]
+        read_only_fields = ['id', 'updated_at' ]
 
 
 class ClassRoomSerializer(serializers.ModelSerializer):
@@ -166,112 +192,51 @@ class BulkUploadSubjectsSerializer(serializers.Serializer):
 # ============================================================================
 
 class PromotionRuleSerializer(serializers.ModelSerializer):
-    """Serializer for PromotionRule model"""
-    from_class_level_name = serializers.CharField(
-        source='from_class_level.name',
-        read_only=True
-    )
-    to_class_level_name = serializers.CharField(
-        source='to_class_level.name',
-        read_only=True
-    )
+    # Changed from 'from_class_level' to 'from_grade'
+    from_grade_name = serializers.CharField(source='from_grade.__str__', read_only=True)
+    to_grade_name = serializers.CharField(source='to_grade.__str__', read_only=True)
 
     class Meta:
         model = PromotionRule
         fields = [
-            'id',
-            'from_class_level',
-            'from_class_level_name',
-            'to_class_level',
-            'to_class_level_name',
-            'promotion_method',
-            'minimum_annual_average',
-            'use_weighted_terms',
-            'term1_weight',
-            'term2_weight',
-            'term3_weight',
-            'require_english_pass',
-            'require_mathematics_pass',
-            'minimum_subject_pass_percentage',
-            'minimum_passed_subjects',
-            'minimum_attendance_percentage',
-            'minimum_gpa',
-            'requires_approval',
-            'is_active',
-            'created_at',
-            'updated_at'
+            'id', 
+            'from_grade', 'from_grade_name',
+            'to_grade', 'to_grade_name',
+            'promotion_method', 
+            'min_average_score',
+            'must_pass_english', 
+            'must_pass_math',
+            'min_subjects_passed',
+            'description', 
+            'is_active'
         ]
-        read_only_fields = ['created_at', 'updated_at']
 
 
 class StudentPromotionSerializer(serializers.ModelSerializer):
-    """Serializer for StudentPromotion model"""
-    student_name = serializers.CharField(
-        source='student.full_name',
-        read_only=True
-    )
-    student_admission_number = serializers.CharField(
-        source='student.admission_number',
-        read_only=True
-    )
-    from_class_name = serializers.CharField(
-        source='from_class.__str__',
-        read_only=True
-    )
-    to_class_name = serializers.CharField(
-        source='to_class.__str__',
-        read_only=True
-    )
-    approved_by_name = serializers.SerializerMethodField()
-    promotion_summary = serializers.ReadOnlyField()
-
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_admission_number = serializers.CharField(source='student.admission_number', read_only=True)
+    
+    # We now show both the physical Class (JSS 1 Gold) and the System Grade (JSS 1)
+    from_class_name = serializers.CharField(source='from_class.__str__', read_only=True, allow_null=True)
+    to_class_name = serializers.CharField(source='to_class.__str__', read_only=True, allow_null=True)
+    from_grade_name = serializers.CharField(source='from_grade.__str__', read_only=True)
+    to_grade_name = serializers.CharField(source='to_grade.__str__', read_only=True, allow_null=True)
+    
     class Meta:
         model = StudentPromotion
         fields = [
-            'id',
-            'student',
-            'student_name',
-            'student_admission_number',
-            'from_class',
-            'from_class_name',
-            'to_class',
-            'to_class_name',
-            'from_class_level',
-            'to_class_level',
+            'id', 
+            'student', 'student_name', 'student_admission_number',
             'academic_year',
-            'status',
-            'term1_average',
-            'term2_average',
-            'term3_average',
-            'annual_average',
-            'final_gpa',
-            'total_subjects',
-            'subjects_passed',
-            'subjects_failed',
-            'english_passed',
-            'mathematics_passed',
-            'attendance_percentage',
-            'total_school_days',
-            'days_present',
-            'days_absent',
-            'class_position',
-            'total_students_in_class',
-            'meets_criteria',
-            'reason',
-            'approved_by',
-            'approved_by_name',
-            'promotion_date',
-            'promotion_summary',
-            'created_at'
+            'from_class', 'from_class_name',
+            'to_class', 'to_class_name',
+            'from_grade', 'from_grade_name',
+            'to_grade', 'to_grade_name',
+            'status', 
+            'annual_average', 
+            'promotion_date', 
+            'reason'
         ]
-        read_only_fields = ['created_at', 'promotion_summary']
-
-    def get_approved_by_name(self, obj):
-        """Get name of user who approved promotion"""
-        if obj.approved_by:
-            return f"{obj.approved_by.first_name} {obj.approved_by.last_name}"
-        return None
-
 
 class PromotionPreviewSerializer(serializers.Serializer):
     """Serializer for promotion preview data"""
@@ -509,11 +474,29 @@ class StudentDashboardSerializer(serializers.Serializer):
 
     def get_current_term_results(self, obj):
         """Get current term results summary"""
-        # TODO: Implement when examination system is available
-        return {
-            'available': False,
-            'message': 'No results available yet'
-        }
+        try:
+            from examination.models import TermResult
+            from administration.models import Term
+            current_term = Term.objects.filter(
+                academic_year__is_current=True
+            ).order_by('-start_date').first()
+            if not current_term:
+                return {'available': False, 'message': 'No active term'}
+            result = TermResult.objects.filter(
+                student=obj, term=current_term
+            ).first()
+            if not result:
+                return {'available': False, 'message': 'No results for current term'}
+            return {
+                'available': True,
+                'term': current_term.name,
+                'total_marks': float(result.total_marks) if result.total_marks else None,
+                'average_percentage': float(result.average_percentage) if result.average_percentage else None,
+                'grade': result.grade,
+                'position': result.position_in_class,
+            }
+        except Exception:
+            return {'available': False, 'message': 'No results available yet'}
 
     def get_attendance_summary(self, obj):
         """Get attendance summary"""
@@ -544,8 +527,38 @@ class StudentDashboardSerializer(serializers.Serializer):
 
     def get_upcoming_assignments(self, obj):
         """Get upcoming assignments"""
-        # TODO: Implement when assignment system is available
-        return []
+        try:
+            from assignments.models import Assignment, AssignmentSubmission
+            from django.utils import timezone
+
+            if not obj.classroom:
+                return []
+
+            upcoming = Assignment.objects.filter(
+                classroom=obj.classroom,
+                due_date__gte=timezone.now(),
+                status='published',
+            ).order_by('due_date')[:5]
+
+            submitted_ids = set(
+                AssignmentSubmission.objects.filter(
+                    student=obj,
+                    assignment__in=upcoming,
+                ).values_list('assignment_id', flat=True)
+            )
+
+            return [
+                {
+                    'id': a.id,
+                    'title': a.title,
+                    'subject': a.subject.name if a.subject else None,
+                    'due_date': a.due_date.isoformat(),
+                    'has_submitted': a.id in submitted_ids,
+                }
+                for a in upcoming
+            ]
+        except Exception:
+            return []
 
     def get_fee_balance(self, obj):
         """Get fee balance"""

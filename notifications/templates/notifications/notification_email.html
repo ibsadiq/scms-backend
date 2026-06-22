@@ -1,0 +1,82 @@
+{% extends "email/base.html" %}
+
+{% block title %}{{ notification_title }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+
+<!-- Priority badge -->
+{% if is_urgent %}
+<table style="width: 100%; margin: 0 0 24px 0;">
+  <tr>
+    <td style="background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; padding: 12px 16px;">
+      <p style="margin: 0; color: #b91c1c; font-weight: 600; font-size: 14px;">
+        🚨 Urgent Notification — Action may be required
+      </p>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<!-- Greeting -->
+<p style="margin: 0 0 20px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+  Dear <strong>{{ recipient_name }}</strong>,
+</p>
+
+<!-- Icon + Title -->
+<table style="width: 100%; margin: 0 0 24px 0;">
+  <tr>
+    <td style="background-color: {{ icon_bg }}; border-radius: 8px; padding: 20px 24px;">
+      <p style="margin: 0; color: {{ icon_color }}; font-size: 22px; font-weight: 700;">
+        {{ type_icon }} {{ notification_title }}
+      </p>
+    </td>
+  </tr>
+</table>
+
+<!-- Message body -->
+<p style="margin: 0 0 24px 0; color: #374151; font-size: 16px; line-height: 1.7;">
+  {{ notification_message }}
+</p>
+
+<!-- Student info card (if applicable) -->
+{% if student_name %}
+<table style="width: 100%; margin: 0 0 24px 0; background-color: #f0f9ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+  <tr>
+    <td style="padding: 16px 20px;">
+      <p style="margin: 0 0 8px 0; color: #1e40af; font-weight: 600; font-size: 14px;">Student Details</p>
+      <p style="margin: 0 0 4px 0; color: #374151; font-size: 14px;">
+        <strong>Name:</strong> {{ student_name }}
+      </p>
+      {% if student_admission_number %}
+      <p style="margin: 0 0 4px 0; color: #374151; font-size: 14px;">
+        <strong>Admission No:</strong> {{ student_admission_number }}
+      </p>
+      {% endif %}
+      {% if student_class and student_class != 'N/A' %}
+      <p style="margin: 0; color: #374151; font-size: 14px;">
+        <strong>Class:</strong> {{ student_class }}
+      </p>
+      {% endif %}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<!-- CTA button -->
+<table style="width: 100%; margin: 8px 0 32px 0;">
+  <tr>
+    <td align="center">
+      <a href="{{ login_url }}"
+         style="display: inline-block; padding: 13px 32px; background-color: {{ school_primary_color|default:'#667eea' }}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.12);">
+        Log In to View Details →
+      </a>
+    </td>
+  </tr>
+</table>
+
+<!-- Metadata -->
+<p style="margin: 0; color: #9ca3af; font-size: 13px;">
+  Sent: {{ created_at|date:"N j, Y, g:i a" }} &nbsp;·&nbsp; Type: {{ notification_type }}
+</p>
+
+{% endblock %}

@@ -5,7 +5,7 @@ from django.db.models import Sum
 from decimal import Decimal
 from administration.models import Term, AcademicYear
 from academic.models import GradeLevel, ClassLevel
-from users.models import Accountant, CustomUser as User
+from django.conf import settings
 from academic.models import Teacher, Student
 
 
@@ -95,7 +95,7 @@ class FeeStructure(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -187,7 +187,7 @@ class FeeStructure(models.Model):
             return 0
 
         assigned_count = 0
-        students = Student.objects.filter(status='Active')
+        students = Student.objects.filter(is_active=True)
 
         # Filter by grade levels if specified
         grade_levels_list = list(self.grade_levels.all())
@@ -268,7 +268,7 @@ class StudentFeeAssignment(models.Model):
     )
     waived_reason = models.TextField(blank=True, null=True)
     waived_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -387,7 +387,7 @@ class FeeAdjustment(models.Model):
     new_amount = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField()
     adjusted_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True
@@ -446,7 +446,7 @@ class Receipt(models.Model):
         default=PaymentStatus.COMPLETED
     )
     received_by = models.ForeignKey(
-        Accountant,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         related_name='received_receipts'
@@ -518,7 +518,7 @@ class FeePaymentAllocation(models.Model):
     )
     allocated_date = models.DateTimeField(auto_now_add=True)
     allocated_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True
@@ -588,7 +588,7 @@ class Payment(models.Model):
     date = models.DateField(auto_now_add=True)
     paid_to = models.CharField(max_length=255)
     user = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         blank=True,
         null=True,
         on_delete=models.SET_NULL,
@@ -620,7 +620,7 @@ class Payment(models.Model):
         default=PaymentStatus.COMPLETED
     )
     paid_by = models.ForeignKey(
-        Accountant,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         related_name='processed_payments'

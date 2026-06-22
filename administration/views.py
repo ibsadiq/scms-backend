@@ -74,9 +74,15 @@ class AcademicYearDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 # Term Views
 class TermListCreateView(generics.ListCreateAPIView):
-    queryset = Term.objects.all()
     serializer_class = TermSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Term.objects.all()
+        academic_year = self.request.query_params.get("academic_year")
+        if academic_year:
+            queryset = queryset.filter(academic_year_id=academic_year)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         print(request.data)
@@ -244,7 +250,7 @@ class DashboardStatsView(APIView):
         # Categorize into levels
         primary_keywords = ['Primary', 'primary', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6']
         jss_keywords = ['JSS', 'jss', 'Junior']
-        sss_keywords = ['SSS', 'sss', 'Senior']
+        sss_keywords = ['SSS', 'sss', 'Senior', 'ss', 'SS']
         university_keywords = ['Year', 'year', 'University', 'university']
         
         primary_count = sum(count for class_name, count in class_counts.items() 

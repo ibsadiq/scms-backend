@@ -12,7 +12,7 @@ from django.db import models
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
-from users.models import CustomUser
+from django.conf import settings
 from academic.models import Student
 
 
@@ -45,7 +45,7 @@ class Notification(models.Model):
 
     # Recipients
     recipient = models.ForeignKey(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='notifications',
         help_text="User who receives this notification"
@@ -184,7 +184,7 @@ class NotificationPreference(models.Model):
     """
 
     user = models.OneToOneField(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='notification_preferences'
     )

@@ -10,6 +10,12 @@ from rest_framework.permissions import AllowAny
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
+from core.email_utils import (
+    send_admission_confirmation_email,
+    send_admission_accepted_email,
+    get_school_settings,
+    send_email,
+)
 
 from .models import (
     AdmissionSession,
@@ -19,6 +25,7 @@ from .models import (
     AdmissionStatus,
     ClassLevel,
 )
+from .serializers import ClassLevelSerializer
 from .serializers_admission import (
     AdmissionSessionPublicSerializer,
     AdmissionFeeStructurePublicSerializer,
@@ -293,8 +300,30 @@ class PublicAdmissionApplicationViewSet(viewsets.ModelViewSet):
         application.submitted_at = timezone.now()
         application.save()
 
-        # TODO: Send confirmation email to parent
-        # TODO: Send notification email to admin
+        try:
+            send_admission_confirmation_email(application)
+        except Exception:
+            pass
+
+        try:
+            school_settings = get_school_settings()
+            admin_email = school_settings.get('contact_email')
+            if admin_email:
+                send_email(
+                    subject=f"New Admission Application — {application.application_number}",
+                    to_email=admin_email,
+                    template_name='admin_new_registration',
+                    context={
+                        'student_name': f"{application.first_name} {application.last_name}",
+                        'application_number': application.application_number,
+                        'class_level': application.class_level.name,
+                        'parent_name': application.parent_guardian_name,
+                        'parent_email': application.email,
+                    },
+                    fail_silently=True,
+                )
+        except Exception:
+            pass
 
         serializer = AdmissionApplicationDetailSerializer(
             application,
@@ -347,8 +376,30 @@ class PublicAdmissionApplicationViewSet(viewsets.ModelViewSet):
         application.accepted_at = timezone.now()
         application.save()
 
-        # TODO: Send acceptance confirmation email to parent
-        # TODO: Send notification email to admin
+        try:
+            send_admission_accepted_email(application)
+        except Exception:
+            pass
+
+        try:
+            school_settings = get_school_settings()
+            admin_email = school_settings.get('contact_email')
+            if admin_email:
+                send_email(
+                    subject=f"Offer Accepted — {application.application_number}",
+                    to_email=admin_email,
+                    template_name='admin_new_registration',
+                    context={
+                        'student_name': f"{application.first_name} {application.last_name}",
+                        'application_number': application.application_number,
+                        'class_level': application.class_level.name,
+                        'parent_name': application.parent_guardian_name,
+                        'parent_email': application.email,
+                    },
+                    fail_silently=True,
+                )
+        except Exception:
+            pass
 
         serializer = AdmissionApplicationDetailSerializer(
             application,
@@ -443,13 +494,16 @@ class PublicAdmissionApplicationViewSet(viewsets.ModelViewSet):
         payment_info['total_paid'] = total_paid
         payment_info['balance'] = total_required
 
-        # Payment instructions
+        # Payment instructions — pulled from school settings where available
+        school = get_school_settings()
         payment_info['payment_instructions'] = {
-            'bank_name': 'To be configured',  # TODO: Get from school settings
-            'account_number': 'To be configured',
-            'account_name': 'To be configured',
+            'bank_name': fee_structure.bank_name if hasattr(fee_structure, 'bank_name') and fee_structure.bank_name else 'Contact school for bank details',
+            'account_number': fee_structure.account_number if hasattr(fee_structure, 'account_number') and fee_structure.account_number else 'Contact school',
+            'account_name': school.get('school_name', 'School Account'),
             'reference': application.application_number,
-            'note': 'Please use your application number as payment reference.'
+            'note': 'Please use your application number as payment reference.',
+            'contact_email': school.get('contact_email') or '',
+            'contact_phone': school.get('contact_phone') or '',
         }
 
         return Response(payment_info)
@@ -554,9 +608,27 @@ class PublicAdmissionDocumentViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(application=application)
+        document = serializer.save(application=application)
 
-        # TODO: Send notification to admin about new document
+        try:
+            school_settings = get_school_settings()
+            admin_email = school_settings.get('contact_email')
+            if admin_email:
+                send_email(
+                    subject=f"New Document Uploaded — {application.application_number}",
+                    to_email=admin_email,
+                    template_name='admin_new_registration',
+                    context={
+                        'student_name': f"{application.first_name} {application.last_name}",
+                        'application_number': application.application_number,
+                        'class_level': application.class_level.name,
+                        'parent_name': application.parent_guardian_name,
+                        'parent_email': application.email,
+                    },
+                    fail_silently=True,
+                )
+        except Exception:
+            pass
 
         return Response({
             'message': 'Document uploaded successfully.',
@@ -588,6 +660,7 @@ class PublicClassLevelViewSet(viewsets.ReadOnlyModelViewSet):
     """
     permission_classes = [AllowAny]
     queryset = ClassLevel.objects.all().order_by('id')
+    serializer_class = ClassLevelSerializer
 
     def list(self, request):
         """List classes available for admission in active session"""

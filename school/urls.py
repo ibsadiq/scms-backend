@@ -54,9 +54,6 @@ urlpatterns = [
     # path("", TemplateView.as_view(template_name="index.html")),
     path("", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-
-
-    path("api/", include("core.urls")),
     path("api/academic/", include("api.academic.urls")),
     path("api/administration/", include("api.administration.urls")),
     path("api/attendance/", include("api.attendance.urls")),
@@ -70,7 +67,8 @@ urlpatterns = [
     path("api/users/", include("api.users.urls")),
     path("api/timetable/", include("api.schedule.urls")),
     path("api/sis/", include("api.sis.urls")),
-    path("api/tenants/", include("tenants.urls")),
+    path("api/core/", include("api.core.urls")),
+    path("api/tenants/", include("api.tenants.urls")),
 
     # Admission management
     path("api/admissions/", include("api.admissions_admin.urls")),

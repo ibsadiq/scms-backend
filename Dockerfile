@@ -51,6 +51,7 @@ RUN mkdir -p /app/staticfiles /app/media /app/logs
 # Expose port
 EXPOSE 8000
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 # Run development server
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 

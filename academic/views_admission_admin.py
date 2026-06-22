@@ -11,6 +11,15 @@ from django.db.models import Q, Count
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib import admin
+from core.email_utils import (
+    send_admission_documents_required_email,
+    send_admission_exam_scheduled_email,
+    send_admission_interview_scheduled_email,
+    send_admission_approved_email,
+    send_admission_rejected_email,
+    send_admission_enrolled_email,
+    send_email,
+)
 
 from .models import (
     AdmissionSession,
@@ -320,7 +329,13 @@ class AdmissionApplicationAdminViewSet(viewsets.ModelViewSet):
         application.admin_notes = notes
         application.save()
 
-        # TODO: Send email to parent requesting documents
+        try:
+            send_admission_documents_required_email(
+                application,
+                admin_notes=notes,
+            )
+        except Exception:
+            pass
 
         serializer = self.get_serializer(application)
         return Response({
@@ -357,7 +372,10 @@ class AdmissionApplicationAdminViewSet(viewsets.ModelViewSet):
         application.exam_venue = exam_venue
         application.save()
 
-        # TODO: Send email to parent with exam details
+        try:
+            send_admission_exam_scheduled_email(application)
+        except Exception:
+            pass
 
         serializer = self.get_serializer(application)
         return Response({
@@ -416,7 +434,10 @@ class AdmissionApplicationAdminViewSet(viewsets.ModelViewSet):
         application.interview_venue = interview_venue
         application.save()
 
-        # TODO: Send email to parent with interview details
+        try:
+            send_admission_interview_scheduled_email(application)
+        except Exception:
+            pass
 
         serializer = self.get_serializer(application)
         return Response({
@@ -458,7 +479,10 @@ class AdmissionApplicationAdminViewSet(viewsets.ModelViewSet):
 
         application.save()
 
-        # TODO: Send admission offer email to parent
+        try:
+            send_admission_approved_email(application)
+        except Exception:
+            pass
 
         serializer = self.get_serializer(application)
         return Response({
@@ -499,7 +523,10 @@ class AdmissionApplicationAdminViewSet(viewsets.ModelViewSet):
         application.rejection_reason = rejection_reason
         application.save()
 
-        # TODO: Send rejection email to parent
+        try:
+            send_admission_rejected_email(application)
+        except Exception:
+            pass
 
         serializer = self.get_serializer(application)
         return Response({
@@ -601,7 +628,10 @@ class AdmissionApplicationAdminViewSet(viewsets.ModelViewSet):
         application.enrolled_student = student
         application.save()
 
-        # TODO: Send welcome email with login credentials
+        try:
+            send_admission_enrolled_email(application)
+        except Exception:
+            pass
 
         serializer = self.get_serializer(application)
         return Response({
@@ -761,7 +791,24 @@ class AdmissionDocumentAdminViewSet(viewsets.ModelViewSet):
         document.verification_notes = rejection_reason
         document.save()
 
-        # TODO: Notify parent about rejected document
+        try:
+            application = document.application
+            if application.email:
+                send_email(
+                    subject=f"Document Update — {application.application_number}",
+                    to_email=application.email,
+                    template_name='admission_document_rejected',
+                    context={
+                        'parent_name': application.parent_guardian_name,
+                        'student_name': f"{application.first_name} {application.last_name}",
+                        'application_number': application.application_number,
+                        'document_name': document.document_type,
+                        'rejection_reason': rejection_reason,
+                    },
+                    fail_silently=True,
+                )
+        except Exception:
+            pass
 
         serializer = self.get_serializer(document)
         return Response({

@@ -10,8 +10,9 @@ Handles:
 """
 import logging
 from typing import Dict, List, Optional, Any
-from django.core.mail import send_mail, EmailMessage
+from django.core.mail import send_mail, EmailMultiAlternatives
 from django.template import Template, Context
+from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
@@ -168,32 +169,62 @@ class NotificationService:
             return False
 
         try:
-            # Get template if available
+            context = self._get_notification_context(notification)
+
+            # Subject: use DB template if configured, else notification title
             try:
-                template = NotificationTemplate.objects.get(
+                db_template = NotificationTemplate.objects.get(
                     template_type=notification.notification_type,
                     is_active=True
                 )
-                subject = template.email_subject_template
-                body = template.email_body_template
-
-                # Render with notification context
-                context = self._get_notification_context(notification)
-                subject = self._render_template(subject, context)
-                body = self._render_template(body, context)
+                subject = self._render_template(db_template.email_subject_template, context)
             except NotificationTemplate.DoesNotExist:
-                # Fallback to notification title/message
                 subject = notification.title
-                body = notification.message
 
-            # Send email
-            send_mail(
+            # Build HTML email using the base template
+            type_meta = {
+                'attendance': ('🏫', '#fef2f2', '#dc2626'),
+                'fee':        ('💳', '#fefce8', '#ca8a04'),
+                'result':     ('📊', '#f0fdf4', '#16a34a'),
+                'report_card':('📋', '#f0fdf4', '#16a34a'),
+                'exam':       ('✏️',  '#eff6ff', '#2563eb'),
+                'promotion':  ('🎓', '#faf5ff', '#7c3aed'),
+                'event':      ('📅', '#fff7ed', '#ea580c'),
+            }.get(notification.notification_type, ('🔔', '#f9fafb', '#374151'))
+
+            try:
+                from tenants.models import Client
+                from django.db import connection
+                tenant = Client.objects.get(schema_name=connection.schema_name)
+                school_name = tenant.name
+                primary_color = getattr(tenant, 'primary_color', '#667eea') or '#667eea'
+            except Exception:
+                school_name = getattr(settings, 'APP_NAME', 'SSync')
+                primary_color = '#667eea'
+
+            html_context = {
+                **context,
+                'app_name': getattr(settings, 'APP_NAME', 'SSync'),
+                'school_name': school_name,
+                'school_primary_color': primary_color,
+                'type_icon': type_meta[0],
+                'icon_bg': type_meta[1],
+                'icon_color': type_meta[2],
+                'is_urgent': notification.priority in ('high', 'urgent'),
+                'login_url': getattr(settings, 'FRONTEND_URL', 'http://localhost:3000'),
+            }
+
+            html_body = render_to_string('notifications/notification_email.html', html_context)
+            plain_body = notification.message
+
+            email = EmailMultiAlternatives(
                 subject=subject,
-                message=body,
+                body=plain_body,
                 from_email=self.email_from,
-                recipient_list=[notification.recipient.email],
-                fail_silently=False
+                to=[notification.recipient.email],
             )
+            email.attach_alternative(html_body, 'text/html')
+            email.send(fail_silently=False)
 
             # Update notification
             notification.sent_via_email = True
@@ -463,34 +494,75 @@ class NotificationService:
 
     def _send_sms_via_provider(self, phone_number: str, message: str) -> bool:
         """
-        Send SMS via external provider (Twilio, Africa's Talking, etc.).
+        Send SMS via Africa's Talking (primary) or Twilio (fallback).
 
-        This is a placeholder. Implement based on your SMS provider.
+        Provider is selected by the SMS_PROVIDER setting:
+          'africastalking' — default, suitable for Nigeria/Africa
+          'twilio'         — fallback for international
 
-        Args:
-            phone_number: Recipient phone number
-            message: SMS message
-
-        Returns:
-            True if sent successfully, False otherwise
+        Required settings per provider:
+          Africa's Talking: AT_USERNAME, AT_API_KEY, AT_SENDER_ID (optional)
+          Twilio:           TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
         """
-        # TODO: Implement SMS provider integration
-        # Example for Twilio:
-        # from twilio.rest import Client
-        # client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        # message = client.messages.create(
-        #     body=message,
-        #     from_=settings.TWILIO_PHONE_NUMBER,
-        #     to=phone_number
-        # )
-        # return message.sid is not None
+        provider = getattr(settings, 'SMS_PROVIDER', 'africastalking').lower()
 
-        # Example for Africa's Talking:
-        # import africastalking
-        # africastalking.initialize(settings.AT_USERNAME, settings.AT_API_KEY)
-        # sms = africastalking.SMS
-        # response = sms.send(message, [phone_number])
-        # return response['SMSMessageData']['Recipients'][0]['status'] == 'Success'
+        try:
+            if provider == 'africastalking':
+                return self._send_via_africastalking(phone_number, message)
+            elif provider == 'twilio':
+                return self._send_via_twilio(phone_number, message)
+            else:
+                logger.error(f"Unknown SMS provider: {provider}")
+                return False
+        except Exception as e:
+            logger.error(f"SMS provider error ({provider}): {e}")
+            return False
 
-        logger.warning(f"SMS provider not configured. Would send to {phone_number}: {message}")
-        return False  # Return False since provider is not configured
+    def _send_via_africastalking(self, phone_number: str, message: str) -> bool:
+        """Send via Africa's Talking SMS gateway."""
+        try:
+            import africastalking
+        except ImportError:
+            logger.error("africastalking package not installed. Run: pip install africastalking")
+            return False
+
+        username = getattr(settings, 'AT_USERNAME', None)
+        api_key  = getattr(settings, 'AT_API_KEY', None)
+
+        if not username or not api_key:
+            logger.error("AT_USERNAME and AT_API_KEY must be set to use Africa's Talking SMS")
+            return False
+
+        africastalking.initialize(username, api_key)
+        sms = africastalking.SMS
+
+        sender_id = getattr(settings, 'AT_SENDER_ID', None)
+        kwargs = {'message': message, 'recipients': [phone_number]}
+        if sender_id:
+            kwargs['sender_id'] = sender_id
+
+        response = sms.send(**kwargs)
+        recipients = response.get('SMSMessageData', {}).get('Recipients', [])
+        if recipients:
+            return recipients[0].get('status') == 'Success'
+        return False
+
+    def _send_via_twilio(self, phone_number: str, message: str) -> bool:
+        """Send via Twilio SMS gateway."""
+        try:
+            from twilio.rest import Client
+        except ImportError:
+            logger.error("twilio package not installed. Run: pip install twilio")
+            return False
+
+        account_sid = getattr(settings, 'TWILIO_ACCOUNT_SID', None)
+        auth_token  = getattr(settings, 'TWILIO_AUTH_TOKEN', None)
+        from_number = getattr(settings, 'TWILIO_PHONE_NUMBER', None)
+
+        if not all([account_sid, auth_token, from_number]):
+            logger.error("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER must be set")
+            return False
+
+        client = Client(account_sid, auth_token)
+        msg = client.messages.create(body=message, from_=from_number, to=phone_number)
+        return msg.sid is not None

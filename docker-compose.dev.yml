@@ -1,0 +1,55 @@
+services:
+  ssync-postgres:
+    image: postgres:16-alpine
+    container_name: ssync-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ssync
+      POSTGRES_PASSWORD: ssync
+      POSTGRES_DB: ssync
+    ports:
+      - "5433:5432"
+    volumes:
+      - ssync-pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ssync"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ssync-redis:
+    image: redis:7-alpine
+    container_name: ssync-redis-dev
+    ports:
+      - "6380:6379"
+
+  ssync-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development 
+    container_name: ssync-backend-dev
+    restart: unless-stopped
+    env_file:
+      - .env.development
+    ports:
+      - "8000:8000"
+    depends_on:
+      ssync-postgres:
+        condition: service_healthy
+      ssync-redis:
+        condition: service_started
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: ssync-mailpit-dev
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # web UI
+      - "1025:1025"   # SMTP
+
+volumes:
+  ssync-pgdata-dev:

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to {{ app_name }}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background-color: #f3f4f6;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td align="center" style="padding: 40px 0;">
+                <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px 8px 0 0;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                🎉 Welcome to {{ app_name }}!
+                            </h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="margin: 0 0 20px; color: #374151; font-size: 16px; line-height: 1.6;">
+                                Hello <strong>{{ admin_name }}</strong>,
+                            </p>
+                            
+                            <p style="margin: 0 0 20px; color: #374151; font-size: 16px; line-height: 1.6;">
+                                Congratulations! Your school management system for <strong style="color: #667eea;">{{ school_name }}</strong> is now ready.
+                            </p>
+                            
+                            <!-- Login Credentials Box -->
+                            <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f9fafb; border-radius: 8px; margin: 30px 0;">
+                                <tr>
+                                    <td style="padding: 24px;">
+                                        <h3 style="margin: 0 0 16px; color: #1f2937; font-size: 18px; font-weight: 600;">
+                                            🔐 Your Login Details
+                                        </h3>
+                                        <table role="presentation" style="width: 100%;">
+                                            <tr>
+                                                <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px;">Portal URL:</td>
+                                                <td style="padding: 8px 0;">
+                                                    <a href="{{ reset_url }}" style="color: #667eea; text-decoration: none; font-weight: 500;">
+                                                        {{ domain }}
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Username:</td>
+                                                <td style="padding: 8px 0; color: #1f2937; font-weight: 500;">{{ username }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Plan:</td>
+                                                <td style="padding: 8px 0;">
+                                                    <span style="background-color: {% if has_mobile_access %}#10b981{% else %}#3b82f6{% endif %}; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 500;">
+                                                        {{ plan }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <div style="margin-top: 20px; padding: 12px; background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+                                            <p style="margin: 0; color: #1e40af; font-size: 14px;">
+                                                🔑 Use the button below to set your password and access your portal. The link expires in 24 hours.
+                                            </p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- CTA Button -->
+                            <table role="presentation" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ reset_url }}" style="display: inline-block; padding: 14px 32px; background-color: #667eea; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                                            Set Password &amp; Get Started →
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Features -->
+                            <div style="margin: 30px 0;">
+                                <h3 style="margin: 0 0 16px; color: #1f2937; font-size: 18px; font-weight: 600;">
+                                    ✨ What's Included
+                                </h3>
+                                <ul style="margin: 0; padding: 0 0 0 20px; color: #374151; font-size: 15px; line-height: 1.8;">
+                                    <li>Student & Teacher Management</li>
+                                    <li>Grades & Attendance Tracking</li>
+                                    <li>Finance & Fee Management</li>
+                                    <li>Parent Portal Access</li>
+                                    <li>Reports & Analytics</li>
+                                    {% if has_mobile_access %}
+                                    <li><strong style="color: #10b981;">📱 Mobile App Access (iOS & Android)</strong></li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                            
+                            <!-- Getting Started -->
+                            <div style="margin: 30px 0; padding: 24px; background-color: #eff6ff; border-radius: 8px;">
+                                <h3 style="margin: 0 0 16px; color: #1e40af; font-size: 18px; font-weight: 600;">
+                                    🚀 Getting Started
+                                </h3>
+                                <ol style="margin: 0; padding: 0 0 0 20px; color: #1e40af; font-size: 15px; line-height: 1.8;">
+                                    <li>Log in to your admin portal</li>
+                                    <li>Change your password</li>
+                                    <li>Set up your school profile</li>
+                                    <li>Add academic years and terms</li>
+                                    <li>Invite teachers and staff</li>
+                                    <li>Start adding students</li>
+                                </ol>
+                            </div>
+                            
+                            <!-- Support -->
+                            <p style="margin: 30px 0 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                                Need help? Contact our support team at 
+                                <a href="mailto:{{ support_email }}" style="color: #667eea; text-decoration: none;">{{ support_email }}</a>
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 24px 40px; background-color: #f9fafb; border-radius: 0 0 8px 8px; text-align: center;">
+                            <p style="margin: 0; color: #6b7280; font-size: 13px;">
+                                Best regards,<br>
+                                <strong>The {{ app_name }} Team</strong>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

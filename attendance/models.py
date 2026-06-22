@@ -2,7 +2,6 @@ from django.db import models
 from django.conf import settings
 
 from academic.models import Student
-from users.models import CustomUser, Accountant
 from academic.models import Teacher
 import datetime
 

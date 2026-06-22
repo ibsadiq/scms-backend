@@ -19,6 +19,8 @@ SECRET_KEY = env(
 )
 
 BASE_DOMAIN = env("BASE_DOMAIN", default="localhost")
+# slug used by frontend/backend to indicate the public schema
+PUBLIC_TENANT_SLUG = env("PUBLIC_TENANT_SLUG", default="public")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DEBUG", default=True)
@@ -29,14 +31,26 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 DATE_VALIDATORS = [MinValueValidator(date(1970, 1, 1))]  # Unix epoch!
 
 # Application branding
-APP_NAME = env('APP_NAME', default='SSync')
-SCHOOL_NAME = env('SCHOOL_NAME', default='School Management System')
+APP_NAME = env('APP_NAME', default='SSync School Management System')
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
-BASE_URL = env('BASE_URL', default='http://localhost:8000')
+BACKEND_URL  = env('BACKEND_URL',  default='http://localhost:8000')
+BASE_DOMAIN = env('BASE_DOMAIN', default='localhost')
+
+SUPPORT_EMAIL = env('SUPPORT_EMAIL', default='support@localhost')
+
 
 # Application definition
+# settings.py
 
-INSTALLED_APPS = [
+# ==============================================================================
+# 1. SHARED APPS (Public Schema)
+# These apps exist in the "Landing Page" or "SaaS Admin" layer.
+# ==============================================================================
+SHARED_APPS = [
+    "django_tenants",  # MANDATORY: Must be at the top
+    "tenants",      
+
+    # Standard Django (Required for Public Admin)
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.sites",
@@ -44,13 +58,33 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
+    # Third Party (Global Configs)
     "corsheaders",
     "rest_framework",
     "drf_spectacular",
     "rest_framework_simplejwt",
-    "django_celery_results",
-    "django_celery_beat",
-    "core.apps.CoreConfig",
+    "rest_framework_simplejwt.token_blacklist",
+    "django_celery_results", # Centralized task results
+    "django_celery_beat",    # Centralized periodic tasks
+
+    # Your Shared Apps
+    "core.apps.CoreConfig",   # Base utilities
+    "users.apps.UsersConfig", # IMPORTANT: Needed here for the SaaS SuperAdmin
+]
+
+# ==============================================================================
+# 2. TENANT APPS (School Schemas)
+# These apps exist separately for EACH school. 
+# Data in "School A" is physically invisible to "School B".
+# ==============================================================================
+TENANT_APPS = [
+    
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+
+    # Your Business Logic Apps
+    "users.apps.UsersConfig", # IMPORTANT: Needed here for Students/Teachers
     "academic.apps.AcademicConfig",
     "administration.apps.AdministrationConfig",
     "assignments.apps.AssignmentsConfig",
@@ -61,14 +95,32 @@ INSTALLED_APPS = [
     "notifications.apps.NotificationsConfig",
     "schedule.apps.ScheduleConfig",
     "sis.apps.SisConfig",
-    "users.apps.UsersConfig",
 ]
 
-INSTALLED_APPS += ["tenants"]
+# ==============================================================================
+# 3. CONSOLIDATION
+# Django needs a single list to boot up.
+# ==============================================================================
+INSTALLED_APPS = list(SHARED_APPS) + [
+    app for app in TENANT_APPS if app not in SHARED_APPS
+]
+
+# ==============================================================================
+# 4. TENANT CONFIGURATION
+# ==============================================================================
+TENANT_MODEL = "tenants.Client"
+TENANT_DOMAIN_MODEL = "tenants.Domain"
+
+DATABASE_ROUTERS = (
+    'django_tenants.routers.TenantSyncRouter',
+)
 
 MIDDLEWARE = [
-    # "tenants.middleware.TenantMiddleware",  # Disabled - Single school mode
+    # CORS should be as high as possible so preflight requests are handled early
     "corsheaders.middleware.CorsMiddleware",
+    "django_tenants.middleware.main.TenantMainMiddleware", 
+    "tenants.tenant_header_middleware.TenantHeaderMiddleware",  # handle header before access check
+    "tenants.middleware.TenantAccessMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "api.middleware.CustomExceptionMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -111,7 +163,7 @@ if DB_NAME:
     # PostgreSQL mode
     DATABASES = {
         "default": {
-            "ENGINE": "django.db.backends.postgresql",
+            "ENGINE": "django_tenants.postgresql_backend",
             "NAME": DB_NAME,
             "USER": env("DB_USER"),
             "PASSWORD": env("DB_PASSWORD"),
@@ -180,6 +232,32 @@ STATICFILES_DIRS = [
 STATIC_ROOT = BASE_DIR / "staticfiles"  # final destination after collectstatic
 MEDIA_ROOT = BASE_DIR / "media"  # uploads
 
+# ── Cloud storage (S3-compatible) ────────────────────────────────────────────
+# Set USE_S3=True in production. Works with AWS S3, DigitalOcean Spaces, MinIO.
+USE_S3 = env.bool('USE_S3', default=False)
+
+if USE_S3:
+    AWS_ACCESS_KEY_ID       = env('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY   = env('AWS_SECRET_ACCESS_KEY')
+    AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME')
+    AWS_S3_REGION_NAME      = env('AWS_S3_REGION_NAME', default='us-east-1')
+    # For non-AWS providers (DO Spaces, MinIO) set the provider endpoint
+    AWS_S3_ENDPOINT_URL     = env('AWS_S3_ENDPOINT_URL', default=None)
+    # Optional CDN domain — e.g. 'cdn.yourdomain.com' or '<bucket>.nyc3.cdn.digitaloceanspaces.com'
+    AWS_S3_CUSTOM_DOMAIN    = env('AWS_S3_CUSTOM_DOMAIN', default=None)
+    AWS_DEFAULT_ACL         = env('AWS_DEFAULT_ACL', default='public-read')
+    AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
+    AWS_QUERYSTRING_AUTH    = False   # public files don't need signed URLs
+
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
@@ -225,6 +303,12 @@ SPECTACULAR_SETTINGS = {
     'SCHEMA_PATH_PREFIX': r'/api/',
 }
 CORS_ALLOW_ALL_ORIGINS = True
+
+# Allow custom headers used by frontend to select tenant
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-tenant-slug',
+]
 
 AUTH_USER_MODEL = "users.CustomUser"
 
@@ -272,6 +356,23 @@ else:
 
 # Email timeout (applies to both dev and prod)
 EMAIL_TIMEOUT = 10
+
+# ==============================================================================
+# SMS CONFIGURATION
+# ==============================================================================
+# Provider: 'africastalking' (default, for Nigeria/Africa) or 'twilio'
+SMS_ENABLED  = env.bool('SMS_ENABLED', default=False)
+SMS_PROVIDER = env('SMS_PROVIDER', default='africastalking')
+
+# Africa's Talking
+AT_USERNAME  = env('AT_USERNAME', default='')
+AT_API_KEY   = env('AT_API_KEY', default='')
+AT_SENDER_ID = env('AT_SENDER_ID', default='')   # Optional shortcode/alphanumeric
+
+# Twilio (fallback)
+TWILIO_ACCOUNT_SID  = env('TWILIO_ACCOUNT_SID', default='')
+TWILIO_AUTH_TOKEN   = env('TWILIO_AUTH_TOKEN', default='')
+TWILIO_PHONE_NUMBER = env('TWILIO_PHONE_NUMBER', default='')
 
 # ==============================================================================
 # CELERY CONFIGURATION

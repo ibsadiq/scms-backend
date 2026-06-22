@@ -1,0 +1,38 @@
+Welcome to {{ app_name }}!
+
+Hello {{ admin_name }},
+
+Congratulations! Your school management system for {{ school_name }} is now ready.
+
+YOUR LOGIN DETAILS
+==================
+Username: {{ username }}
+Plan: {{ plan }}
+
+To set your password and access your portal, click the link below:
+{{ reset_url }}
+
+This link expires in 24 hours.
+
+GETTING STARTED
+===============
+1. Click the link above to set your password
+2. Log in to your admin portal
+3. Set up your school profile
+4. Add academic years and terms
+5. Invite teachers and staff
+6. Start adding students
+
+WHAT'S INCLUDED
+===============
+✓ Student & Teacher Management
+✓ Grades & Attendance Tracking
+✓ Finance & Fee Management
+✓ Parent Portal Access
+✓ Reports & Analytics
+{% if has_mobile_access %}✓ Mobile App Access (iOS & Android){% endif %}
+
+Need help? Contact our support team at {{ support_email }}
+
+Best regards,
+The {{ app_name }} Team

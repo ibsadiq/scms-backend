@@ -1,0 +1,49 @@
+{% extends "email/base.html" %}
+
+{% block title %}{{ app_name }} Registration Update{% endblock %}
+
+{% block content %}
+<h2 style="margin: 0 0 20px 0; color: #1f2937; font-size: 24px;">Registration Update</h2>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Dear {{ admin_first_name }},
+</p>
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    Thank you for registering <strong>{{ school_name }}</strong> on {{ app_name }}. After reviewing your application, we are unable to approve it at this time.
+</p>
+
+{% if reason %}
+<!-- Reason Box -->
+<table style="width: 100%; margin: 24px 0; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+    <tr>
+        <td style="padding: 20px;">
+            <p style="margin: 0 0 8px 0; color: #1f2937; font-weight: 600;">Reason:</p>
+            <p style="margin: 0; color: #4b5563;">{{ reason }}</p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
+<p style="margin: 0 0 16px 0; color: #4b5563; font-size: 16px; line-height: 1.6;">
+    You are welcome to address the issue and reapply, or contact our support team if you believe this decision was made in error.
+</p>
+
+<!-- Contact Button -->
+<table style="margin: 24px 0;">
+    <tr>
+        <td>
+            <a href="{{ contact_url }}"
+               style="display: inline-block; background-color: {{ school_primary_color|default:'#047857' }}; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+                Contact Support
+            </a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 24px 0 0 0; color: #4b5563; font-size: 16px;">
+    For questions, reach us at {{ support_email }}.<br><br>
+    Regards,<br>
+    <strong>{{ app_name }} Team</strong>
+</p>
+{% endblock %}

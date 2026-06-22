@@ -5,7 +5,9 @@ from datetime import date, datetime
 from user_agents import parse
 
 from .common_objs import *
-from users.models import CustomUser
+# from users.models import CustomUser
+from django.conf import settings
+
 
 
 class Article(models.Model):
@@ -13,7 +15,7 @@ class Article(models.Model):
     content = models.TextField(blank=True, null=True)
     picture = models.ImageField(upload_to="articles", blank=True, null=True)
     created_by = models.ForeignKey(
-        CustomUser, on_delete=models.DO_NOTHING, blank=True, null=True
+        settings.AUTH_USER_MODEL, on_delete=models.DO_NOTHING, blank=True, null=True
     )
     created_at = models.DateTimeField(auto_now=True)
 
@@ -31,7 +33,7 @@ class CarouselImage(models.Model):
 
 
 class AccessLog(models.Model):
-    login = models.ForeignKey(CustomUser, null=True, on_delete=models.SET_NULL)
+    login = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     ua = models.CharField(
         max_length=2000,
         help_text="User agent. We can use this to determine operating system and browser in use.",
@@ -179,9 +181,6 @@ class Term(models.Model):
     name = models.CharField(max_length=50)  # e.g., "Term 1", "Term 2"
     academic_year = models.ForeignKey(
         AcademicYear, on_delete=models.CASCADE, related_name="terms"
-    )
-    default_term_fee = models.DecimalField(
-        max_digits=10, decimal_places=2, default=312500
     )
     start_date = models.DateField()
     end_date = models.DateField()

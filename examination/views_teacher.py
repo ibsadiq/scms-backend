@@ -12,7 +12,7 @@ from django.utils import timezone
 from datetime import datetime, date
 
 from .models import MarksManagement, TermResult, SubjectResult, ExaminationListHandler
-from .serializers import MarksListSerializer, MarksCreateSerializer
+from .serializers import MarksListSerializer, MarksCreateSerializer, ResultSerializer
 from .permissions import CanEnterMarks, CanViewResults, IsTeacherOrAdmin
 from academic.models import AllocatedSubject, StudentClassEnrollment, ClassRoom
 from administration.models import Term
@@ -558,6 +558,7 @@ class TeacherResultsViewSet(viewsets.ReadOnlyModelViewSet):
     """
     permission_classes = [IsAuthenticated, CanViewResults]
     queryset = TermResult.objects.all()
+    serializer_class = ResultSerializer
 
     def get_queryset(self):
         """Filter results to show only for teacher's allocated classrooms"""

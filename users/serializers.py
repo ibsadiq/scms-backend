@@ -3,7 +3,7 @@ from django.contrib.auth.models import Group
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from academic.models import Teacher, Subject, Parent
-from .models import CustomUser, Accountant, UserInvitation
+from .models import CustomUser, UserInvitation
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -12,9 +12,11 @@ class UserSerializer(serializers.ModelSerializer):
     isAccountant = serializers.SerializerMethodField(read_only=True)
     isTeacher = serializers.SerializerMethodField(read_only=True)
     isParent = serializers.SerializerMethodField(read_only=True)
-    accountant_details = serializers.SerializerMethodField(read_only=True)
     teacher_details = serializers.SerializerMethodField(read_only=True)
     parent_details = serializers.SerializerMethodField(read_only=True)
+    isStudent        = serializers.SerializerMethodField(read_only=True)
+    isInspector      = serializers.SerializerMethodField(read_only=True)
+    inspector_details = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CustomUser
@@ -29,13 +31,28 @@ class UserSerializer(serializers.ModelSerializer):
             "isAccountant",
             "isTeacher",
             "isParent",
-            "accountant_details",
+            "isStudent",
             "teacher_details",
             "parent_details",
+            "isInspector",
+            "inspector_details",
         ]
 
+    def get_isStudent(self, obj):
+        return obj.is_student
+
+    def get_isInspector(self, obj):
+        return obj.is_inspector
+
+    def get_inspector_details(self, obj):
+        """Return inspector profile if the user is an inspector."""
+        if obj.is_inspector and hasattr(obj, 'inspector_profile'):
+            from tenants.serializers import InspectorSerializer
+            return InspectorSerializer(obj.inspector_profile).data
+        return None
+
     def get_isAdmin(self, obj):
-        return obj.is_superuser
+        return obj.is_admin
 
     def get_isAccountant(self, obj):
         return obj.is_accountant
@@ -50,12 +67,6 @@ class UserSerializer(serializers.ModelSerializer):
         if obj.first_name and obj.last_name:
             return f"{obj.first_name} {obj.last_name}"
         return obj.email or "Unknown User"
-
-    def get_accountant_details(self, obj):
-        """Return accountant details if the user is an accountant."""
-        if obj.is_accountant and hasattr(obj, "accountant"):
-            return AccountantSerializer(obj.accountant).data
-        return None
 
     def get_teacher_details(self, obj):
         """Return teacher details if the user is a teacher."""
@@ -83,103 +94,6 @@ class UserSerializerWithToken(UserSerializer):
             return str(token.access_token)
         except Exception:
             return None
-
-
-class AccountantSerializer(serializers.ModelSerializer):
-    payments = serializers.SerializerMethodField()
-    send_invitation = serializers.BooleanField(write_only=True, required=False, default=False)
-
-    class Meta:
-        model = Accountant
-        fields = [
-            "id",
-            "username",
-            "first_name",
-            "middle_name",
-            "last_name",
-            "email",
-            "phone_number",
-            "empId",
-            "address",
-            "gender",
-            "national_id",
-            "tin_number",
-            "date_of_birth",
-            "salary",
-            "unpaid_salary",
-            "payments",
-            "send_invitation",
-        ]
-
-    def get_payments(self, obj):
-        """Lazy import to avoid circular import issue"""
-        from finance.serializers import PaymentSerializer  # Import inside method
-
-        if obj.user:
-            payments = obj.user.payments.all()
-            return PaymentSerializer(payments, many=True).data
-        return []
-
-    def validate_email(self, value):
-        request = self.context.get("request", None)
-        accountant_id = (
-            self.instance.id if self.instance else None
-        )  # Get accountant ID if updating
-
-        if Accountant.objects.filter(email=value).exclude(id=accountant_id).exists():
-            raise serializers.ValidationError(
-                "A accountant with this email already exists."
-            )
-
-        return value
-
-    def validate_phone_number(self, value):
-        accountant_id = (
-            self.instance.id if self.instance else None
-        )  # Get accountant ID if updating
-
-        if (
-            Accountant.objects.filter(phone_number=value)
-            .exclude(id=accountant_id)
-            .exists()
-        ):
-            raise serializers.ValidationError(
-                "A accountant with this phone number already exists."
-            )
-
-        return value
-
-    @transaction.atomic
-    def create(self, validated_data):
-        """Creates an Accountant and optionally sends invitation."""
-        send_invitation = validated_data.pop("send_invitation", False)
-
-        accountant = Accountant.objects.create(**validated_data)
-
-        # If send_invitation is True, create an invitation instead of auto-creating user
-        if send_invitation:
-            # Get the invited_by user from context (set by the view)
-            invited_by = self.context.get('request').user if self.context.get('request') else None
-
-            # Create invitation
-            invitation = UserInvitation.objects.create(
-                email=accountant.email,
-                first_name=accountant.first_name,
-                last_name=accountant.last_name,
-                role='accountant',
-                accountant_profile_id=accountant.id,
-                invited_by=invited_by
-            )
-
-            # Send invitation email
-            try:
-                from core.email_utils import send_accountant_invitation
-                send_accountant_invitation(invitation)
-            except Exception as e:
-                # Log the error but don't fail the accountant creation
-                print(f"Failed to send invitation email: {str(e)}")
-
-        return accountant
 
 
 class TeacherSerializer(serializers.ModelSerializer):
@@ -224,6 +138,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             "salary",
             "unpaid_salary",
             "payments",
+            "image",
             "send_invitation",
         ]
 
@@ -690,18 +605,58 @@ class AcceptInvitationSerializer(serializers.Serializer):
             group, _ = Group.objects.get_or_create(name='accountant')
             user.groups.add(group)
 
-            # Link to accountant profile if exists
-            if invitation.accountant_profile_id:
-                try:
-                    accountant = Accountant.objects.get(id=invitation.accountant_profile_id)
-                    accountant.user = user
-                    accountant.save()
-                except Accountant.DoesNotExist:
-                    pass
-
         user.save()
 
         # Mark invitation as accepted
         invitation.mark_as_accepted()
 
         return user
+
+
+class AccountantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['id', 'first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'is_active']
+        read_only_fields = ['id']
+
+    def validate_email(self, value):
+        qs = CustomUser.objects.filter(email=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate_phone_number(self, value):
+        if not value:
+            return value
+        qs = CustomUser.objects.filter(phone_number=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A user with this phone number already exists.")
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+        user = CustomUser(
+            email=validated_data['email'],
+            first_name=validated_data.get('first_name', ''),
+            middle_name=validated_data.get('middle_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            phone_number=validated_data.get('phone_number') or None,
+            is_accountant=True,
+        )
+        user.set_unusable_password()
+        user.save()
+        group, _ = Group.objects.get_or_create(name='accountant')
+        user.groups.add(group)
+        return user
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        for field in ['first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'is_active']:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        instance.save()
+        return instance

@@ -1,124 +1,273 @@
+# tenants/models.py
 from django.db import models
+from django_tenants.models import TenantMixin, DomainMixin
+from django_tenants.utils import schema_context
+from django.contrib.auth import get_user_model
 from django.conf import settings
-from django.core.validators import URLValidator
-from django.core.exceptions import ValidationError
+
+import environ
+env = environ.Env()
 
 
-class OnboardingStep(models.IntegerChoices):
-    SCHOOL_INFO = 1, "School Information"
-    ADMIN = 2, "Admin Account"
-    BRANDING = 3, "Branding"
-    COMPLETED = 4, "Completed"
+class TenantStatus(models.TextChoices):
+    PENDING   = 'pending',   'Pending Approval'
+    ACTIVE    = 'active',    'Active'
+    SUSPENDED = 'suspended', 'Suspended'
+    REJECTED  = 'rejected',  'Rejected'
 
 
-class SchoolSettings(models.Model):
-    """
-    Single school settings and configuration.
-    Only one instance should exist (enforced in save method).
-    Combines both onboarding and academic settings in one place.
-    """
-    # Basic school info
-    school_name = models.CharField(max_length=255)
-    logo = models.ImageField(upload_to="school_logos/", blank=True, null=True)
 
-    # Branding
-    primary_color = models.CharField(max_length=20, default="#047857")
-    secondary_color = models.CharField(max_length=20, blank=True, null=True)
+class Client(TenantMixin):
 
-    # Contact info
-    address = models.CharField(max_length=255, blank=True, null=True)
-    city = models.CharField(max_length=100, blank=True, null=True)
-    state = models.CharField(max_length=100, blank=True, null=True)
+    cached_student_count = models.PositiveIntegerField(default=0)
+    cached_teacher_count = models.PositiveIntegerField(default=0)
+    stats_last_synced    = models.DateTimeField(null=True, blank=True)
+
+    
+    name = models.CharField(max_length=100)
+    created_on = models.DateField(auto_now_add=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=TenantStatus.choices,
+        default=TenantStatus.PENDING,
+        db_index=True,
+        help_text="Current lifecycle state of the tenant"
+    )
+    
+    # The ONLY premium feature - mobile app access
+    has_mobile_access = models.BooleanField(
+        default=False,
+        help_text="Enable mobile app access (iOS/Android apps)"
+    )
+    
+    # Optional: Contact info
+    contact_email = models.EmailField(blank=True, null=True, unique=True)
     contact_phone = models.CharField(max_length=20, blank=True, null=True)
-    contact_email = models.EmailField(blank=True, null=True)
-    website = models.URLField(blank=True, null=True, validators=[URLValidator()])
 
-    # Academic settings (filled in after onboarding)
-    academic_year_start_month = models.IntegerField(
-        default=9,
-        choices=[(i, f'{i}') for i in range(1, 13)],
-        help_text='Month when academic year starts (1=January, 12=December)',
-        blank=True, null=True
+    logo = models.ImageField(
+        upload_to='tenant_logos/',
+        blank=True,
+        null=True,
+        help_text="School logo (appears in emails and portal)"
     )
-    terms_per_year = models.IntegerField(
-        default=3,
-        choices=[(2, '2 Terms'), (3, '3 Terms'), (4, '4 Terms (Quarters)')],
-        help_text='Number of terms per academic year',
-        blank=True, null=True
+    primary_color = models.CharField(
+        max_length=7,
+        default='#047857',
+        help_text="Primary brand color (hex code)"
+    )
+    website = models.URLField(
+        blank=True,
+        null=True,
+        help_text="School website URL"
+    )
+    address = models.TextField(
+        blank=True,
+        null=True,
+        help_text="School physical address"
+    )
+    approved_at   = models.DateTimeField(null=True, blank=True)
+    suspended_at  = models.DateTimeField(null=True, blank=True)
+    rejected_at   = models.DateTimeField(null=True, blank=True)
+
+    # Who did it
+    approved_by   = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='approved_tenants'
+    )
+    suspended_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='suspended_tenants'
     )
 
-    # Onboarding fields
-    onboarding_step = models.PositiveSmallIntegerField(
-        choices=OnboardingStep.choices,
-        default=OnboardingStep.SCHOOL_INFO,
-        help_text="Current onboarding step"
-    )
+    # Reason log
+    suspension_reason = models.TextField(blank=True, null=True)
+    rejection_reason  = models.TextField(blank=True, null=True)
+
+    
+    # Optional: Track when mobile access was granted
+    mobile_access_granted = models.DateField(blank=True, null=True)
 
     onboarding_completed = models.BooleanField(
         default=False,
-        help_text="Whether the initial setup wizard has been completed"
+        help_text="True once the school admin has completed (or skipped) the first-run setup wizard"
     )
 
-    admin_user = models.ForeignKey(
+    auto_create_schema = True
+    
+    def __str__(self):
+        return self.name
+    
+    @property
+    def is_active(self):
+        return self.status == TenantStatus.ACTIVE
+    
+    def get_plan_name(self):
+        """Simple plan name"""
+        return "Premium (Web + Mobile)" if self.has_mobile_access else "Standard (Web Only)"
+    
+    def enable_mobile_access(self):
+        """Grant mobile app access"""
+        from datetime import date
+        self.has_mobile_access = True
+        if not self.mobile_access_granted:
+            self.mobile_access_granted = date.today()
+        self.save()
+    
+    def disable_mobile_access(self):
+        """Revoke mobile app access"""
+        self.has_mobile_access = False
+        self.save()
+
+    def get_logo_url(self):
+        """Get full URL for logo"""
+        if self.logo:
+            from django.conf import settings
+            # Cloud storage (S3/Spaces/etc.) — url is already absolute
+            if getattr(settings, 'USE_S3', False):
+                return self.logo.url
+            # Local dev — prepend backend host
+            base_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000').rstrip('/')
+            return f"{base_url}{self.logo.url}"
+        return None
+    
+    def get_website_url(self):
+        """Get website URL or primary domain"""
+        if self.website:
+            return self.website
+        
+        # Fallback to primary domain
+        domain = self.domains.filter(is_primary=True).first()
+        if domain:
+            return f"https://{domain.domain}"
+        return None
+    
+    def get_usage_stats(self):
+        """Get current usage statistics"""
+        from django_tenants.utils import schema_context
+        
+        try:
+            with schema_context(self.schema_name):
+                from academic.models import Student, Teacher
+                
+                return {
+                    'total_students': Student.objects.filter(status='Active').count(),
+                    'total_teachers': Teacher.objects.count(),
+                }
+        except:
+            return {'total_students': 0, 'total_teachers': 0}
+    
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        
+        if self.contact_email:
+            self.contact_email = self.contact_email.lower()
+            
+        super().save(*args, **kwargs)
+        
+        # Only run for new tenants (not the 'public' tenant)
+        if is_new and self.schema_name != 'public':
+            self._setup_new_tenant()
+
+    def _setup_new_tenant(self):
+        """Internal helper to provision a new tenant's initial data"""
+        from django_tenants.utils import schema_context
+        from django.contrib.auth import get_user_model
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            with schema_context(self.schema_name):
+                User = get_user_model()
+                support_email = 'support@ssync.online'
+                
+                if not User.objects.filter(email=support_email).exists():
+                    User.objects.create_superuser(
+                        email=env('TENANT_ADMIN_EMAIL', default=support_email),
+                        password=env('TENANT_ADMIN_PASSWORD', default='ChangeMe123!'), 
+                        phone_number='+00000000000',
+                        first_name='SSync',
+                        last_name='Support',
+                        is_active=True
+                    )
+        except Exception as e:
+            logger.error(f"Failed to provision tenant {self.schema_name}: {str(e)}")                
+
+class Domain(DomainMixin):
+    pass
+
+
+
+class Inspector(models.Model):
+    """
+    A public official (e.g. Ministry officer) who can view school data
+    without management permissions.
+
+    Relationship:
+        Inspector  ──(OneToOne)──►  CustomUser   (login credentials)
+        Inspector  ──(M2M)───────►  Client[]     (assigned schools)
+
+    Access levels:
+        global   → sees ALL active schools
+        assigned → sees only schools in assigned_tenants
+    """
+
+    class AccessLevel(models.TextChoices):
+        GLOBAL   = 'global',   'All Schools'
+        ASSIGNED = 'assigned', 'Assigned Schools'
+
+    user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="school_admin",
-        help_text="The primary admin user created during onboarding"
+        on_delete=models.CASCADE,
+        related_name='inspector_profile',
+        help_text='Login account for this inspector',
     )
-
+    title = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='e.g. "Senior Education Officer"',
+    )
+    organisation = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text='e.g. "Federal Ministry of Education"',
+    )
+    access_level = models.CharField(
+        max_length=20,
+        choices=AccessLevel.choices,
+        default=AccessLevel.ASSIGNED,
+    )
+    assigned_tenants = models.ManyToManyField(
+        'tenants.Client',
+        blank=True,
+        related_name='inspectors',
+        help_text='Visible schools — only applies when access_level = assigned',
+    )
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(
+        blank=True,
+        help_text='Internal admin notes',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "School Settings"
-        verbose_name_plural = "School Settings"
+        ordering = ['user__email']
 
     def __str__(self):
-        return self.school_name
+        return f"{self.user.email} [{self.get_access_level_display()}]"
 
-    def save(self, *args, **kwargs):
-        """Ensure only one SchoolSettings instance exists"""
-        if not self.pk and SchoolSettings.objects.exists():
-            # Update existing instance instead of creating new one
-            existing = SchoolSettings.objects.first()
-            self.pk = existing.pk
-        super().save(*args, **kwargs)
+    def get_visible_tenants(self):
+        """
+        Returns the queryset of Client tenants this inspector can see.
+        Always limited to active schools only.
+        """
+        from tenants.models import Client, TenantStatus
 
-    @classmethod
-    def get_settings(cls):
-        """Get or create the single school settings instance"""
-        settings, _ = cls.objects.get_or_create(
-            pk=1,
-            defaults={'school_name': 'My School'}
+        base = Client.objects.exclude(schema_name='public').filter(
+            status=TenantStatus.ACTIVE
         )
-        return settings
-
-    @property
-    def needs_onboarding(self):
-        return not self.onboarding_completed
-
-    def can_advance_to(self, step: OnboardingStep) -> bool:
-        return step == self.onboarding_step
-
-    def advance_onboarding(self, next_step: OnboardingStep):
-        self.onboarding_step = next_step
-        self.save(update_fields=["onboarding_step"])
-
-    def complete_onboarding(self):
-        self.onboarding_step = OnboardingStep.COMPLETED
-        self.onboarding_completed = True
-        self.save(update_fields=["onboarding_step", "onboarding_completed"])
-
-    def clean(self):
-        """Validate hex color format"""
-        if self.primary_color:
-            if not self.primary_color.startswith('#'):
-                raise ValidationError({'primary_color': 'Color must start with #'})
-            if len(self.primary_color) not in [4, 7]:  # #RGB or #RRGGBB
-                raise ValidationError({'primary_color': 'Invalid hex color format'})
-
-
-# Keep Tenant as alias for backward compatibility
-Tenant = SchoolSettings
+        if self.access_level == self.AccessLevel.GLOBAL:
+            return base
+        return base.filter(pk__in=self.assigned_tenants.values_list('pk', flat=True))

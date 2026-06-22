@@ -15,6 +15,7 @@ from academic.models import Student, ClassLevel, GradeLevel, ClassRoom
 from finance.models import Receipt, StudentFeeAssignment, FeeStructure
 from attendance.models import StudentAttendance, AttendanceStatus
 from administration.models import Term, AcademicYear
+from examination.models import TermResult
 
 from .serializers import (
     StudentReportResponseSerializer,
@@ -33,6 +34,18 @@ try:
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
+
+
+def _get_student_grade(student, term_id=None):
+    """Return the student's most recent term grade letter, or None if unavailable."""
+    try:
+        qs = TermResult.objects.filter(student=student)
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+        result = qs.order_by('-term__start_date').first()
+        return result.grade if result else None
+    except Exception:
+        return None
 
 
 # ============================================================================
@@ -106,11 +119,13 @@ def student_report(request):
         if student.classroom:
             class_name = str(student.classroom.name)
             if student.classroom.name.grade_level:
-                grade_level = student.classroom.name.grade_level.name
+                gl = student.classroom.name.grade_level
+                grade_level = gl.alias if gl.alias else gl.default_name
         elif student.class_level:
             class_name = student.class_level.name
             if student.class_level.grade_level:
-                grade_level = student.class_level.grade_level.name
+                gl = student.class_level.grade_level
+                grade_level = gl.alias if gl.alias else gl.default_name
 
         # Calculate attendance rate
         attendance_query = StudentAttendance.objects.filter(student=student)
@@ -161,7 +176,7 @@ def student_report(request):
             'attendance_rate': round(attendance_rate, 2) if attendance_rate is not None else None,
             'total_present': total_present,
             'total_absent': total_absent,
-            'average_grade': None,  # TODO: Implement grade calculation
+            'average_grade': _get_student_grade(student, term_id),
             'total_fees': total_fees,
             'fees_paid': fees_paid,
             'balance': balance,

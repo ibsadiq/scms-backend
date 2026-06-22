@@ -114,10 +114,8 @@ class TeacherAdmin(admin.ModelAdmin):
 
 admin.site.register(Department)
 admin.site.register(Subject)
-admin.site.register(GradeLevel)
 admin.site.register(ClassLevel)
 admin.site.register(ClassYear)
-admin.site.register(ClassRoom)
 admin.site.register(AllocatedSubject)
 # StudentClassEnrollment registered below with custom admin (Phase 2.2)
 admin.site.register(Topic)
@@ -127,147 +125,153 @@ admin.site.register(DormitoryAllocation)
 admin.site.register(MessageToParent)
 admin.site.register(MessageToTeacher)
 
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+    list_display = ['first_name', 'last_name', 'admission_number']
+    # REQUIRED for autocomplete to work:
+    search_fields = ['first_name', 'last_name', 'admission_number']
+
+
+@admin.register(ClassRoom)
+class ClassRoomAdmin(admin.ModelAdmin):
+    # ... your other settings ...
+    # REQUIRED for autocomplete to work in StudentPromotion:
+    search_fields = ['name__name', 'stream__name']
+
+@admin.register(GradeLevel)
+class GradeLevelAdmin(admin.ModelAdmin):
+    list_display = ('system_code', 'default_name', 'alias', 'section', 'min_age')
+    list_editable = ('alias',) # Allow quick editing of Aliases
+    readonly_fields = ('system_code', 'default_name', 'sequence_order', 'section') 
+    
+    def has_add_permission(self, request):
+        # Prevent admins from creating new "Grades" outside the hardcoded structure
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Prevent admins from deleting the hardcoded structure
+        return False
+
 
 # ===== PROMOTION MODELS (Phase 2.1) =====
 
 @admin.register(PromotionRule)
 class PromotionRuleAdmin(admin.ModelAdmin):
+    """
+    Admin for configuring how students move between GRADES (e.g. JSS 1 -> JSS 2).
+    """
     list_display = [
-        'from_class_level',
-        'to_class_level',
+        'from_grade',
+        'to_grade',
         'promotion_method',
-        'minimum_annual_average',
-        'minimum_attendance_percentage',
-        'requires_approval',
+        'min_average_score',
+        'must_pass_english',
+        'must_pass_math',
         'is_active'
     ]
-    list_filter = ['promotion_method', 'requires_approval', 'is_active', 'from_class_level']
-    search_fields = ['from_class_level__name', 'to_class_level__name']
+    list_filter = ['promotion_method', 'is_active', 'from_grade__section']
+    search_fields = ['from_grade__default_name', 'from_grade__alias']
+    
+    # Organize the form nicely
     fieldsets = (
-        ('Class Levels', {
-            'fields': ('from_class_level', 'to_class_level')
-        }),
-        ('Promotion Method', {
-            'fields': ('promotion_method',)
-        }),
-        ('Annual Average Settings (Nigerian Method)', {
+        ('Movement Configuration', {
             'fields': (
-                'minimum_annual_average',
-                'use_weighted_terms',
-                'term1_weight',
-                'term2_weight',
-                'term3_weight'
+                ('from_grade', 'to_grade'),
+                'description'
             ),
-            'classes': ('collapse',)
+            'description': "Define the source and destination grades. Select the same grade for 'Repeat' logic."
         }),
-        ('Subject Requirements', {
+        ('Promotion Criteria (Nigeria Standard)', {
             'fields': (
-                'require_english_pass',
-                'require_mathematics_pass',
-                'minimum_subject_pass_percentage',
-                'minimum_passed_subjects'
+                'promotion_method',
+                'min_average_score',
+                ('must_pass_english', 'must_pass_math'),
+                'min_subjects_passed'
             )
         }),
-        ('Attendance & GPA', {
-            'fields': (
-                'minimum_attendance_percentage',
-                'minimum_gpa'
-            )
-        }),
-        ('Configuration', {
-            'fields': ('requires_approval', 'is_active')
+        ('Status', {
+            'fields': ('is_active',)
         }),
     )
+    
+    readonly_fields = ['description']  # Because it's auto-generated in save()
+
+    def save_model(self, request, obj, form, change):
+        # Ensure description is updated
+        obj.save()
 
 
 @admin.register(StudentPromotion)
 class StudentPromotionAdmin(admin.ModelAdmin):
+    """
+    Admin for viewing historical promotion records.
+    """
     list_display = [
         'student',
+        'academic_year',
         'from_class',
         'to_class',
         'status',
         'annual_average',
-        'subjects_passed',
-        'attendance_percentage',
-        'meets_criteria',
         'promotion_date'
     ]
     list_filter = [
         'status',
-        'meets_criteria',
         'academic_year',
-        'english_passed',
-        'mathematics_passed',
-        'promotion_date'
+        'promotion_date',
+        'from_grade', # Filtering by Grade is now possible!
     ]
     search_fields = [
         'student__first_name',
         'student__last_name',
-        'student__admission_number'
+        'student__admission_number',
+        'from_class__name'
     ]
-    readonly_fields = ['created_at']
+    
+    # Use autocomplete if you have thousands of students/classes
+    autocomplete_fields = ['student', 'from_class', 'to_class']
+
     fieldsets = (
-        ('Student & Classes', {
+        ('Student Details', {
             'fields': (
                 'student',
-                'from_class',
-                'to_class',
-                'from_class_level',
-                'to_class_level',
-                'academic_year'
+                'academic_year',
+                'promotion_date'
             )
         }),
-        ('Academic Performance', {
+        ('Movement (Classroom)', {
             'fields': (
-                'term1_average',
-                'term2_average',
-                'term3_average',
+                ('from_class', 'to_class'),
+            ),
+            'description': "Select the physical classrooms. The System Grades below will update automatically."
+        }),
+        ('Movement (System Grade)', {
+            'fields': (
+                ('from_grade', 'to_grade'),
+            ),
+            'classes': ('collapse',), # Hide by default as they are auto-populated
+            'description': "These are auto-detected from the classrooms above."
+        }),
+        ('Academic Results', {
+            'fields': (
                 'annual_average',
-                'final_gpa'
-            )
-        }),
-        ('Subject Performance', {
-            'fields': (
-                'total_subjects',
-                'subjects_passed',
-                'subjects_failed',
-                'english_passed',
-                'mathematics_passed'
-            )
-        }),
-        ('Attendance', {
-            'fields': (
-                'attendance_percentage',
-                'total_school_days',
-                'days_present',
-                'days_absent'
-            )
-        }),
-        ('Class Ranking', {
-            'fields': (
-                'class_position',
-                'total_students_in_class'
-            )
-        }),
-        ('Promotion Decision', {
-            'fields': (
                 'status',
-                'meets_criteria',
-                'reason',
-                'approved_by',
-                'promotion_date',
-                'created_at'
+                'reason'
             )
         }),
     )
 
     def get_readonly_fields(self, request, obj=None):
-        """Make from_class and from_class_level readonly after creation"""
-        if obj:  # Editing existing object
-            return self.readonly_fields + ['from_class', 'from_class_level', 'student', 'academic_year']
-        return self.readonly_fields
-
+        """
+        Make grades readonly as they are auto-calculated from classes,
+        and lock key fields after creation to prevent history tampering.
+        """
+        base_readonly = ['from_grade', 'to_grade']
+        
+        if obj:  # If editing an existing record
+            return base_readonly + ['student', 'academic_year', 'from_class']
+            
+        return base_readonly
 
 @admin.register(StudentClassEnrollment)
 class StudentClassEnrollmentAdmin(admin.ModelAdmin):

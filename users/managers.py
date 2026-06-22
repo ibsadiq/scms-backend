@@ -1,5 +1,6 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.utils.translation import gettext_lazy as _
+from django.utils.crypto import get_random_string
 
 
 class CustomUserManager(BaseUserManager):
@@ -32,3 +33,9 @@ class CustomUserManager(BaseUserManager):
         if extra_fields.get('is_superuser') is not True:
             raise ValueError(_('Superuser must have is_superuser=True.'))
         return self.create_user(email, password, **extra_fields)
+    
+    def make_random_password(self, length=10, allowed_chars='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'):
+        """
+        Generates a random password with the given length and given allowed_chars.
+        """
+        return get_random_string(length, allowed_chars)

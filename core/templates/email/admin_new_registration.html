@@ -1,0 +1,32 @@
+<h1>🆕 New School Registration</h1>
+
+<p>A new school has registered and is pending approval:</p>
+
+<table>
+    <tr>
+        <td>School Name:</td>
+        <td><strong>{{ school_name }}</strong></td>
+    </tr>
+    <tr>
+        <td>Domain:</td>
+        <td>{{ full_domain }}</td>
+    </tr>
+    <tr>
+        <td>Admin:</td>
+        <td>{{ admin_name }} ({{ admin_email }})</td>
+    </tr>
+    <tr>
+        <td>Phone:</td>
+        <td>{{ admin_phone }}</td>
+    </tr>
+    <tr>
+        <td>Students:</td>
+        <td>{{ student_count }}</td>
+    </tr>
+    <tr>
+        <td>Plan:</td>
+        <td>{{ plan }}</td>
+    </tr>
+</table>
+
+<a href="{{ admin_dashboard_url }}">Review & Approve →</a>

@@ -295,7 +295,11 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = {
         'student': ['exact'],
+        'student_id': ['exact'],
         'term': ['exact'],
+        'term_id': ['exact'],
+        'term__academic_year': ['exact'],
+        'term__academic_year_id': ['exact'],
         'status': ['exact', 'iexact'],
         'paid_through': ['exact', 'iexact'],
         'received_by': ['exact'],
@@ -524,7 +528,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             'amount_paid': total_paid,  # Frontend expects amount_paid
             'total_paid': total_paid,  # Keep backward compatibility
             'balance': balance,
-            'status': payment_status.lower(),  # Frontend expects lowercase
+            'status': payment_status,  # Frontend expects capitalized (Paid, Partial, Unpaid)
             'last_payment_date': last_payment,
             'fee_breakdown': fee_breakdown,
         }
@@ -536,11 +540,12 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
     def summary(self, request):
         """
         Get fee balance summary for all students.
-        GET /api/financial/student-balance/summary/?term_id=1
+        GET /api/financial/student-balance/summary/?term_id=1&academic_year_id=1
         """
         term_id = request.query_params.get('term_id')
+        academic_year_id = request.query_params.get('academic_year_id')
 
-        students = Student.objects.filter(status='Active')
+        students = Student.objects.filter(is_active=True)
         summaries = []
 
         for student in students:
@@ -548,6 +553,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
 
             if term_id:
                 assignments = assignments.filter(term_id=term_id)
+            elif academic_year_id:
+                assignments = assignments.filter(term__academic_year_id=academic_year_id)
 
             total_fees = assignments.aggregate(
                 total=Sum('amount_owed')
@@ -567,9 +574,11 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 payment_status = 'Unpaid'
 
             summaries.append({
+                'id': student.id,
                 'student': student.id,
                 'student_name': student.full_name,
                 'student_admission_number': student.admission_number,
+                'class_level_name': student.class_level.name if student.class_level else 'N/A',
                 'total_fees': total_fees,
                 'total_paid': total_paid,
                 'balance': balance,

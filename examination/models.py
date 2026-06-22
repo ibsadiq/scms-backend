@@ -5,7 +5,8 @@ from django.utils import timezone
 from decimal import Decimal
 from academic.models import Student, Teacher, ClassRoom, StudentClassEnrollment, Subject
 from administration.models import AcademicYear, Term
-from users.models import CustomUser
+from django.conf import settings
+
 
 
 class GradeScale(models.Model):
@@ -112,12 +113,12 @@ class ExaminationListHandler(models.Model):
 
     @property
     def status(self):
-        today = datetime.now().date()
+        today = timezone.now().date()
         if today > self.ends_date:
-            return "Done"
+            return "Completed"
         elif self.start_date <= today <= self.ends_date:
             return "Ongoing"
-        return "Coming Up"
+        return "Upcoming"
 
     def __str__(self):
         return self.name
@@ -281,7 +282,7 @@ class TermResult(models.Model):
         help_text="When the result was computed"
     )
     computed_by = models.ForeignKey(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -518,7 +519,7 @@ class ReportCard(models.Model):
         help_text="When the PDF was generated"
     )
     generated_by = models.ForeignKey(
-        CustomUser,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

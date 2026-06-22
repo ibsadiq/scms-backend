@@ -118,8 +118,7 @@ class AdmissionFeeStructurePublicSerializer(serializers.ModelSerializer):
             'entrance_exam_required', 'entrance_exam_fee',
             'interview_required',
             'acceptance_fee', 'acceptance_fee_required',
-            'acceptance_fee_is_part_of_tuition',
-            'minimum_age', 'maximum_age', 'has_capacity'
+            'acceptance_fee_is_part_of_tuition', 'has_capacity'
         ]
 
 

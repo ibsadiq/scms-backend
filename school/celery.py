@@ -11,6 +11,8 @@ It handles background jobs like:
 import os
 from celery import Celery
 from django.conf import settings
+from celery.schedules import crontab
+
 
 # Set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'school.settings')
@@ -31,3 +33,10 @@ app.autodiscover_tasks()
 def debug_task(self):
     """Debug task for testing Celery setup."""
     print(f'Request: {self.request!r}')
+
+CELERY_BEAT_SCHEDULE = {
+    'sync-all-tenant-stats': {
+        'task': 'tenants.tasks.sync_all_tenant_stats',
+        'schedule': crontab(minute='*/30'),  # every 30 minutes
+    },
+}

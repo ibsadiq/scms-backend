@@ -1,42 +1,126 @@
+from django.conf import settings
+from django.http import Http404
 import openpyxl
 from django.db.models import Q
+from django.utils.crypto import get_random_string
 from django.contrib.auth.models import Group
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend
+from rest_framework.filters import SearchFilter
 from rest_framework import viewsets, views
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
+from rest_framework import serializers as drf_serializers
 from rest_framework import status, generics
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from academic.models import Teacher, Subject, Parent
-from .models import CustomUser as User, Accountant, UserInvitation
+from .models import CustomUser as User, UserInvitation
 from .serializers import (
     UserSerializer,
     UserSerializerWithToken,
-    AccountantSerializer,
     TeacherSerializer,
     ParentSerializer,
     UserInvitationSerializer,
     AcceptInvitationSerializer,
+    AccountantSerializer,
 )
 
 
 # Custom Token View
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # email stays the primary field; phone_number is an optional alternative.
+        # We mark email not-required at the field level so DRF won't reject a
+        # request that only contains phone_number — the validate() method below
+        # re-enforces that at least one identifier is present.
+        self.fields['email'].required = False
+        self.fields['phone_number'] = drf_serializers.CharField(required=False)
+
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        try:
+            from django.db import connection
+            token['tenant_slug'] = connection.schema_name or settings.BASE_DOMAIN
+        except Exception:
+            token['tenant_slug'] = settings.BASE_DOMAIN
+        return token
+
     def validate(self, attrs):
-        data = super().validate(attrs)
+        # If only phone_number was supplied, look up the linked email so the
+        # standard authenticate(email=…, password=…) path can proceed normally.
+        phone = attrs.pop('phone_number', None)
+        if not attrs.get('email'):
+            if not phone:
+                raise drf_serializers.ValidationError(
+                    {'email': 'Email or phone number is required.'}
+                )
+            try:
+                attrs['email'] = User.objects.get(phone_number=phone).email
+            except User.DoesNotExist:
+                raise drf_serializers.ValidationError(
+                    {'phone_number': 'No account found with this phone number.'}
+                )
+
+        request = self.context.get('request')
+        data = super().validate(attrs)   # standard email + password auth
         user_data = UserSerializerWithToken(self.user).data
         data.update(user_data)
+        data['isSuperAdmin'] = self.user.is_staff and self.user.is_superuser
+        data['isInspector']  = self.user.is_inspector
+        tenant_slug = None
+        if request is not None:
+            tenant_slug = getattr(request, 'tenant_slug', None) or request.headers.get('X-Tenant-Slug')
+        if not tenant_slug:
+            from django.db import connection
+            tenant_slug = connection.schema_name
+        data['tenant_slug'] = tenant_slug
         return data
 
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
+
+# Token refresh with tenant validation
+from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+
+class MyTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        request = self.context.get('request')
+        data = super().validate(attrs)
+
+        # verify tenant slug header matches the one stored in refresh token
+        tenant_in_header = None
+        if request is not None:
+            tenant_in_header = request.headers.get('X-Tenant-Slug')
+        try:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            token = RefreshToken(attrs['refresh'])
+            tenant_in_token = token.get('tenant_slug')
+            if tenant_in_header and tenant_in_token and tenant_in_header != tenant_in_token:
+                raise drf_serializers.ValidationError('Tenant slug mismatch')
+        except Exception:
+            pass
+
+        # echo back tenant_slug if present
+        if tenant_in_header:
+            data['tenant_slug'] = tenant_in_header
+        elif 'tenant_slug' in token:
+            data['tenant_slug'] = token['tenant_slug']
+
+        return data
+
+class MyTokenRefreshView(TokenRefreshView):
+    serializer_class = MyTokenRefreshSerializer
 
 
 @api_view(["GET"])
@@ -133,64 +217,96 @@ class UserDetailView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class AccountantListView(APIView):
-    """
-    API View for handling single and listing accountants.
-    """
+# class AccountantListView(APIView):
+#     """
+#     API View for handling single and listing accountants.
+#     """
 
-    def get(self, request, format=None):
-        accountants = Accountant.objects.all()
-        serializer = AccountantSerializer(accountants, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+#     def get(self, request, format=None):
+#         accountants = Accountant.objects.all()
+#         serializer = AccountantSerializer(accountants, many=True)
+#         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, format=None):
-        serializer = AccountantSerializer(data=request.data)
-        if serializer.is_valid():
-            accountant = serializer.save()
-            return Response(
-                AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#     def post(self, request, format=None):
+#         email = request.data.get("email")
+#         if email:
+#             existing_user = User.objects.filter(email=email).first()
+#             if existing_user:
+#                 if Accountant.objects.filter(user=existing_user).exists():
+#                     return Response(
+#                         {"error": "Accountant with this email already exists."},
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+#                 try:
+#                     accountant = Accountant()
+#                     model_fields = [f.name for f in Accountant._meta.get_fields()]
+#                     for key, value in request.data.items():
+#                         if key in model_fields and key != "user":
+#                             setattr(accountant, key, value)
+#                     accountant.user = existing_user
+#                     accountant.email = existing_user.email
+#                     accountant.save()
+
+#                     if hasattr(existing_user, "is_accountant"):
+#                         existing_user.is_accountant = True
+#                         existing_user.save()
+
+#                     group, _ = Group.objects.get_or_create(name="accountant")
+#                     existing_user.groups.add(group)
+
+#                     return Response(
+#                         AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED
+#                     )
+#                 except Exception as e:
+#                     return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+#         serializer = AccountantSerializer(data=request.data)
+#         if serializer.is_valid():
+#             accountant = serializer.save()
+#             return Response(
+#                 AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED
+#             )
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class AccountantDetailView(views.APIView):
-    permission_classes = [IsAuthenticated]
+# class AccountantDetailView(views.APIView):
+#     permission_classes = [IsAuthenticated]
 
-    def get_object(self, pk):
-        return get_object_or_404(Accountant, pk=pk)
+#     def get_object(self, pk):
+#         return get_object_or_404(Accountant, pk=pk)
 
-    def get(self, request, pk, format=None):
-        accountant = self.get_object(pk)
-        serializer = AccountantSerializer(accountant)
-        return Response(serializer.data)
+#     def get(self, request, pk, format=None):
+#         accountant = self.get_object(pk)
+#         serializer = AccountantSerializer(accountant)
+#         return Response(serializer.data)
 
-    def put(self, request, pk, format=None):
-        accountant = self.get_object(pk)
-        serializer = AccountantSerializer(accountant, data=request.data)
-        if serializer.is_valid():
-            updated_accountant = serializer.save()
+#     def put(self, request, pk, format=None):
+#         accountant = self.get_object(pk)
+#         serializer = AccountantSerializer(accountant, data=request.data)
+#         if serializer.is_valid():
+#             updated_accountant = serializer.save()
 
-            # Update the linked CustomUser when accountant details change
-            email = updated_accountant.email
-            first_name = updated_accountant.first_name
-            last_name = updated_accountant.last_name
+#             # Update the linked CustomUser when accountant details change
+#             email = updated_accountant.email
+#             first_name = updated_accountant.first_name
+#             last_name = updated_accountant.last_name
 
-            try:
-                user = User.objects.get(email=accountant.email)
-                user.email = email
-                user.first_name = first_name
-                user.last_name = last_name
-                user.save()
-            except User.DoesNotExist:
-                pass  # If user does not exist, no update is needed
+#             try:
+#                 user = User.objects.get(email=accountant.email)
+#                 user.email = email
+#                 user.first_name = first_name
+#                 user.last_name = last_name
+#                 user.save()
+#             except User.DoesNotExist:
+#                 pass  # If user does not exist, no update is needed
 
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#             return Response(serializer.data)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def delete(self, request, pk, format=None):
-        accountant = self.get_object(pk)
-        accountant.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+#     def delete(self, request, pk, format=None):
+#         accountant = self.get_object(pk)
+#         accountant.delete()
+#         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ParentListView(generics.ListCreateAPIView):
@@ -200,6 +316,37 @@ class ParentListView(generics.ListCreateAPIView):
     filterset_class = ParentFilter
 
     def create(self, request, *args, **kwargs):
+        email = request.data.get("email")
+        if email:
+            existing_user = User.objects.filter(email=email).first()
+            if existing_user:
+                if Parent.objects.filter(user=existing_user).exists():
+                    return Response(
+                        {"error": "Parent with this email already exists."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                try:
+                    parent = Parent()
+                    model_fields = [f.name for f in Parent._meta.get_fields()]
+                    for key, value in request.data.items():
+                        if key in model_fields and key != "user":
+                            setattr(parent, key, value)
+                    parent.user = existing_user
+                    parent.email = existing_user.email
+                    parent.save()
+
+                    existing_user.is_parent = True
+                    existing_user.save()
+
+                    group, _ = Group.objects.get_or_create(name="parent")
+                    existing_user.groups.add(group)
+
+                    return Response(
+                        self.get_serializer(parent).data, status=status.HTTP_201_CREATED
+                    )
+                except Exception as e:
+                    return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         parent = serializer.save()
@@ -252,10 +399,47 @@ class ParentDetailView(views.APIView):
 class TeacherListView(generics.ListCreateAPIView):
     queryset = Teacher.objects.all()
     serializer_class = TeacherSerializer
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = TeacherFilter
+    search_fields = ['first_name', 'last_name', 'middle_name', 'empId', 'email']
 
     def create(self, request, *args, **kwargs):
+        email = request.data.get("email")
+        if email:
+            existing_user = User.objects.filter(email=email).first()
+            if existing_user:
+                if Teacher.objects.filter(user=existing_user).exists():
+                    return Response(
+                        {"error": "Teacher with this email already exists."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                try:
+                    teacher = Teacher()
+                    model_fields = [f.name for f in Teacher._meta.get_fields()]
+                    for key, value in request.data.items():
+                        if key in model_fields and key not in ["user", "subject_specialization"]:
+                            setattr(teacher, key, value)
+                    teacher.user = existing_user
+                    teacher.email = existing_user.email
+                    if "username" in model_fields:
+                        teacher.username = existing_user.username
+                    teacher.save()
+
+                    if "subject_specialization" in request.data:
+                        teacher.subject_specialization.set(request.data["subject_specialization"])
+
+                    existing_user.is_teacher = True
+                    existing_user.save()
+
+                    group, _ = Group.objects.get_or_create(name="teacher")
+                    existing_user.groups.add(group)
+
+                    return Response(
+                        self.get_serializer(teacher).data, status=status.HTTP_201_CREATED
+                    )
+                except Exception as e:
+                    return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         teacher = serializer.save()
@@ -548,7 +732,7 @@ class TeacherDashboardView(APIView):
             todays_schedule.append({
                 "id": period.id,
                 "subject_name": period.subject.subject.name if period.subject and period.subject.subject else 'N/A',
-                "classroom_name": period.classroom.class_name if period.classroom else 'N/A',
+                "classroom_name": str(period.classroom.name) if period.classroom else 'N/A',
                 "start_time": period.start_time.strftime('%H:%M'),
                 "end_time": period.end_time.strftime('%H:%M'),
                 "status": period_status
@@ -559,7 +743,7 @@ class TeacherDashboardView(APIView):
         for alloc in allocated_subjects[:5]:  # Top 5 classes
             my_classes.append({
                 "id": alloc.id,
-                "name": alloc.class_room.class_name if alloc.class_room else 'N/A',
+                "name": str(alloc.class_room.name) if alloc.class_room else 'N/A',
                 "subject": alloc.subject.name if alloc.subject else 'N/A',
                 "student_count": alloc.class_room.capacity if alloc.class_room else 0
             })
@@ -638,9 +822,9 @@ class ParentDashboardView(APIView):
 
         # Get all children of this parent
         children_data = []
-        for student in parent.students.all():
+        for student in parent.children.all():
             # Performance data
-            latest_result = Result.objects.filter(student=student).order_by('-created_on').first()
+            latest_result = Result.objects.filter(student=student).order_by('-id').first()
             performance = {
                 "average_grade": latest_result.overall_grade if latest_result and hasattr(latest_result, 'overall_grade') else 'N/A',
                 "position": latest_result.position if latest_result and hasattr(latest_result, 'position') else 'N/A'
@@ -668,10 +852,10 @@ class ParentDashboardView(APIView):
 
             # Fee data
             fee_assignments = StudentFeeAssignment.objects.filter(student=student)
-            total_fee = sum(assignment.total_amount for assignment in fee_assignments)
+            total_fee = sum(assignment.amount_owed for assignment in fee_assignments)
 
             receipts = Receipt.objects.filter(student=student)
-            total_paid = sum(receipt.amount_paid for receipt in receipts)
+            total_paid = sum(receipt.amount for receipt in receipts)
             balance = total_fee - total_paid
 
             fee_status = 'Paid' if balance == 0 else 'Partial' if total_paid > 0 else 'Unpaid'
@@ -713,9 +897,9 @@ class ParentDashboardView(APIView):
         # ===== RECENT ACTIVITIES =====
         recent_activities = []
 
-        for student in parent.students.all()[:2]:  # Latest 2 children
+        for student in parent.children.all()[:2]:  # Latest 2 children
             # Recent grades
-            recent_results = Result.objects.filter(student=student).order_by('-created_on')[:1]
+            recent_results = Result.objects.filter(student=student).order_by('-id')[:1]
             for result in recent_results:
                 recent_activities.append({
                     "id": f"grade_{result.id}",
@@ -727,15 +911,15 @@ class ParentDashboardView(APIView):
                 })
 
             # Recent payments
-            recent_receipts = Receipt.objects.filter(student=student).order_by('-paid_on')[:1]
+            recent_receipts = Receipt.objects.filter(student=student).order_by('-payment_date')[:1]
             for receipt in recent_receipts:
                 recent_activities.append({
                     "id": f"payment_{receipt.id}",
                     "type": "payment",
                     "icon": "lucide:wallet",
                     "child_name": f"{student.first_name} {student.last_name}",
-                    "description": f"Fee payment of ₦{receipt.amount_paid:,.0f} received",
-                    "time": f"{(timezone.now().date() - receipt.paid_on).days} days ago"
+                    "description": f"Fee payment of ₦{receipt.amount:,.0f} received",
+                    "time": f"{(timezone.now().date() - receipt.payment_date).days} days ago"
                 })
 
         return Response({
@@ -897,3 +1081,47 @@ class ResendInvitationView(APIView):
                 {"error": "Invitation not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class AccountantListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Q
+        qs = User.objects.filter(is_accountant=True)
+        search = request.query_params.get('search', '')
+        if search:
+            qs = qs.filter(
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(email__icontains=search)
+            )
+        serializer = AccountantSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AccountantSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            accountant = serializer.save()
+            return Response(AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AccountantDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+        return get_object_or_404(User, pk=pk, is_accountant=True)
+
+    def patch(self, request, pk):
+        accountant = self.get_object(pk)
+        serializer = AccountantSerializer(accountant, data=request.data, partial=True, context={'request': request})
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(AccountantSerializer(updated).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        accountant = self.get_object(pk)
+        accountant.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -43,7 +43,7 @@ class PeriodListSerializer(serializers.ModelSerializer):
 
     def get_classroom_name(self, obj):
         if obj.classroom:
-            return obj.classroom.class_name
+            return str(obj.classroom.name)
         return None
 
 
@@ -152,5 +152,5 @@ class PeriodSerializer(serializers.ModelSerializer):
 
     def get_classroom_name(self, obj):
         if obj.classroom:
-            return obj.classroom.class_name
+            return str(obj.classroom.name)
         return None

@@ -1,12 +1,11 @@
 from django.db import models
 
 from academic.models import Student, SubTopic
-from users.models import CustomUser as User
-
+from django.conf import settings
 
 class Assignment(models.Model):
     title = models.CharField(max_length=50)
-    teacher = models.ForeignKey(User, on_delete=models.CASCADE)
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
     def __str__(self):
         return self.title

@@ -19,16 +19,12 @@ class CanEnterMarks(permissions.BasePermission):
     message = "You are not authorized to enter marks for this subject/classroom combination."
 
     def has_permission(self, request, view):
-        """Check if user is authenticated and is staff"""
         if not request.user.is_authenticated:
             return False
-
-        # Admins have full access
-        if request.user.is_staff and request.user.is_superuser:
+        if request.user.is_superuser or request.user.is_admin:
             return True
-
-        # Teachers need to be staff
-        return request.user.is_staff
+        # Any user with a teacher profile can attempt; object-level checks allocation
+        return hasattr(request.user, 'teacher')
 
     def has_object_permission(self, request, view, obj):
         """
@@ -38,7 +34,7 @@ class CanEnterMarks(permissions.BasePermission):
             obj: MarksManagement instance
         """
         # Admins have full access
-        if request.user.is_superuser:
+        if request.user.is_superuser or request.user.is_admin:
             return True
 
         # Check if user has a teacher profile
@@ -47,14 +43,13 @@ class CanEnterMarks(permissions.BasePermission):
         except AttributeError:
             return False
 
-        # Check if teacher is allocated to this subject and classroom
-        # Get student's classroom
-        student_classroom = obj.student.class_room if hasattr(obj.student, 'class_room') else None
+        # MarksManagement.student is a StudentClassEnrollment; get its classroom
+        enrollment = obj.student
+        student_classroom = getattr(enrollment, 'classroom', None)
 
         if not student_classroom:
             return False
 
-        # Check allocation
         is_allocated = AllocatedSubject.objects.filter(
             teacher_name=teacher,
             subject=obj.subject,
@@ -91,7 +86,7 @@ class CanViewResults(permissions.BasePermission):
         user = request.user
 
         # Admins have full access
-        if user.is_superuser:
+        if user.is_superuser or user.is_admin:
             return True
 
         # For TermResult or SubjectResult
@@ -157,12 +152,10 @@ class CanPublishResults(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        # Superusers can always publish
-        if request.user.is_superuser:
+        # Superusers and school admins can always publish
+        if request.user.is_superuser or request.user.is_admin:
             return True
 
-        # Check if user is head teacher (you can customize this logic)
-        # For now, require superuser status
         return False
 
 
@@ -178,11 +171,9 @@ class CanManageExaminations(permissions.BasePermission):
     message = "You are not authorized to manage this examination."
 
     def has_permission(self, request, view):
-        """Check if user is authenticated and is staff"""
         if not request.user.is_authenticated:
             return False
-
-        return request.user.is_staff
+        return request.user.is_superuser or request.user.is_admin or hasattr(request.user, 'teacher')
 
     def has_object_permission(self, request, view, obj):
         """
@@ -193,8 +184,8 @@ class CanManageExaminations(permissions.BasePermission):
         """
         user = request.user
 
-        # Admins have full access
-        if user.is_superuser:
+        # Superusers and school admins have full access
+        if user.is_superuser or user.is_admin:
             return True
 
         # Check if user created this examination
@@ -236,7 +227,7 @@ class CanGenerateReportCards(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        return request.user.is_superuser
+        return request.user.is_superuser or request.user.is_admin
 
 
 class IsTeacherOrAdmin(permissions.BasePermission):
@@ -252,7 +243,7 @@ class IsTeacherOrAdmin(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        return request.user.is_staff
+        return request.user.is_staff or request.user.is_admin
 
 
 class IsTeacherOfClass(permissions.BasePermission):
@@ -263,11 +254,11 @@ class IsTeacherOfClass(permissions.BasePermission):
     message = "You are not allocated to this classroom."
 
     def has_permission(self, request, view):
-        """Check if user is authenticated and is staff"""
+        """Check if user is authenticated and is staff or school admin"""
         if not request.user.is_authenticated:
             return False
 
-        return request.user.is_staff
+        return request.user.is_staff or request.user.is_admin
 
     def check_allocation(self, user, classroom):
         """
@@ -281,7 +272,7 @@ class IsTeacherOfClass(permissions.BasePermission):
             bool: True if allocated, False otherwise
         """
         # Admins are always "allocated"
-        if user.is_superuser:
+        if user.is_superuser or user.is_admin:
             return True
 
         try:
@@ -312,7 +303,7 @@ class IsParentOfStudent(permissions.BasePermission):
             return False
 
         # Admins have full access
-        if request.user.is_superuser:
+        if request.user.is_superuser or request.user.is_admin:
             return True
 
         # Check if user has a parent profile
@@ -328,7 +319,7 @@ class IsParentOfStudent(permissions.BasePermission):
         user = request.user
 
         # Admins have full access
-        if user.is_superuser:
+        if user.is_superuser or user.is_admin:
             return True
 
         try:
@@ -375,7 +366,7 @@ class CanViewChildData(permissions.BasePermission):
             return False
 
         # Admins have full access
-        if request.user.is_superuser:
+        if request.user.is_superuser or request.user.is_admin:
             return True
 
         return hasattr(request.user, 'parent')
@@ -388,7 +379,7 @@ class CanViewChildData(permissions.BasePermission):
         user = request.user
 
         # Admins have full access
-        if user.is_superuser:
+        if user.is_superuser or user.is_admin:
             return True
 
         try:
@@ -417,3 +408,66 @@ class CanViewChildData(permissions.BasePermission):
 
         # For other data (attendance, fees, etc.), allow access
         return True
+
+
+class CanManageScript(permissions.BasePermission):
+    """
+    Permission for MarkedScript operations.
+
+    Write (upload / edit / delete / toggle_visibility):
+        - Teachers (is_staff with teacher profile) and admins only.
+        - On object actions: only the teacher who uploaded it, or an admin.
+
+    Read (list / retrieve / by_* actions):
+        - Admins and teachers: see their own uploads.
+        - Students: see their own scripts where visible_to_student=True.
+        - Parents: see their children's scripts where visible_to_parent=True.
+    """
+
+    WRITE_ACTIONS = frozenset({
+        'create', 'update', 'partial_update', 'destroy',
+        'bulk_upload', 'toggle_visibility',
+    })
+
+    message = "You do not have permission to perform this action on scripts."
+
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+
+        if view.action in self.WRITE_ACTIONS:
+            u = request.user
+            return u.is_superuser or u.is_admin or hasattr(u, 'teacher')
+
+        return True  # reads: let get_queryset do the filtering
+
+    def has_object_permission(self, request, view, obj):
+        u = request.user
+
+        if u.is_superuser or u.is_admin:
+            return True
+
+        # Write: only the uploader
+        if view.action in self.WRITE_ACTIONS:
+            try:
+                return obj.uploaded_by == u.teacher
+            except AttributeError:
+                return False
+
+        # Read: teacher sees own uploads
+        if u.is_staff and hasattr(u, 'teacher'):
+            return obj.uploaded_by == u.teacher
+
+        # Student: own visible script
+        try:
+            return obj.student == u.student_profile and obj.visible_to_student
+        except AttributeError:
+            pass
+
+        # Parent: child's visible script
+        try:
+            return obj.student.parent_guardian == u.parent and obj.visible_to_parent
+        except AttributeError:
+            pass
+
+        return False

@@ -5,47 +5,47 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils.html import strip_tags
+from django.db import connection
 
 
-def get_school_settings():
+
+def get_school_settings() -> dict:
     """
-    Get school settings from database.
-    Falls back to settings if not found.
+    Returns school branding/contact info for the current tenant schema.
+
+    Source of truth is now the Client model (public schema).
+    SchoolSettings is no longer used — all fields migrated to Client.
+
+    Falls back to safe defaults if the Client record can't be found
+    (e.g. called from public schema, or during tests).
     """
     try:
-        from tenants.models import SchoolSettings
-        school_settings = SchoolSettings.get_settings()
+        from tenants.models import Client
 
-        # Get logo URL (full URL for emails)
-        logo_url = None
-        if school_settings.logo:
-            # Use FRONTEND_URL for public-facing URLs (goes through nginx)
-            # If FRONTEND_URL is not set, fall back to BASE_URL
-            base_url = getattr(settings, 'FRONTEND_URL', None) or getattr(settings, 'BASE_URL', 'http://localhost:8000')
-            # Remove any trailing slashes from base_url
-            base_url = base_url.rstrip('/')
-            logo_url = f"{base_url}{school_settings.logo.url}"
+        tenant = Client.objects.get(schema_name=connection.schema_name)
 
         return {
-            'school_name': school_settings.school_name,
-            'contact_email': school_settings.contact_email,
-            'contact_phone': school_settings.contact_phone,
-            'website': school_settings.website,
-            'address': school_settings.address,
-            'primary_color': school_settings.primary_color,
-            'logo_url': logo_url,
+            'school_name':   tenant.name,
+            'contact_email': tenant.contact_email,
+            'contact_phone': tenant.contact_phone,
+            'website':       tenant.get_website_url(),   # uses domain fallback
+            'address':       tenant.address,
+            'primary_color': tenant.primary_color,
+            'logo_url':      tenant.get_logo_url(),      # builds full URL
         }
+
     except Exception:
-        # Fallback to settings if database not available or model doesn't exist
+        # Called from public schema, Client not found, or DB unavailable
         return {
-            'school_name': getattr(settings, 'SCHOOL_NAME', 'SureStart Schools'),
+            'school_name':   'SSync',
             'contact_email': None,
             'contact_phone': None,
-            'website': None,
-            'address': None,
+            'website':       None,
+            'address':       None,
             'primary_color': '#047857',
-            'logo_url': None,
+            'logo_url':      None,
         }
+
 
 
 def send_email(
@@ -523,4 +523,231 @@ def send_admission_enrolled_email(application):
         to_email=application.email,
         template_name='admission_enrolled',
         context=context
+    )
+
+# ==================== TENANT ONBOARDING EMAILS ====================
+
+def send_tenant_welcome_email(
+    admin_email,
+    admin_first_name,
+    school_name,
+    domain,
+    username,
+    reset_url,
+    has_mobile_access=False
+):
+    """
+    Send welcome email to school admin after tenant creation.
+
+    Args:
+        admin_email: School admin email
+        admin_first_name: Admin first name
+        school_name: Name of the school
+        domain: Full domain (e.g., greenvalley.localhost)
+        username: Admin login username
+        reset_url: Password-set link (uid+token, points to school subdomain)
+        has_mobile_access: Whether mobile app is enabled
+    """
+    support_email = getattr(settings, 'SUPPORT_EMAIL', 'support@yourdomain.com')
+    app_name = getattr(settings, 'APP_NAME', 'School Management System')
+
+    context = {
+        'admin_name': admin_first_name,
+        'school_name': school_name,
+        'domain': domain,
+        'reset_url': reset_url,
+        'username': username,
+        'has_mobile_access': has_mobile_access,
+        'plan': 'Premium (Web + Mobile)' if has_mobile_access else 'Standard (Web Only)',
+        'support_email': support_email,
+        'app_name': app_name,
+        'features': {
+            'student_management': True,
+            'teacher_management': True,
+            'grades_attendance': True,
+            'finance': True,
+            'parent_portal': True,
+            'reports': True,
+            'mobile_app': has_mobile_access,
+        }
+    }
+    
+    return send_email(
+        subject=f"Welcome to {app_name} - {school_name}",
+        to_email=admin_email,
+        template_name='tenant_welcome',
+        context=context,
+        fail_silently=False
+    )
+
+
+def send_tenant_mobile_enabled_email(tenant, admin_email):
+    """
+    Send email when mobile access is enabled for a tenant.
+    
+    Args:
+        tenant: Client instance
+        admin_email: School admin email
+    """
+    app_name = getattr(settings, 'APP_NAME', 'School Management System')
+    support_email = getattr(settings, 'SUPPORT_EMAIL', 'support@yourdomain.com')
+    
+    # Get primary domain
+    domain = tenant.domains.filter(is_primary=True).first()
+    domain_url = f"https://{domain.domain}" if domain else None
+    
+    context = {
+        'school_name': tenant.name,
+        'domain_url': domain_url,
+        'mobile_enabled_date': tenant.mobile_access_granted,
+        'support_email': support_email,
+        'app_name': app_name,
+        'download_links': {
+            'ios': 'https://apps.apple.com/app/your-app',  # Update with real link
+            'android': 'https://play.google.com/store/apps/details?id=your.app',  # Update with real link
+        }
+    }
+    
+    return send_email(
+        subject=f"🌟 Mobile Access Enabled - {tenant.name}",
+        to_email=admin_email,
+        template_name='tenant_mobile_enabled',
+        context=context,
+        fail_silently=False
+    )
+
+
+def send_tenant_suspended_email(tenant, admin_email, reason=None):
+    """
+    Send email when a tenant is suspended.
+    
+    Args:
+        tenant: Client instance
+        admin_email: School admin email
+        reason: Reason for suspension (optional)
+    """
+    support_email = getattr(settings, 'SUPPORT_EMAIL', 'support@yourdomain.com')
+    app_name = getattr(settings, 'APP_NAME', 'School Management System')
+    
+    context = {
+        'school_name': tenant.name,
+        'suspension_reason': reason or 'Administrative action',
+        'support_email': support_email,
+        'app_name': app_name,
+    }
+    
+    return send_email(
+        subject=f"Account Suspended - {tenant.name}",
+        to_email=admin_email,
+        template_name='tenant_suspended',
+        context=context,
+        fail_silently=False
+    )
+
+
+def send_tenant_reactivated_email(tenant, admin_email):
+    """
+    Send email when a tenant is reactivated.
+    
+    Args:
+        tenant: Client instance
+        admin_email: School admin email
+    """
+    support_email = getattr(settings, 'SUPPORT_EMAIL', 'support@yourdomain.com')
+    app_name = getattr(settings, 'APP_NAME', 'School Management System')
+    
+    # Get primary domain
+    domain = tenant.domains.filter(is_primary=True).first()
+    login_url = f"https://{domain.domain}/admin/" if domain else None
+    
+    context = {
+        'school_name': tenant.name,
+        'login_url': login_url,
+        'support_email': support_email,
+        'app_name': app_name,
+    }
+    
+    return send_email(
+        subject=f"✅ Account Reactivated - {tenant.name}",
+        to_email=admin_email,
+        template_name='tenant_reactivated',
+        context=context,
+        fail_silently=False
+    )
+
+
+# ==================== TENANT REJECTION EMAIL ====================
+
+def send_tenant_rejection_email(admin_email, admin_first_name, school_name, reason):
+    """
+    Send rejection email to tenant admin.
+    
+    Args:
+        admin_email: Admin's email address
+        admin_first_name: Admin's first name
+        school_name: Name of the school
+        reason: Reason for rejection
+    
+    Returns:
+        int: Number of emails sent (0 or 1)
+    """
+    support_email = getattr(settings, 'SUPPORT_EMAIL', 'support@ssync.online')
+    app_name = getattr(settings, 'APP_NAME', 'SSync')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+    
+    context = {
+        'admin_first_name': admin_first_name,
+        'school_name': school_name,
+        'reason': reason,
+        'support_email': support_email,
+        'app_name': app_name,
+        'contact_url': f'{frontend_url}/contact',
+    }
+    
+    try:
+        return send_email(
+            subject=f'{app_name} Registration - Update Required',
+            to_email=admin_email,
+            template_name='tenant_rejection',
+            context=context,
+            fail_silently=False
+        )
+    except Exception as e:
+        print(f'Failed to send rejection email to {admin_email}: {e}')
+        return 0
+    
+# core/email_utils.py — add this function alongside send_tenant_welcome_email etc.
+
+def send_inspector_credentials(
+    email:        str,
+    first_name:   str,
+    organisation: str,
+    temp_password: str,
+):
+    """
+    Send login credentials to a newly created inspector account.
+    Called by InspectorCreateSerializer.save() after user creation.
+    """
+    from django.conf import settings
+
+    app_name    = getattr(settings, 'APP_NAME',     'SSync')
+    frontend    = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+    support     = getattr(settings, 'SUPPORT_EMAIL', 'support@ssync.online')
+
+    context = {
+        'first_name':    first_name,
+        'organisation':  organisation or 'your organisation',
+        'email':         email,
+        'temp_password': temp_password,
+        'login_url':     f"{frontend}/login",
+        'support_email': support,
+        'app_name':      app_name,
+    }
+
+    send_email(
+        subject=f"Your {app_name} Inspector Access",
+        to_email=email,
+        template_name='inspector_credentials',
+        context=context,
+        fail_silently=False,
     )
