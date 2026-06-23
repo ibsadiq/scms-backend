@@ -62,6 +62,7 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                 admin_email=serializer.validated_data['admin_email'],
                 admin_first_name=serializer.validated_data['admin_first_name'],
                 admin_last_name=serializer.validated_data['admin_last_name'],
+                admin_phone=serializer.validated_data.get('admin_phone') or None,
                 contact_email=serializer.validated_data.get('contact_email') or None,
                 contact_phone=serializer.validated_data.get('contact_phone') or None,
                 enable_mobile=serializer.validated_data.get('enable_mobile', False),

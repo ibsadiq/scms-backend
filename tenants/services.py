@@ -76,6 +76,7 @@ class TenantService:
         admin_email,
         admin_first_name,
         admin_last_name,
+        admin_phone=None,
         contact_email=None,
         contact_phone=None,
         enable_mobile=False,

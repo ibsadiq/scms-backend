@@ -21,6 +21,7 @@ class SchoolSignupSerializer(serializers.Serializer):
     admin_first_name = serializers.CharField(max_length=100)
     admin_last_name = serializers.CharField(max_length=100)
     admin_email = serializers.EmailField()
+    admin_phone = serializers.CharField(max_length=20, required=False, allow_blank=True, default='')
 
     # School contact info (separate from the admin account)
     contact_email = serializers.EmailField(required=False, allow_blank=True, default='')
