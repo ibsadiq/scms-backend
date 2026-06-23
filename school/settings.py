@@ -305,6 +305,17 @@ SPECTACULAR_SETTINGS = {
 }
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Explicitly trust the base domain and all subdomains for CSRF validation (Django Admin login, etc.)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    f"https://{BASE_DOMAIN}",
+    f"http://{BASE_DOMAIN}",
+    f"https://*.{BASE_DOMAIN}",
+    f"http://*.{BASE_DOMAIN}",
+]
 # Allow custom headers used by frontend to select tenant
 from corsheaders.defaults import default_headers
 CORS_ALLOW_HEADERS = list(default_headers) + [
