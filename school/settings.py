@@ -36,7 +36,7 @@ FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 BACKEND_URL  = env('BACKEND_URL',  default='http://localhost:8000')
 BASE_DOMAIN = env('BASE_DOMAIN', default='localhost')
 
-SUPPORT_EMAIL = env('SUPPORT_EMAIL', default='support@localhost')
+SUPPORT_EMAIL = env('SUPPORT_EMAIL', default='support@ssyncportal.com')
 
 
 # Application definition
@@ -122,6 +122,7 @@ MIDDLEWARE = [
     "tenants.tenant_header_middleware.TenantHeaderMiddleware",  # handle header before access check
     "tenants.middleware.TenantAccessMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "api.middleware.CustomExceptionMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -250,13 +251,13 @@ if USE_S3:
     AWS_QUERYSTRING_AUTH    = False   # public files don't need signed URLs
 
     STORAGES = {
-        'default': {
-            'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
-        },
-        'staticfiles': {
-            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
-        },
-    }
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

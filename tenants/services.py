@@ -143,30 +143,10 @@ class TenantService:
             f"&token={PasswordResetTokenGenerator().make_token(admin_user)}"
         )
 
-        # 4. Send appropriate email (outside atomic block — email failure
-        #    should not roll back a successfully created tenant)
-        if auto_activate:
-            TenantService._send_welcome_email(
-                email=admin_email,
-                first_name=admin_first_name,
-                school_name=school_name,
-                domain=full_domain,
-                username=admin_email,
-                reset_url=_reset_url,
-                has_mobile=enable_mobile,
-            )
-        else:
-            TenantService._send_pending_approval_email(
-                email=admin_email,
-                first_name=admin_first_name,
-                school_name=school_name,
-                domain=full_domain,
-            )
-            TenantService._notify_super_admin_new_registration(
-                tenant=tenant,
-                admin_email=admin_email,
-                admin_phone=admin_phone,
-            )
+        # Note: Email notifications were previously sent from inside this
+        # service. Move sending of acknowledgement and notification emails to
+        # the calling view so that emails are only sent after the view has
+        # confirmed the tenant creation completed successfully.
 
         logger.info("Tenant '%s' created (status=%s)", schema_name, tenant.status)
 

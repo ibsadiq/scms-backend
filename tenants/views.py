@@ -56,18 +56,50 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             )
             auto_activate = is_super_admin
 
+            # Capture admin_phone so we can notify after creation
+            admin_phone = serializer.validated_data.get('admin_phone') or None
+
             result = TenantService.create_tenant(
                 school_name=serializer.validated_data['school_name'],
                 subdomain=serializer.validated_data['subdomain'],
                 admin_email=serializer.validated_data['admin_email'],
                 admin_first_name=serializer.validated_data['admin_first_name'],
                 admin_last_name=serializer.validated_data['admin_last_name'],
-                admin_phone=serializer.validated_data.get('admin_phone') or None,
+                admin_phone=admin_phone,
                 contact_email=serializer.validated_data.get('contact_email') or None,
                 contact_phone=serializer.validated_data.get('contact_phone') or None,
                 enable_mobile=serializer.validated_data.get('enable_mobile', False),
                 auto_activate=auto_activate,
             )
+
+            # Send acknowledgement / notification emails only after tenant
+            # creation completes successfully. Failures in email sending
+            # should not prevent the API from returning success.
+            try:
+                if auto_activate:
+                    TenantService._send_welcome_email(
+                        email=serializer.validated_data['admin_email'],
+                        first_name=serializer.validated_data['admin_first_name'],
+                        school_name=result['tenant'].name,
+                        domain=result['domain'].domain,
+                        username=serializer.validated_data['admin_email'],
+                        reset_url=result.get('reset_url'),
+                        has_mobile=serializer.validated_data.get('enable_mobile', False),
+                    )
+                else:
+                    TenantService._send_pending_approval_email(
+                        email=serializer.validated_data['admin_email'],
+                        first_name=serializer.validated_data['admin_first_name'],
+                        school_name=result['tenant'].name,
+                        domain=result['domain'].domain,
+                    )
+                    TenantService._notify_super_admin_new_registration(
+                        tenant=result['tenant'],
+                        admin_email=serializer.validated_data['admin_email'],
+                        admin_phone=admin_phone,
+                    )
+            except Exception as e:
+                logger.warning('Failed to send registration emails for %s: %s', serializer.validated_data['admin_email'], e)
 
             if auto_activate:
                 return Response({
