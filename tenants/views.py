@@ -299,9 +299,16 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
                     if not domain:
                         raise ValueError('No primary domain found for tenant')
 
-                    temp_password = User.objects.make_random_password(length=12)
-                    admin.set_password(temp_password)
-                    admin.save()
+                    # Generate password reset token instead of temp_password
+                    from django.utils.http import urlsafe_base64_encode
+                    from django.utils.encoding import force_bytes
+                    from django.contrib.auth.tokens import default_token_generator
+                    
+                    uid = urlsafe_base64_encode(force_bytes(admin.pk))
+                    token = default_token_generator.make_token(admin)
+                    
+                    protocol = getattr(settings, 'PROTOCOL', 'https')
+                    reset_url = f"{protocol}://{domain.domain}/reset-password?uid={uid}&token={token}"
 
                 # Only update status after everything inside the schema succeeded
                 tenant.status = TenantStatus.ACTIVE
@@ -317,7 +324,7 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
                         school_name=tenant.name,
                         domain=domain.domain,
                         username=admin.email,
-                        temp_password=temp_password,
+                        reset_url=reset_url,
                         has_mobile_access=tenant.has_mobile_access
                     )
                 except Exception:
