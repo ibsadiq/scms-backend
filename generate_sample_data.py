@@ -137,12 +137,12 @@ class DataGenerator:
         print("\n[3/18] Creating academic calendar...")
 
         # Current academic year
-        current_year = datetime.now().year
+        current_year = 2025
         self.academic_year, created = AcademicYear.objects.get_or_create(
-            name=f"{current_year}/{current_year + 1}",
+            name=f"2025/2026",
             defaults={
-                'start_date': date(current_year, 1, 15),
-                'end_date': date(current_year, 12, 15),
+                'start_date': date(2025, 9, 1),
+                'end_date': date(2026, 7, 30),
                 'active_year': True
             }
         )
@@ -150,9 +150,9 @@ class DataGenerator:
 
         # Create terms
         terms_data = [
-            ('One', date(current_year, 1, 15), date(current_year, 4, 5), Decimal('500000')),
-            ('Two', date(current_year, 5, 1), date(current_year, 8, 10), Decimal('500000')),
-            ('Three', date(current_year, 9, 1), date(current_year, 12, 15), Decimal('500000')),
+            ('First', date(2025, 9, 8), date(2025, 12, 15), Decimal('500000')),
+            ('Second', date(2026, 1, 12), date(2026, 4, 15), Decimal('500000')),
+            ('Third', date(2026, 5, 4), date(2026, 7, 30), Decimal('500000')),
         ]
 
         for term_name, start, end, fee in terms_data:
@@ -165,7 +165,7 @@ class DataGenerator:
                     'default_term_fee': fee
                 }
             )
-            if term_name == 'Two':  # Set current term
+            if term_name == 'Third':  # Set current term to Third
                 self.current_term = term
 
         print(f"  ✓ Created {len(terms_data)} terms")
@@ -377,14 +377,14 @@ class DataGenerator:
         """Create teacher users"""
         print("\n[7/18] Creating teachers...")
 
-        first_names = ['John', 'Mary', 'David', 'Susan', 'Peter', 'Grace',
-                      'Michael', 'Alice', 'Robert', 'Jane', 'Daniel', 'Ruth']
-        last_names = ['Mugisha', 'Kamau', 'Ochieng', 'Musoke', 'Asiimwe',
-                     'Wanjiru', 'Okoth', 'Namukasa', 'Kibet', 'Atim']
+        first_names = ['Chinedu', 'Mary', 'David', 'Susan', 'Peter', 'Grace',
+                      'Michael', 'Folake', 'Robert', 'Jane', 'Daniel', 'Ruth']
+        last_names = ['Oluwaseun', 'Adebayo', 'Ochieng', 'Okafor', 'Asiimwe',
+                     'Wanjiru', 'Okoth', 'Balogun', 'Kibet', 'Abubakar']
 
         designations = ['Head Teacher', 'Senior Teacher', 'Teacher', 'Teacher', 'Teacher']
 
-        for i in range(20):
+        for i in range(35):
             first_name = random.choice(first_names)
             last_name = random.choice(last_names)
             email = f'teacher{i+1:03d}@hillcrest.edu.ug'
@@ -530,58 +530,64 @@ class DataGenerator:
         class_year = ClassYear.objects.get(year=current_year + 4)  # Graduating in 4 years
 
         student_count = 0
+        total_students_to_create = 1100
 
-        # Create students for each classroom
-        for classroom in self.classrooms:
-            # Refresh classroom from DB to get current occupancy
-            classroom.refresh_from_db()
+        print(f"  Generating {total_students_to_create} students (this may take a minute)...")
+        
+        # We need classrooms to assign students
+        if not self.classrooms:
+            print("  ! No classrooms found. Skipping students.")
+            return
 
-            # Calculate how many students we can add
-            available_space = classroom.capacity - classroom.occupied_sits
-            num_students_to_create = min(random.randint(30, classroom.capacity), available_space)
+        for i in range(total_students_to_create):
+            classroom = random.choice(self.classrooms)
+            gender = random.choice(['Male', 'Female'])
+            first_name = random.choice(first_names_male if gender == 'Male' else first_names_female)
+            parent = random.choice(self.parents)
 
-            if num_students_to_create <= 0:
-                # Classroom is full, just get existing students
-                existing_students = StudentClassEnrollment.objects.filter(
-                    classroom=classroom,
-                    academic_year=self.academic_year
-                ).select_related('student')
+            # Determine enrollment date
+            # 150 enrolled in 2025/2026 session (130 in First Term, 20 in Second Term)
+            if i < 130:
+                enroll_date = date(2025, 9, random.randint(1, 15))
+            elif i < 150:
+                enroll_date = date(2026, 1, random.randint(5, 20))
+            else:
+                enroll_date = date(random.choice([2023, 2024]), 9, random.randint(1, 15))
 
-                for enrollment in existing_students:
-                    if enrollment.student not in self.students:
-                        self.students.append(enrollment.student)
-                continue
+            # Create student
+            student = Student.objects.create(
+                first_name=first_name,
+                last_name=parent.last_name,
+                gender=gender,
+                religion=random.choice(religions),
+                blood_group=random.choice(blood_groups),
+                class_level=classroom.name,
+                class_of_year=class_year,
+                parent_guardian=parent,
+                parent_contact=parent.phone_number,
+                is_active=True,
+                region='Central',
+                city=random.choice(['Lagos', 'Abuja', 'Kano', 'Ibadan', 'Port Harcourt']),
+            )
+            
+            # Since admission_date is auto_now_add, update it directly via queryset
+            Student.objects.filter(id=student.id).update(admission_date=enroll_date)
 
-            for _ in range(num_students_to_create):
-                gender = random.choice(['Male', 'Female'])
-                first_name = random.choice(first_names_male if gender == 'Male' else first_names_female)
-                parent = random.choice(self.parents)
+            # Enroll in classroom
+            enrollment = StudentClassEnrollment.objects.create(
+                student=student,
+                classroom=classroom,
+                academic_year=self.academic_year
+            )
+            # Update enrollment_date if the model supports it, but since we're not sure,
+            # we just ensure the student is tied to this academic year.
 
-                # Create student
-                student = Student.objects.create(
-                    first_name=first_name,
-                    last_name=parent.last_name,
-                    gender=gender,
-                    religion=random.choice(religions),
-                    blood_group=random.choice(blood_groups),
-                    class_level=classroom.name,
-                    class_of_year=class_year,
-                    parent_guardian=parent,
-                    parent_contact=parent.phone_number,
-                    is_active=True,
-                    region='Central',
-                    city=random.choice(['Kampala', 'Entebbe', 'Wakiso', 'Mukono']),
-                )
+            # Update classroom occupancy tracking
+            classroom.occupied_sits += 1
+            classroom.save(update_fields=['occupied_sits'])
 
-                # Enroll in classroom
-                StudentClassEnrollment.objects.create(
-                    student=student,
-                    classroom=classroom,
-                    academic_year=self.academic_year
-                )
-
-                self.students.append(student)
-                student_count += 1
+            self.students.append(student)
+            student_count += 1
 
         print(f"  ✓ Created {student_count} new students (total: {len(self.students)} students)")
 
@@ -613,122 +619,125 @@ class DataGenerator:
         print(f"  ✓ Created {len(dorm_data)} dormitories")
 
     def create_fee_structures(self):
-        """Create fee structures and assign to students"""
+        """Create fee structures and assign to students for all terms"""
         print("\n[12/18] Creating fee structures and assignments...")
 
-        # Get primary and secondary grade levels (Nigerian system)
         primary = GradeLevel.objects.get(name='Primary')
         jss = GradeLevel.objects.get(name='Junior Secondary (JSS)')
         sss = GradeLevel.objects.get(name='Senior Secondary (SSS)')
 
         fee_structures_data = [
-            ('Primary Tuition Fee', 'Tuition', Decimal('150000'), primary, True),  # NGN
-            ('JSS Tuition Fee', 'Tuition', Decimal('200000'), jss, True),  # NGN
-            ('SSS Tuition Fee', 'Tuition', Decimal('250000'), sss, True),  # NGN
+            ('Primary Tuition Fee', 'Tuition', Decimal('150000'), primary, True),
+            ('JSS Tuition Fee', 'Tuition', Decimal('200000'), jss, True),
+            ('SSS Tuition Fee', 'Tuition', Decimal('250000'), sss, True),
             ('Transport Fee', 'Transport', Decimal('50000'), None, False),
             ('Meals Fee', 'Meals', Decimal('80000'), None, True),
             ('Books and Stationery', 'Books', Decimal('30000'), None, True),
             ('School Uniform', 'Uniform', Decimal('40000'), None, False),
         ]
 
-        fee_structures = []
-        for name, fee_type, amount, grade_level, mandatory in fee_structures_data:
-            fs, created = FeeStructure.objects.get_or_create(
-                name=name,
-                academic_year=self.academic_year,
-                term=self.current_term,
-                defaults={
-                    'fee_type': fee_type,
-                    'amount': amount,
-                    'is_mandatory': mandatory,
-                    'due_date': self.current_term.end_date - timedelta(days=30)
-                }
-            )
-            if created and grade_level:
-                # Add grade level to ManyToMany field
-                fs.grade_levels.add(grade_level)
-            fee_structures.append(fs)
-
-        print(f"  ✓ Created {len(fee_structures)} fee structures")
-
-        # Assign fees to students
+        all_terms = Term.objects.filter(academic_year=self.academic_year)
         assignment_count = 0
-        for student in self.students:
-            applicable_fees = [fs for fs in fee_structures if fs.applies_to_student(student)]
 
-            for fee_structure in applicable_fees:
-                amount_owed = fee_structure.amount
-
-                # Create fee assignment without payment (payment will be added via allocations)
-                StudentFeeAssignment.objects.get_or_create(
-                    student=student,
-                    fee_structure=fee_structure,
-                    term=self.current_term,
+        for term in all_terms:
+            fee_structures = []
+            for name, fee_type, amount, grade_level, mandatory in fee_structures_data:
+                fs, created = FeeStructure.objects.get_or_create(
+                    name=f"{name} ({term.name})",
+                    academic_year=self.academic_year,
+                    term=term,
                     defaults={
-                        'amount_owed': amount_owed,
-                        'amount_paid': Decimal('0')
+                        'fee_type': fee_type,
+                        'amount': amount,
+                        'is_mandatory': mandatory,
+                        'due_date': term.end_date - timedelta(days=30),
+                        'is_recurring': fee_type == 'Tuition' # Ensure Tuition is recurring
                     }
                 )
-                assignment_count += 1
+                if created and grade_level:
+                    fs.grade_levels.add(grade_level)
+                fee_structures.append(fs)
 
-        print(f"  ✓ Created {assignment_count} fee assignments to students")
+            # Assign fees to students for this term
+            for student in self.students:
+                # If student enrolled after this term started, skip
+                # (Simple check: if term is First, include. If Second, check enroll_date. For now, assume all get it)
+                applicable_fees = [fs for fs in fee_structures if fs.applies_to_student(student)]
+
+                for fee_structure in applicable_fees:
+                    StudentFeeAssignment.objects.get_or_create(
+                        student=student,
+                        fee_structure=fee_structure,
+                        term=term,
+                        defaults={
+                            'amount_owed': fee_structure.amount,
+                            'amount_paid': Decimal('0')
+                        }
+                    )
+                    assignment_count += 1
+
+        print(f"  ✓ Created {assignment_count} fee assignments to students across {all_terms.count()} terms")
 
     def create_receipts_and_payments(self):
         """Create receipts and payment allocations"""
         print("\n[13/18] Creating receipts and payments...")
 
-        # Create receipts for students
         receipt_count = 0
         allocation_count = 0
+        all_terms = Term.objects.filter(academic_year=self.academic_year)
 
-        # Create receipts for a random sample of students
-        for student in random.sample(self.students, min(100, len(self.students))):
-            # Get unpaid or partially paid fee assignments
-            all_assignments = StudentFeeAssignment.objects.filter(
-                student=student,
-                term=self.current_term,
-                is_waived=False
-            )
+        # Create receipts for ALL students across ALL terms (to simulate deep history)
+        for term in all_terms:
+            for student in self.students:
+                # Get unpaid or partially paid fee assignments for this term
+                all_assignments = StudentFeeAssignment.objects.filter(
+                    student=student,
+                    term=term,
+                    is_waived=False
+                )
 
-            # Filter out fully paid assignments (balance > 0)
-            fee_assignments = [fa for fa in all_assignments if fa.balance > 0]
+                fee_assignments = [fa for fa in all_assignments if fa.balance > 0]
+                if not fee_assignments:
+                    continue
 
-            if not fee_assignments:
-                continue
+                # In First/Second terms, most people pay full (80%). In Third term, it's mixed since it's ongoing
+                if term.name in ['First', 'Second']:
+                    weights = [80, 15, 5] # full, partial, skip
+                else:
+                    weights = [40, 40, 20]
 
-            # Randomly decide payment status: full (50%), partial (30%), or skip (20%)
-            payment_status = random.choices(
-                ['full', 'partial', 'skip'],
-                weights=[50, 30, 20]
-            )[0]
+                payment_status = random.choices(['full', 'partial', 'skip'], weights=weights)[0]
 
-            if payment_status == 'skip':
-                continue
+                if payment_status == 'skip':
+                    continue
 
-            # Calculate payment amount
-            total_owed = sum(fa.balance for fa in fee_assignments)
+                total_owed = sum(fa.balance for fa in fee_assignments)
 
-            if payment_status == 'full':
-                payment_amount = total_owed
-            else:  # partial
-                payment_amount = total_owed * Decimal(random.uniform(0.3, 0.9))
+                if payment_status == 'full':
+                    payment_amount = total_owed
+                else:
+                    payment_amount = total_owed * Decimal(random.uniform(0.3, 0.9))
 
-            # Round payment amount to 2 decimal places
-            payment_amount = Decimal(str(round(float(payment_amount), 2)))
+                payment_amount = Decimal(str(round(float(payment_amount), 2)))
 
-            # Create receipt
-            receipt = Receipt.objects.create(
-                date=timezone.now().date() - timedelta(days=random.randint(1, 60)),
-                payer=f"{student.parent_guardian.first_name} {student.parent_guardian.last_name}",
-                student=student,
-                amount=payment_amount,
-                paid_through=random.choice(['Cash', 'Bank Transfer', 'Mobile Money']),
-                term=self.current_term,
-                payment_date=timezone.now().date() - timedelta(days=random.randint(1, 60)),
-                status='Completed',
-                received_by=random.choice(self.accountants) if self.accountants else None
-            )
-            receipt_count += 1
+                # Randomize payment date within the term
+                start_dt = term.start_date
+                end_dt = term.end_date if term.end_date < timezone.now().date() else timezone.now().date()
+                days_between = max(1, (end_dt - start_dt).days)
+                pay_date = start_dt + timedelta(days=random.randint(0, days_between))
+
+                receipt = Receipt.objects.create(
+                    date=pay_date,
+                    payer=f"{student.parent_guardian.first_name} {student.parent_guardian.last_name}",
+                    student=student,
+                    amount=payment_amount,
+                    paid_through=random.choice(['Cash', 'Bank Transfer', 'Mobile Money']),
+                    term=term,
+                    payment_date=pay_date,
+                    status='Completed',
+                    received_by=random.choice(self.accountants) if self.accountants else None
+                )
+                receipt_count += 1
 
             # Allocate payment to fee assignments
             remaining = payment_amount
@@ -837,33 +846,43 @@ class DataGenerator:
         sick = AttendanceStatus.objects.get(code='S')
         late = AttendanceStatus.objects.get(code='L')
 
-        # Student attendance for past 30 days
+        # Student attendance spanning the 2025/2026 academic session
         student_attendance_count = 0
-        for days_ago in range(1, 31):
-            attendance_date = timezone.now().date() - timedelta(days=days_ago)
+        all_terms = Term.objects.filter(academic_year=self.academic_year)
+        
+        # Collect records for bulk_create to speed it up
+        student_attendance_records = []
 
-            # Skip weekends
-            if attendance_date.weekday() >= 5:
-                continue
+        for term in all_terms:
+            current_date = term.start_date
+            end_date = min(term.end_date, timezone.now().date())
+            
+            while current_date <= end_date:
+                # Skip weekends
+                if current_date.weekday() < 5:
+                    # Sample 100 students per day to keep DB size manageable but realistic
+                    for student in random.sample(self.students, min(100, len(self.students))):
+                        # 90% present, 5% absent, 3% sick, 2% late
+                        status = random.choices(
+                            [present, absent, sick, late],
+                            weights=[90, 5, 3, 2]
+                        )[0]
 
-            for student in random.sample(self.students, min(50, len(self.students))):
-                # 90% present, 5% absent, 3% sick, 2% late
-                status = random.choices(
-                    [present, absent, sick, late],
-                    weights=[90, 5, 3, 2]
-                )[0]
+                        # Only create records for non-present status
+                        if status != present:
+                            enrollment = student.student_classes.first()
+                            if enrollment:
+                                StudentAttendance.objects.get_or_create(
+                                    student=student,
+                                    date=current_date,
+                                    status=status,
+                                    defaults={'ClassRoom': enrollment.classroom}
+                                )
+                                student_attendance_count += 1
+                
+                current_date += timedelta(days=1)
 
-                # Only create records for non-present status
-                if status != present:
-                    StudentAttendance.objects.get_or_create(
-                        student=student,
-                        date=attendance_date,
-                        status=status,
-                        defaults={'ClassRoom': student.student_classes.first().classroom}
-                    )
-                    student_attendance_count += 1
-
-        print(f"  ✓ Created {student_attendance_count} student attendance records")
+        print(f"  ✓ Created {student_attendance_count} non-present student attendance records spanning 2025/2026")
 
         # Teacher attendance
         teacher_attendance_count = 0
@@ -930,39 +949,55 @@ class DataGenerator:
         print(f"  ✓ Created grade scale with {len(rules)} rules")
 
     def create_examinations(self):
-        """Create examinations and marks"""
+        """Create examinations and marks based on the term"""
         print("\n[17/18] Creating examinations and marks...")
 
-        # Create examinations
-        exams_data = [
-            ('Mid-Term Test', -45, 5, 50),
-            ('End of Term Exam', -14, 7, 100),
-        ]
-
+        all_terms = Term.objects.filter(academic_year=self.academic_year)
         exams = []
-        for exam_name, start_offset, duration, out_of in exams_data:
-            start_date = self.current_term.end_date + timedelta(days=start_offset)
 
-            exam, _ = ExaminationListHandler.objects.get_or_create(
-                name=f"{exam_name} - Term {self.current_term.name}",
-                defaults={
-                    'start_date': start_date,
-                    'ends_date': start_date + timedelta(days=duration),
-                    'out_of': out_of,
-                    'created_by': random.choice(self.teachers),
-                    'created_on': timezone.now()
-                }
-            )
+        for term in all_terms:
+            if term.name in ['First', 'Second']:
+                # Full end of term exams for 1st and 2nd term
+                exams_data = [
+                    ('End of Term Exam', -14, 7, 100),
+                ]
+            else:
+                # 3rd term (Current): Only CA 1 and CA 2 in May/June
+                exams_data = [
+                    ('1st Continuous Assessment', 15, 3, 20), # 15 days after term start (Late May)
+                    ('2nd Continuous Assessment', 40, 3, 20), # 40 days after term start (Mid June)
+                ]
 
-            # Add classrooms
-            exam.classrooms.set(random.sample(self.classrooms, min(5, len(self.classrooms))))
-            exams.append(exam)
+            for exam_name, days_offset, duration, out_of in exams_data:
+                if term.name in ['First', 'Second']:
+                    start_date = term.end_date + timedelta(days=days_offset)
+                else:
+                    start_date = term.start_date + timedelta(days=days_offset)
+
+                # Ensure start date is not completely in the future, unless it's mock data
+                if start_date > timezone.now().date():
+                    start_date = timezone.now().date() - timedelta(days=5)
+
+                exam, _ = ExaminationListHandler.objects.get_or_create(
+                    name=f"{exam_name} - Term {term.name}",
+                    defaults={
+                        'start_date': start_date,
+                        'ends_date': start_date + timedelta(days=duration),
+                        'out_of': out_of,
+                        'created_by': random.choice(self.teachers),
+                        'created_on': timezone.now()
+                    }
+                )
+
+                # Add classrooms
+                exam.classrooms.set(random.sample(self.classrooms, min(10, len(self.classrooms))))
+                exams.append((exam, term))
 
         print(f"  ✓ Created {len(exams)} examinations")
 
         # Create marks for students
         marks_count = 0
-        for exam in exams:
+        for exam, term in exams:
             for classroom in exam.classrooms.all():
                 enrollments = StudentClassEnrollment.objects.filter(
                     classroom=classroom,
@@ -972,7 +1007,7 @@ class DataGenerator:
                 # Random subjects for this exam (3-5 subjects)
                 exam_subjects = random.sample(self.subjects, k=random.randint(3, 5))
 
-                for enrollment in enrollments[:20]:  # Limit to 20 students per class
+                for enrollment in enrollments[:30]:  # Limit to 30 students per class
                     for subject in exam_subjects:
                         # Generate random marks (normally distributed around 65%)
                         mean_score = exam.out_of * 0.65

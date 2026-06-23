@@ -1,21 +1,24 @@
-<h1>Registration Received!</h1>
+{% extends 'email/base.html' %}
 
-<p>Hello {{ admin_name }},</p>
+{% block content %}
+<h1 style="color: #1f2937; margin-bottom: 20px;">Registration Received!</h1>
 
-<p>Thank you for registering <strong>{{ school_name }}</strong> with SSync!</p>
+<p style="color: #4b5563; font-size: 16px;">Hello {{ admin_name }},</p>
 
-<div class="status-box">
-    ⏳ Your registration is being reviewed
-    
-    You'll receive an email within 24 hours once approved.
+<p style="color: #4b5563; font-size: 16px;">Thank you for registering <strong>{{ school_name }}</strong> with {{ app_name }}!</p>
+
+<div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 25px 0; border-radius: 4px;">
+    <p style="margin: 0; color: #92400e; font-weight: bold;">⏳ Your registration is being reviewed</p>
+    <p style="margin: 5px 0 0 0; color: #92400e;">You'll receive an email within {{ estimated_approval_time|default:'24 hours' }} once approved.</p>
 </div>
 
-<h3>What Happens Next?</h3>
-<ol>
+<h3 style="color: #374151; margin-top: 30px;">What Happens Next?</h3>
+<ol style="color: #4b5563; line-height: 1.8;">
     <li>Our team reviews your registration</li>
     <li>We'll contact you if we need more information</li>
     <li>You'll receive login credentials once approved</li>
     <li>Start managing your school!</li>
 </ol>
 
-<p>Questions? Contact us at {{ support_email }}</p>
+<p style="color: #6b7280; margin-top: 30px; font-size: 14px;">Questions? Contact us at <a href="mailto:{{ support_email }}" style="color: #047857;">{{ support_email }}</a></p>
+{% endblock %}

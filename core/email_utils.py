@@ -19,9 +19,23 @@ def get_school_settings() -> dict:
     Falls back to safe defaults if the Client record can't be found
     (e.g. called from public schema, or during tests).
     """
-    try:
-        from tenants.models import Client
+    platform_name = getattr(settings, 'APP_NAME', 'SSync')
+    platform_logo_url = getattr(settings, 'PLATFORM_LOGO_URL', None)
 
+    try:
+        if connection.schema_name == 'public':
+            # Explicitly return platform settings when in public schema
+            return {
+                'school_name':   platform_name,
+                'contact_email': getattr(settings, 'SUPPORT_EMAIL', 'support@ssyncportal.com'),
+                'contact_phone': None,
+                'website':       getattr(settings, 'FRONTEND_URL', 'http://localhost:3000'),
+                'address':       None,
+                'primary_color': '#047857',
+                'logo_url':      platform_logo_url,
+            }
+
+        from tenants.models import Client
         tenant = Client.objects.get(schema_name=connection.schema_name)
 
         return {
@@ -37,13 +51,13 @@ def get_school_settings() -> dict:
     except Exception:
         # Called from public schema, Client not found, or DB unavailable
         return {
-            'school_name':   'SSync',
-            'contact_email': None,
+            'school_name':   platform_name,
+            'contact_email': getattr(settings, 'SUPPORT_EMAIL', 'support@ssyncportal.com'),
             'contact_phone': None,
-            'website':       None,
+            'website':       getattr(settings, 'FRONTEND_URL', 'http://localhost:3000'),
             'address':       None,
             'primary_color': '#047857',
-            'logo_url':      None,
+            'logo_url':      platform_logo_url,
         }
 
 

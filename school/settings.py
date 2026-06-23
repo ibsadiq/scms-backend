@@ -37,7 +37,7 @@ BACKEND_URL  = env('BACKEND_URL',  default='http://localhost:8000')
 BASE_DOMAIN = env('BASE_DOMAIN', default='localhost')
 
 SUPPORT_EMAIL = env('SUPPORT_EMAIL', default='support@ssyncportal.com')
-
+PLATFORM_LOGO_URL = env('PLATFORM_LOGO_URL', default=f"{BACKEND_URL}/static/images/platform_logo.png")
 
 # Application definition
 # settings.py
