@@ -27,7 +27,9 @@ DEBUG = env.bool("DEBUG", default=True)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
-
+# Proxy settings for correct absolute URI generation (e.g. for media URLs)
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 DATE_VALIDATORS = [MinValueValidator(date(1970, 1, 1))]  # Unix epoch!
 
 # Application branding
