@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, date
 from decimal import Decimal
 import random
 
-from users.models import CustomUser, Accountant
+from users.models import CustomUser
 from academic.models import (
     Department, Subject, GradeLevel, ClassLevel, ClassYear,
     ClassRoom, Teacher, Parent, Student, StudentClassEnrollment,
@@ -302,31 +302,39 @@ class Command(BaseCommand):
 
         accountants_data = [
             {
-                'username': 'acc001',
                 'first_name': 'Sarah',
                 'last_name': 'Nakato',
-                'gender': 'Female',
                 'email': 'sarah.nakato@hillcrest.edu.ug',
-                'empId': 'EMP-ACC-001',
-                'salary': Decimal('1500000'),
             },
             {
-                'username': 'acc002',
                 'first_name': 'James',
                 'last_name': 'Okello',
-                'gender': 'Male',
                 'email': 'james.okello@hillcrest.edu.ug',
-                'empId': 'EMP-ACC-002',
-                'salary': Decimal('1200000'),
             },
         ]
 
+        group, _ = Group.objects.get_or_create(name='accountant')
+
         for acc_data in accountants_data:
-            acc, created = Accountant.objects.get_or_create(
-                username=acc_data['username'],
-                defaults=acc_data
+            user, created = CustomUser.objects.get_or_create(
+                email=acc_data['email'],
+                defaults={
+                    'first_name': acc_data['first_name'],
+                    'last_name': acc_data['last_name'],
+                    'is_active': True,
+                    'is_accountant': True,
+                }
             )
-            self.accountants.append(acc)
+            if created:
+                user.set_password('password')
+                user.save()
+
+            if not user.is_accountant:
+                user.is_accountant = True
+                user.save()
+
+            user.groups.add(group)
+            self.accountants.append(user)
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.accountants)} accountants"))
 
@@ -983,7 +991,7 @@ class Command(BaseCommand):
         self.stdout.write(f"   • Subjects: {Subject.objects.count()}")
         self.stdout.write(f"   • Classrooms: {ClassRoom.objects.count()}")
         self.stdout.write(f"   • Teachers: {Teacher.objects.count()}")
-        self.stdout.write(f"   • Accountants: {Accountant.objects.count()}")
+        self.stdout.write(f"   • Accountants: {CustomUser.objects.filter(is_accountant=True).count()}")
         self.stdout.write(f"   • Parents: {Parent.objects.count()}")
         self.stdout.write(f"   • Students: {Student.objects.count()}")
         self.stdout.write(f"   • Fee Structures: {FeeStructure.objects.count()}")

@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
 from django.contrib.auth.models import Group
 from django.utils import timezone
-from users.models import CustomUser, Accountant
+from users.models import CustomUser
 from academic.models import (
     Department, Subject, GradeLevel, ClassLevel, ClassYear,
     ClassRoom, Teacher, Parent, Student, StudentClassEnrollment,
@@ -345,31 +345,39 @@ class DataGenerator:
 
         accountants_data = [
             {
-                'username': 'acc001',
                 'first_name': 'Sarah',
                 'last_name': 'Nakato',
-                'gender': 'Female',
                 'email': 'sarah.nakato@hillcrest.edu.ug',
-                'empId': 'EMP-ACC-001',
-                'salary': Decimal('1500000'),
             },
             {
-                'username': 'acc002',
                 'first_name': 'James',
                 'last_name': 'Okello',
-                'gender': 'Male',
                 'email': 'james.okello@hillcrest.edu.ug',
-                'empId': 'EMP-ACC-002',
-                'salary': Decimal('1200000'),
             },
         ]
 
+        group, _ = Group.objects.get_or_create(name='accountant')
+
         for acc_data in accountants_data:
-            acc, created = Accountant.objects.get_or_create(
-                username=acc_data['username'],
-                defaults=acc_data
+            user, created = CustomUser.objects.get_or_create(
+                email=acc_data['email'],
+                defaults={
+                    'first_name': acc_data['first_name'],
+                    'last_name': acc_data['last_name'],
+                    'is_active': True,
+                    'is_accountant': True,
+                }
             )
-            self.accountants.append(acc)
+            if created:
+                user.set_password('password')
+                user.save()
+
+            if not user.is_accountant:
+                user.is_accountant = True
+                user.save()
+
+            user.groups.add(group)
+            self.accountants.append(user)
 
         print(f"  ✓ Created {len(self.accountants)} accountants")
 
@@ -1124,7 +1132,7 @@ class DataGenerator:
         print(f"   • Subjects: {Subject.objects.count()}")
         print(f"   • Classrooms: {ClassRoom.objects.count()}")
         print(f"   • Teachers: {Teacher.objects.count()}")
-        print(f"   • Accountants: {Accountant.objects.count()}")
+        print(f"   • Accountants: {CustomUser.objects.filter(is_accountant=True).count()}")
         print(f"   • Parents: {Parent.objects.count()}")
         print(f"   • Students: {Student.objects.count()}")
         print(f"   • Fee Structures: {FeeStructure.objects.count()}")

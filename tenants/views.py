@@ -97,6 +97,7 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                         tenant=result['tenant'],
                         admin_email=serializer.validated_data['admin_email'],
                         admin_phone=admin_phone,
+                        admin_name=f"{serializer.validated_data.get('admin_first_name','')} {serializer.validated_data.get('admin_last_name','')}",
                     )
             except Exception as e:
                 logger.warning('Failed to send registration emails for %s: %s', serializer.validated_data['admin_email'], e)

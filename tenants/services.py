@@ -313,7 +313,7 @@ class TenantService:
                     'admin_name':              first_name,
                     'school_name':             school_name,
                     'domain':                  domain,
-                    'support_email':           getattr(settings, 'SUPPORT_EMAIL', 'support@ssync.online'),
+                    'support_email':           getattr(settings, 'SUPPORT_EMAIL', 'support@ssyncportal.com'),
                     'app_name':                getattr(settings, 'APP_NAME', 'SSync'),
                     'estimated_approval_time': '24 hours',
                 },
@@ -324,7 +324,7 @@ class TenantService:
             logger.warning("Could not send pending approval email to %s: %s", email, e)
 
     @staticmethod
-    def _notify_super_admin_new_registration(tenant, admin_email, admin_phone=None):
+    def _notify_super_admin_new_registration(tenant, admin_email, admin_phone=None, admin_name=None):
         try:
             from core.email_utils import send_email
 
@@ -344,6 +344,7 @@ class TenantService:
                 'school_name':      tenant.name,
                 'schema_name':      tenant.schema_name,
                 'domain':           domain.domain if domain else 'N/A',
+                'admin_name':       admin_name or admin_email,
                 'admin_email':      admin_email,
                 'admin_phone':      admin_phone or 'Not provided',
                 'plan':             tenant.get_plan_name(),
@@ -357,7 +358,7 @@ class TenantService:
                     subject=f"New School Registration - {tenant.name}",
                     to_email=superuser.email,
                     template_name='admin_new_registration',
-                    context=context,
+                    context={**context, 'school_logo_url': getattr(settings, 'PLATFORM_LOGO_URL', None)},
                     fail_silently=True,
                 )
 

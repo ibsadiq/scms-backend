@@ -25,7 +25,7 @@ from decimal import Decimal
 import random
 import logging
 
-from users.models import CustomUser, Accountant
+from users.models import CustomUser
 from academic.models import (
     Department, Subject, GradeLevel, ClassLevel, ClassYear,
     ClassRoom, Teacher, Parent, Student, StudentClassEnrollment,
@@ -393,6 +393,7 @@ class Command(BaseCommand):
         ]
 
         acc_count = 0
+        group, _ = Group.objects.get_or_create(name='accountant')
         for i, acc_data in enumerate(accountants_data):
             user, created = CustomUser.objects.get_or_create(
                 email=acc_data['email'],
@@ -400,24 +401,19 @@ class Command(BaseCommand):
                     'first_name': acc_data['first_name'],
                     'last_name': acc_data['last_name'],
                     'is_staff': True,
+                    'is_active': True,
+                    'is_accountant': True,
                 }
             )
             if created:
                 user.set_password('Complex.0000')
                 user.save()
 
-            # Create Accountant profile
-            accountant, created = Accountant.objects.get_or_create(
-                user=user,
-                defaults={
-                    'username': acc_data['email'].split('@')[0],
-                    'first_name': acc_data['first_name'],
-                    'last_name': acc_data['last_name'],
-                    'email': acc_data['email'],
-                    'empId': f'ACC-{i+1:03d}',
-                    'phone_number': f"+234-70-{random.randint(10000000, 99999999)}",
-                }
-            )
+            if not user.is_accountant:
+                user.is_accountant = True
+                user.save()
+
+            user.groups.add(group)
             acc_count += 1
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {acc_count} accountants\n"))
