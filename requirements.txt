@@ -31,3 +31,5 @@ gunicorn==21.2.0
 flower==2.0.1
 django-environ==0.11.2
 whitenoise>=6.12.0
+cloudinary==1.41.0
+django-cloudinary-storage==0.3.0

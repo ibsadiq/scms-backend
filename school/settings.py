@@ -69,6 +69,8 @@ SHARED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "django_celery_results", # Centralized task results
     "django_celery_beat",    # Centralized periodic tasks
+    "cloudinary_storage",
+    "cloudinary",
 
     # Your Shared Apps
     "core.apps.CoreConfig",   # Base utilities
@@ -235,11 +237,26 @@ STATICFILES_DIRS = [
 STATIC_ROOT = BASE_DIR / "staticfiles"  # final destination after collectstatic
 MEDIA_ROOT = BASE_DIR / "media"  # uploads
 
-# ── Cloud storage (S3-compatible) ────────────────────────────────────────────
+# ── Cloud storage (S3-compatible / Cloudinary) ───────────────────────────────
 # Set USE_S3=True in production. Works with AWS S3, DigitalOcean Spaces, MinIO.
 USE_S3 = env.bool('USE_S3', default=False)
+USE_CLOUDINARY = env.bool('USE_CLOUDINARY', default=False)
 
-if USE_S3:
+if USE_CLOUDINARY:
+    CLOUDINARY_STORAGE = {
+        'CLOUD_NAME': env('CLOUDINARY_CLOUD_NAME', default=''),
+        'API_KEY': env('CLOUDINARY_API_KEY', default=''),
+        'API_SECRET': env('CLOUDINARY_API_SECRET', default=''),
+    }
+    STORAGES = {
+        "default": {
+            "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+elif USE_S3:
     AWS_ACCESS_KEY_ID       = env('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY   = env('AWS_SECRET_ACCESS_KEY')
     AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME')
