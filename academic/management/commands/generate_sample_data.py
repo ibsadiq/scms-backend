@@ -415,7 +415,7 @@ class Command(BaseCommand):
             teacher, created = Teacher.objects.get_or_create(
                 user=user,
                 defaults={
-                    'empId': f'EMP-TCH-{i+1:03d}',
+                    'empId': f'TCH{i+1:04d}',
                     'short_name': f'{first_name[0]}.{last_name}{i+1}',
                     'salary': Decimal(random.randint(800, 1500) * 1000),
                     'designation': random.choice(designations),
