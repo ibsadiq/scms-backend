@@ -622,7 +622,6 @@ class Command(BaseCommand):
                 name=name,
                 academic_year=self.academic_year,
                 term=self.current_term,
-                grade_level=grade_level,
                 defaults={
                     'fee_type': fee_type,
                     'amount': amount,
@@ -630,6 +629,8 @@ class Command(BaseCommand):
                     'due_date': self.current_term.end_date - timedelta(days=30)
                 }
             )
+            if grade_level:
+                fs.grade_levels.add(grade_level)
             fee_structures.append(fs)
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(fee_structures)} fee structures"))
