@@ -416,7 +416,7 @@ class Command(BaseCommand):
                 user=user,
                 defaults={
                     'empId': f'TCH{i+1:04d}',
-                    'short_name': f'{first_name[0]}.{last_name}{i+1}',
+                    'short_name': f'T{i+1:02d}',
                     'salary': Decimal(random.randint(800, 1500) * 1000),
                     'designation': random.choice(designations),
                 }
