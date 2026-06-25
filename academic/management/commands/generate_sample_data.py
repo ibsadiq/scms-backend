@@ -279,7 +279,7 @@ class Command(BaseCommand):
 
         grade_levels = {}
         for gl_id, gl_name in grade_levels_data:
-            gl, _ = GradeLevel.objects.get_or_create(name=gl_name)
+            gl, _ = GradeLevel.objects.get_or_create(default_name=gl_name)
             grade_levels[gl_name] = gl
 
         class_levels_data = [
@@ -575,9 +575,9 @@ class Command(BaseCommand):
         """Create fee structures and assign to students"""
         self.stdout.write("\n[12/17] Creating fee structures and assignments...")
 
-        primary = GradeLevel.objects.get(name='Primary')
-        o_level = GradeLevel.objects.get(name='O-Level')
-        a_level = GradeLevel.objects.get(name='A-Level')
+        primary = GradeLevel.objects.get(default_name='Primary')
+        o_level = GradeLevel.objects.get(default_name='O-Level')
+        a_level = GradeLevel.objects.get(default_name='A-Level')
 
         fee_structures_data = [
             ('Primary Tuition Fee', 'Tuition', Decimal('400000'), primary, True),
