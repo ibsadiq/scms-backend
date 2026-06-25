@@ -381,26 +381,44 @@ class Command(BaseCommand):
 
         designations = ['Head Teacher', 'Senior Teacher', 'Teacher', 'Teacher', 'Teacher']
 
+        group, _ = Group.objects.get_or_create(name='teacher')
+
         for i in range(self.num_teachers):
-            username = f'teacher{i+1:03d}'
+            email = f'teacher{i+1:03d}@hillcrest.edu.ug'
             first_name = random.choice(first_names)
             last_name = random.choice(last_names)
             gender = random.choice(['Male', 'Female'])
 
             specializations = random.sample(self.subjects, k=random.randint(1, 3))
 
-            teacher, created = Teacher.objects.get_or_create(
-                username=username,
+            # Create user first
+            user, user_created = CustomUser.objects.get_or_create(
+                email=email,
                 defaults={
                     'first_name': first_name,
                     'last_name': last_name,
-                    'gender': gender,
-                    'email': f'{username}@hillcrest.edu.ug',
+                    'is_active': True,
+                    'is_teacher': True,
+                }
+            )
+            if user_created:
+                user.set_password('password')
+                user.save()
+
+            if not user.is_teacher:
+                user.is_teacher = True
+                user.save()
+
+            user.groups.add(group)
+
+            # Create teacher with user
+            teacher, created = Teacher.objects.get_or_create(
+                user=user,
+                defaults={
                     'empId': f'EMP-TCH-{i+1:03d}',
                     'short_name': f'{first_name[0]}.{last_name}{i+1}',
                     'salary': Decimal(random.randint(800, 1500) * 1000),
                     'designation': random.choice(designations),
-                    'phone_number': f'+256-70{random.randint(0, 9)}-{random.randint(100000, 999999)}',
                 }
             )
 
