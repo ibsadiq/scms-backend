@@ -271,16 +271,25 @@ class Command(BaseCommand):
         self.stdout.write("\n[5/17] Creating grade levels and class levels...")
 
         grade_levels_data = [
-            (1, 'Nursery'),
-            (2, 'Primary'),
-            (3, 'O-Level'),
-            (4, 'A-Level'),
+            ('NURSERY', 'PRE_PRIMARY', 'Nursery', 1),
+            ('PRIMARY', 'PRIMARY', 'Primary', 2),
+            ('OLEVEL', 'JSS', 'O-Level', 3),
+            ('ALEVEL', 'SSS', 'A-Level', 4),
         ]
 
         grade_levels = {}
-        for gl_id, gl_name in grade_levels_data:
-            gl, _ = GradeLevel.objects.get_or_create(default_name=gl_name)
-            grade_levels[gl_name] = gl
+        for system_code, section, default_name, sequence_order in grade_levels_data:
+            gl, _ = GradeLevel.objects.get_or_create(
+                system_code=system_code,
+                defaults={
+                    'section': section,
+                    'default_name': default_name,
+                    'sequence_order': sequence_order,
+                    'min_age': 0,
+                    'max_age': 18
+                }
+            )
+            grade_levels[default_name] = gl
 
         class_levels_data = [
             ('Baby Class', 'Nursery'),
