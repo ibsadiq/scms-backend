@@ -256,11 +256,11 @@ def notify_school_event(sender, instance, created, **kwargs):
         return
 
     # Only notify for future events
-    if instance.date < timezone.now().date():
+    if instance.start_date < timezone.now().date():
         return
 
     # Determine if event is urgent (within 3 days)
-    days_until_event = (instance.date - timezone.now().date()).days
+    days_until_event = (instance.start_date - timezone.now().date()).days
     priority = 'urgent' if days_until_event <= 3 else 'normal'
 
     # Build recipient list based on event audience
