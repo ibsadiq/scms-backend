@@ -177,8 +177,7 @@ class Command(BaseCommand):
                 academic_year=self.academic_year,
                 defaults={
                     'start_date': start,
-                    'end_date': end,
-                    'default_term_fee': fee
+                    'end_date': end
                 }
             )
             if term_name == 'Two':
