@@ -6,12 +6,17 @@ Usage:
     python manage.py generate_sample_data --students 200
 """
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth.models import Group
 from django.utils import timezone
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 import random
+
+try:
+    from django_tenants.utils import schema_context
+except ImportError:
+    schema_context = None
 
 from users.models import CustomUser
 from academic.models import (
@@ -47,6 +52,11 @@ class Command(BaseCommand):
             default=20,
             help='Number of teachers to generate (default: 20)'
         )
+        parser.add_argument(
+            '--schema',
+            type=str,
+            help='Tenant schema name to run this command within',
+        )
 
     def handle(self, *args, **options):
         self.teachers = []
@@ -60,6 +70,21 @@ class Command(BaseCommand):
         self.num_students = options['students']
         self.num_teachers = options['teachers']
 
+        schema_name = options.get('schema')
+        if schema_name:
+            if schema_context is None:
+                raise CommandError(
+                    'django-tenants is required to use --schema. Install django-tenants or run without --schema in an active tenant context.'
+                )
+            self.stdout.write(self.style.WARNING(
+                f"Running sample data generation inside tenant schema '{schema_name}'"
+            ))
+            with schema_context(schema_name):
+                self._run_generation()
+        else:
+            self._run_generation()
+
+    def _run_generation(self):
         self.stdout.write("=" * 60)
         self.stdout.write(self.style.SUCCESS("DJANGO SCMS - Sample Data Generator"))
         self.stdout.write("=" * 60)

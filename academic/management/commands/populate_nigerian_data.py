@@ -16,7 +16,7 @@ Usage:
     python manage.py populate_nigerian_data --clear --students 200
 """
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth.models import Group
 from django.utils import timezone
 from django.db import transaction
@@ -24,6 +24,11 @@ from datetime import datetime, timedelta, date
 from decimal import Decimal
 import random
 import logging
+
+try:
+    from django_tenants.utils import schema_context
+except ImportError:
+    schema_context = None
 
 from users.models import CustomUser
 from academic.models import (
@@ -112,9 +117,29 @@ class Command(BaseCommand):
             action='store_true',
             help='Clear existing data before generating'
         )
+        parser.add_argument(
+            '--schema',
+            type=str,
+            help='Tenant schema name to run this command within',
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
+        schema_name = options.get('schema')
+        if schema_name:
+            if schema_context is None:
+                raise CommandError(
+                    'django-tenants is required to use --schema. Install django-tenants or run without --schema in an active tenant context.'
+                )
+            self.stdout.write(self.style.WARNING(
+                f"Running Nigerian sample data generation inside tenant schema '{schema_name}'"
+            ))
+            with schema_context(schema_name):
+                self._run_generation(options)
+        else:
+            self._run_generation(options)
+
+    def _run_generation(self, options):
         self.stdout.write("\n" + "=" * 80)
         self.stdout.write(self.style.SUCCESS("🎓 NIGERIAN SCHOOL MANAGEMENT SYSTEM - DATA GENERATOR"))
         self.stdout.write("=" * 80 + "\n")
