@@ -293,9 +293,9 @@ def notify_school_event(sender, instance, created, **kwargs):
         notification_service.send_bulk_notifications(
             recipients=recipients,
             notification_type='event',
-            title=f"School Event: {instance.title}",
-            message=f"{instance.title} on {instance.date.strftime('%B %d, %Y')}. "
-                    f"{instance.description if hasattr(instance, 'description') else ''}",
+            title=f"School Event: {instance.name}",
+            message=f"{instance.name} on {instance.start_date.strftime('%B %d, %Y')}. "
+                    f"{instance.description if instance.description else ''}",
             priority=priority,
             send_email=True,
             send_sms=False

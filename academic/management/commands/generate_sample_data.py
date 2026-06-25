@@ -247,8 +247,7 @@ class Command(BaseCommand):
 
         for dept_name, subjects in departments_subjects.items():
             dept, _ = Department.objects.get_or_create(
-                name=dept_name.lower(),
-                defaults={'order_rank': dept_count + 1}
+                name=dept_name.lower()
             )
             dept_count += 1
 
