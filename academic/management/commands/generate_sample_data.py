@@ -658,22 +658,21 @@ class Command(BaseCommand):
         """Create fee structures and assign to students"""
         self.stdout.write("\n[12/17] Creating fee structures and assignments...")
 
-        primary = GradeLevel.objects.get(default_name='Primary')
-        o_level = GradeLevel.objects.get(default_name='O-Level')
-        a_level = GradeLevel.objects.get(default_name='A-Level')
+        # Get Nigerian grade levels (JSS and SS)
+        jss = GradeLevel.objects.filter(section='JSS')
+        sss = GradeLevel.objects.filter(section='SSS')
 
         fee_structures_data = [
-            ('Primary Tuition Fee', 'Tuition', Decimal('400000'), primary, True),
-            ('O-Level Tuition Fee', 'Tuition', Decimal('500000'), o_level, True),
-            ('A-Level Tuition Fee', 'Tuition', Decimal('600000'), a_level, True),
-            ('Transport Fee', 'Transport', Decimal('150000'), None, False),
-            ('Meals Fee', 'Meals', Decimal('200000'), None, True),
-            ('Books and Stationery', 'Books', Decimal('80000'), None, True),
-            ('School Uniform', 'Uniform', Decimal('120000'), None, False),
+            ('JSS Tuition Fee', 'Tuition', Decimal('150000'), jss, True),
+            ('SSS Tuition Fee', 'Tuition', Decimal('200000'), sss, True),
+            ('Transport Fee', 'Transport', Decimal('50000'), None, False),
+            ('Meals Fee', 'Meals', Decimal('75000'), None, True),
+            ('Books and Stationery', 'Books', Decimal('30000'), None, True),
+            ('School Uniform', 'Uniform', Decimal('45000'), None, False),
         ]
 
         fee_structures = []
-        for name, fee_type, amount, grade_level, mandatory in fee_structures_data:
+        for name, fee_type, amount, grade_levels_qs, mandatory in fee_structures_data:
             fs, _ = FeeStructure.objects.get_or_create(
                 name=name,
                 academic_year=self.academic_year,
@@ -685,8 +684,8 @@ class Command(BaseCommand):
                     'due_date': self.current_term.end_date - timedelta(days=30)
                 }
             )
-            if grade_level:
-                fs.grade_levels.add(grade_level)
+            if grade_levels_qs:
+                fs.grade_levels.add(*grade_levels_qs)
             fee_structures.append(fs)
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(fee_structures)} fee structures"))
