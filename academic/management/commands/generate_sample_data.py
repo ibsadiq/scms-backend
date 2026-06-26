@@ -1,5 +1,14 @@
 """
-Django Management Command: Generate Sample Data for SCMS
+Django Management Command: Generate Nigerian School Sample Data for SCMS
+
+This comprehensive script generates realistic sample data for a Nigerian school system including:
+- Nigerian names, locations, occupations
+- Academic structure (JSS/SSS system)
+- Teachers, parents, and students with relationships
+- Fee structures
+- Student class enrollments and dormitories
+- Attendance records
+- Financial transactions
 
 Usage:
     python manage.py generate_sample_data
@@ -35,9 +44,56 @@ from attendance.models import AttendanceStatus, StudentAttendance, TeachersAtten
 from examination.models import GradeScale, GradeScaleRule, ExaminationListHandler, MarksManagement
 from schedule.models import Period
 
+# Nigerian Names Data
+NIGERIAN_FIRST_NAMES_MALE = [
+    'Chioma', 'Emeka', 'Tunde', 'Adebayo', 'Oluwaseun', 'Chidi', 'Babatunde',
+    'Obinna', 'Kunle', 'Segun', 'Karim', 'Ahmed', 'Ibrahim', 'Ali', 'Yusuf',
+    'Chibuzor', 'Nkosi', 'Jamal', 'Aminu', 'Rashid', 'Ravi', 'Abasi', 'Azikiwe',
+    'Bisi', 'Chiukwu', 'Dare', 'Denzil', 'Ebube', 'Festus', 'Gbenga', 'Kevin',
+    'Lanre', 'Mba', 'Nonso', 'Olutayo', 'Pius', 'Samson', 'Tendai', 'Victor'
+]
+
+NIGERIAN_FIRST_NAMES_FEMALE = [
+    'Zainab', 'Aisha', 'Chioma', 'Ngozi', 'Blessing', 'Folake', 'Kaida',
+    'Amina', 'Fatima', 'Hauwa', 'Talia', 'Zara', 'Nneka', 'Ifunanya', 'Ifeoma',
+    'Justina', 'Kamara', 'Lara', 'Mopelola', 'Oyinbo', 'Priscilla', 'Quddus',
+    'Ranyinudo', 'Stella', 'Tinuade', 'Uchenna', 'Victoria', 'Wanise', 'Yetunde',
+    'Zoe', 'Ada', 'Bola', 'Chinyere', 'Deborah'
+]
+
+NIGERIAN_LAST_NAMES = [
+    'Okafor', 'Oyewole', 'Ibrahim', 'Adeyemi', 'Ogundimu', 'Ezeh', 'Nwosu',
+    'Eze', 'Chukwu', 'Okonkwo', 'Ezeoke', 'Abubakar', 'Salihu', 'Hassan', 'Balogun',
+    'Olajide', 'Adebisi', 'Babajide', 'Oluwanmi', 'Owolabi', 'Adenuga', 'Ejiro',
+    'Umoh', 'Obi', 'Adeleke', 'Ajibade', 'Osei', 'Mensah', 'Amadi', 'Adeniyi'
+]
+
+NIGERIAN_STATES = [
+    'Lagos', 'Ogun', 'Osun', 'Oyo', 'Ekiti', 'Kwara', 'Kogi', 'Benue',
+    'Nasarawa', 'Plateau', 'Kaduna', 'Kebbi', 'Sokoto', 'Kano', 'Katsina',
+    'Zamfara', 'Yobe', 'Borno', 'Adamawa', 'Taraba', 'Bauchi', 'Gombe', 'Jigawa',
+    'Niger', 'Ondo', 'Edo', 'Delta', 'Rivers', 'Bayelsa', 'Cross River', 'Akwa Ibom',
+    'Abia', 'Imo', 'Enugu', 'Ebonyi', 'Anambra', 'Federal Capital Territory'
+]
+
+NIGERIAN_RELIGIONS = [
+    'Christianity',
+    'Islam',
+    'Traditional Religion',
+    'Other'
+]
+
+NIGERIAN_OCCUPATIONS = [
+    'Civil Servant', 'Business Owner', 'Trader', 'Teacher', 'Nurse', 'Doctor',
+    'Engineer', 'Lawyer', 'Accountant', 'Banker', 'Farmer', 'Artisan',
+    'Transporter', 'Tailor', 'Welder', 'Mechanic', 'Administrator', 'Electrician',
+    'Contractor', 'Manager', 'Supervisor', 'Driver', 'Security Officer',
+    'Beautician', 'Hairdresser', 'Barber', 'Cleaner', 'Laborer'
+]
+
 
 class Command(BaseCommand):
-    help = 'Generate comprehensive sample data for the School Management System'
+    help = 'Generate comprehensive Nigerian school sample data for the SCMS'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -85,9 +141,9 @@ class Command(BaseCommand):
             self._run_generation()
 
     def _run_generation(self):
-        self.stdout.write("=" * 60)
-        self.stdout.write(self.style.SUCCESS("DJANGO SCMS - Sample Data Generator"))
-        self.stdout.write("=" * 60)
+        self.stdout.write("=" * 80)
+        self.stdout.write(self.style.SUCCESS("🎓 NIGERIAN SCHOOL MANAGEMENT SYSTEM - DATA GENERATOR"))
+        self.stdout.write("=" * 80)
 
         self.create_groups()
         self.create_school_info()
@@ -123,24 +179,24 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created/verified {len(groups)} user groups"))
 
     def create_school_info(self):
-        """Create school information"""
+        """Create Nigerian school information"""
         self.stdout.write("\n[2/17] Creating school information...")
         school, created = School.objects.get_or_create(
             active=True,
             defaults={
-                'name': 'Hillcrest International School',
-                'address': 'Plot 123, Kampala Road, Kampala, Uganda',
-                'school_type': 'Boarding-day school',
+                'name': 'Pinnacle Excellence Academy',
+                'address': '123 Awolowo Road, Ikoyi, Lagos, Nigeria',
+                'school_type': 'Secondary School',
                 'students_gender': 'Mixed',
                 'ownership': 'Private',
-                'mission': 'To provide quality education that nurtures academic excellence and character development',
-                'vision': 'To be the leading educational institution producing future leaders',
-                'telephone': '+256-700-123456',
-                'school_email': 'info@hillcrest.edu.ug'
+                'mission': 'To provide quality education that nurtures academic excellence, moral character, and leadership development in the Nigerian context.',
+                'vision': 'To be Nigeria\'s leading school producing globally competitive yet culturally rooted citizens.',
+                'telephone': '+234-803-456-7890',
+                'school_email': 'info@pinnacleacademy.edu.ng'
             }
         )
-        action = "Created" if created else "Found existing"
-        self.stdout.write(self.style.SUCCESS(f"  ✓ {action} school: {school.name}"))
+        action = "Created" if created else "Already exists"
+        self.stdout.write(self.style.SUCCESS(f"  ✓ {action}: {school.name}"))
 
         days = [
             (1, 'Monday'), (2, 'Tuesday'), (3, 'Wednesday'),
@@ -151,12 +207,12 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created days of the week"))
 
     def create_academic_calendar(self):
-        """Create academic year and terms"""
-        self.stdout.write("\n[3/17] Creating academic calendar...")
+        """Create Nigerian academic year and terms"""
+        self.stdout.write("\n[3/17] Creating academic calendar (Nigerian system)...")
 
         current_year = datetime.now().year
         self.academic_year, created = AcademicYear.objects.get_or_create(
-            name=f"{current_year}/{current_year + 1}",
+            name=f"{current_year}",
             defaults={
                 'start_date': date(current_year, 1, 15),
                 'end_date': date(current_year, 12, 15),
@@ -165,10 +221,11 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f"  ✓ Academic Year: {self.academic_year.name}"))
 
+        # Nigerian Terms
         terms_data = [
-            ('One', date(current_year, 1, 15), date(current_year, 4, 5), Decimal('500000')),
-            ('Two', date(current_year, 5, 1), date(current_year, 8, 10), Decimal('500000')),
-            ('Three', date(current_year, 9, 1), date(current_year, 12, 15), Decimal('500000')),
+            ('First Term', date(current_year, 1, 15), date(current_year, 4, 1), Decimal('150000')),
+            ('Second Term', date(current_year, 4, 15), date(current_year, 7, 31), Decimal('150000')),
+            ('Third Term', date(current_year, 9, 1), date(current_year, 12, 15), Decimal('150000')),
         ]
 
         for term_name, start, end, fee in terms_data:
@@ -180,7 +237,7 @@ class Command(BaseCommand):
                     'end_date': end
                 }
             )
-            if term_name == 'Two':
+            if term_name == 'First Term':
                 self.current_term = term
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(terms_data)} terms"))
@@ -206,39 +263,52 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created school events"))
 
     def create_departments_and_subjects(self):
-        """Create academic departments and subjects"""
-        self.stdout.write("\n[4/17] Creating departments and subjects...")
+        """Create Nigerian curriculum subjects"""
+        self.stdout.write("\n[4/17] Creating departments and subjects (Nigerian curriculum)...")
 
         departments_subjects = {
+            'Languages': [
+                ('English Language', 'ENG', True, True),
+                ('Hausa Language', 'HAS', True, True),
+                ('Igbo Language', 'IGO', True, True),
+                ('Yoruba Language', 'YOR', True, True),
+                ('French', 'FRE', True, True),
+            ],
             'Mathematics': [
-                ('Mathematics', 'MATH101', True, True),
-                ('Advanced Mathematics', 'MATH201', True, True),
+                ('Mathematics', 'MATH', False, True),
+                ('Further Mathematics', 'FMATH', True, True),
             ],
             'Sciences': [
-                ('Physics', 'PHY101', True, True),
-                ('Chemistry', 'CHEM101', True, True),
-                ('Biology', 'BIO101', True, True),
+                ('Physics', 'PHY', False, True),
+                ('Chemistry', 'CHEM', False, True),
+                ('Biology', 'BIO', False, True),
+                ('Integrated Science', 'INTSC', False, True),
             ],
-            'Languages': [
-                ('English Language', 'ENG101', False, True),
-                ('Kiswahili', 'KIS101', False, True),
-                ('French', 'FRE101', True, True),
+            'Social Sciences': [
+                ('History', 'HIST', True, True),
+                ('Geography', 'GEO', True, True),
+                ('Government', 'GOVT', True, True),
+                ('Economics', 'ECON', True, True),
+                ('Civic Education', 'CIVIC', True, True),
             ],
-            'Humanities': [
-                ('History', 'HIST101', True, True),
-                ('Geography', 'GEO101', True, True),
-                ('Religious Education', 'RE101', True, True),
+            'Vocational Studies': [
+                ('Computer Science', 'CS', True, True),
+                ('Information Technology', 'IT', True, True),
+                ('Accounting', 'ACC', True, True),
+                ('Commerce', 'COM', True, True),
             ],
             'Arts': [
-                ('Fine Art', 'ART101', True, True),
-                ('Music', 'MUS101', True, True),
+                ('Fine Arts', 'ART', True, True),
+                ('Music', 'MUS', True, True),
+                ('Home Economics', 'HOME', True, True),
+                ('Agricultural Science', 'AGRIC', True, True),
+            ],
+            'Religion & Ethics': [
+                ('Christian Religious Studies', 'CRS', True, True),
+                ('Islamic Religious Studies', 'IRS', True, True),
             ],
             'Physical Education': [
-                ('Physical Education', 'PE101', False, False),
-            ],
-            'Computer Studies': [
-                ('Computer Science', 'CS101', True, True),
-                ('ICT', 'ICT101', False, True),
+                ('Physical Education', 'PE', False, False),
             ],
         }
 
