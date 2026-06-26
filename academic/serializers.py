@@ -467,9 +467,15 @@ class StudentDashboardSerializer(serializers.Serializer):
 
     def get_image_url(self, obj):
         """Get student image URL"""
-        request = self.context.get('request')
-        if obj.image and request:
-            return request.build_absolute_uri(obj.image.url)
+        if obj.image:
+            image_url = obj.image.url
+            # If URL is already absolute (Cloudinary, S3, etc.), return as-is
+            if image_url.startswith('http://') or image_url.startswith('https://'):
+                return image_url
+            # Otherwise, build absolute URI from request
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(image_url)
         return None
 
     def get_current_term_results(self, obj):
