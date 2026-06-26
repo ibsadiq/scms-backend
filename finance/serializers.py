@@ -57,7 +57,7 @@ class FeeStructureSerializer(serializers.ModelSerializer):
 
     def get_grade_level_names(self, obj):
         """Return list of grade level names."""
-        return [grade.name for grade in obj.grade_levels.all()]
+        return [grade.default_name for grade in obj.grade_levels.all()]
 
     def get_class_level_names(self, obj):
         """Return list of class level names."""
