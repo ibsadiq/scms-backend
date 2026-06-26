@@ -123,12 +123,13 @@ class Client(TenantMixin):
         """Get full URL for logo"""
         if self.logo:
             from django.conf import settings
-            # Cloud storage (S3/Spaces/etc.) — url is already absolute
-            if getattr(settings, 'USE_S3', False):
-                return self.logo.url
+            logo_url = self.logo.url
+            # Cloud storage (S3/Cloudinary/Spaces/etc.) — url is already absolute
+            if logo_url.startswith('http://') or logo_url.startswith('https://'):
+                return logo_url
             # Local dev — prepend backend host
             base_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000').rstrip('/')
-            return f"{base_url}{self.logo.url}"
+            return f"{base_url}{logo_url}"
         return None
     
     def get_website_url(self):
