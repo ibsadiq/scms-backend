@@ -179,24 +179,27 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created/verified {len(groups)} user groups"))
 
     def create_school_info(self):
-        """Create Nigerian school information"""
+        """Create Nigerian school information if not already set"""
         self.stdout.write("\n[2/17] Creating school information...")
-        school, created = School.objects.get_or_create(
-            active=True,
-            defaults={
-                'name': 'Pinnacle Excellence Academy',
-                'address': '123 Awolowo Road, Ikoyi, Lagos, Nigeria',
-                'school_type': 'Secondary School',
-                'students_gender': 'Mixed',
-                'ownership': 'Private',
-                'mission': 'To provide quality education that nurtures academic excellence, moral character, and leadership development in the Nigerian context.',
-                'vision': 'To be Nigeria\'s leading school producing globally competitive yet culturally rooted citizens.',
-                'telephone': '+234-803-456-7890',
-                'school_email': 'info@pinnacleacademy.edu.ng'
-            }
-        )
-        action = "Created" if created else "Already exists"
-        self.stdout.write(self.style.SUCCESS(f"  ✓ {action}: {school.name}"))
+        
+        # Only create school if none exists
+        school = School.objects.filter(active=True).first()
+        if school:
+            self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing school: {school.name}"))
+        else:
+            school = School.objects.create(
+                active=True,
+                name='Pinnacle Excellence Academy',
+                address='123 Awolowo Road, Ikoyi, Lagos, Nigeria',
+                school_type='Secondary School',
+                students_gender='Mixed',
+                ownership='Private',
+                mission='To provide quality education that nurtures academic excellence, moral character, and leadership development in the Nigerian context.',
+                vision='To be Nigeria\'s leading school producing globally competitive yet culturally rooted citizens.',
+                telephone='+234-803-456-7890',
+                school_email='info@pinnacleacademy.edu.ng'
+            )
+            self.stdout.write(self.style.SUCCESS(f"  ✓ Created school: {school.name}"))
 
         days = [
             (1, 'Monday'), (2, 'Tuesday'), (3, 'Wednesday'),
@@ -207,41 +210,52 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created days of the week"))
 
     def create_academic_calendar(self):
-        """Create Nigerian academic year and terms"""
+        """Create Nigerian academic year and terms if not already set"""
         self.stdout.write("\n[3/17] Creating academic calendar (Nigerian system)...")
 
         current_year = datetime.now().year
-        self.academic_year, created = AcademicYear.objects.get_or_create(
-            name=f"{current_year}",
-            defaults={
-                'start_date': date(current_year, 1, 15),
-                'end_date': date(current_year, 12, 15),
-                'active_year': True
-            }
-        )
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Academic Year: {self.academic_year.name}"))
-
-        # Nigerian Terms
-        terms_data = [
-            ('First Term', date(current_year, 1, 15), date(current_year, 4, 1), Decimal('150000')),
-            ('Second Term', date(current_year, 4, 15), date(current_year, 7, 31), Decimal('150000')),
-            ('Third Term', date(current_year, 9, 1), date(current_year, 12, 15), Decimal('150000')),
-        ]
-
-        for term_name, start, end, fee in terms_data:
-            term, _ = Term.objects.get_or_create(
-                name=term_name,
-                academic_year=self.academic_year,
-                defaults={
-                    'start_date': start,
-                    'end_date': end
-                }
+        
+        # Check if academic year already exists (created during tenant setup)
+        self.academic_year = AcademicYear.objects.filter(active_year=True).first()
+        if self.academic_year:
+            self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing academic year: {self.academic_year.name}"))
+        else:
+            self.academic_year = AcademicYear.objects.create(
+                name=f"{current_year}",
+                start_date=date(current_year, 1, 15),
+                end_date=date(current_year, 12, 15),
+                active_year=True
             )
-            if term_name == 'First Term':
-                self.current_term = term
+            self.stdout.write(self.style.SUCCESS(f"  ✓ Created academic year: {self.academic_year.name}"))
 
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(terms_data)} terms"))
+        # Check if terms already exist
+        existing_terms = Term.objects.filter(academic_year=self.academic_year).count()
+        if existing_terms > 0:
+            self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing {existing_terms} terms"))
+            self.current_term = Term.objects.filter(academic_year=self.academic_year).first()
+        else:
+            # Nigerian Terms
+            terms_data = [
+                ('First Term', date(current_year, 1, 15), date(current_year, 4, 1), Decimal('150000')),
+                ('Second Term', date(current_year, 4, 15), date(current_year, 7, 31), Decimal('150000')),
+                ('Third Term', date(current_year, 9, 1), date(current_year, 12, 15), Decimal('150000')),
+            ]
 
+            for term_name, start, end, fee in terms_data:
+                term, _ = Term.objects.get_or_create(
+                    name=term_name,
+                    academic_year=self.academic_year,
+                    defaults={
+                        'start_date': start,
+                        'end_date': end
+                    }
+                )
+                if term_name == 'First Term':
+                    self.current_term = term
+
+            self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(terms_data)} terms"))
+
+        # Create school events
         events_data = [
             ('Mid-term Break', 'holiday', 30, 7),
             ('End of Term Exams', 'exam', -14, 7),
