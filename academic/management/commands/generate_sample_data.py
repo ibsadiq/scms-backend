@@ -337,47 +337,38 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {dept_count} departments and {subj_count} subjects"))
 
     def create_grade_levels(self):
-        """Create grade levels and class levels"""
-        self.stdout.write("\n[5/17] Creating grade levels and class levels...")
+        """Create Nigerian grade and class levels"""
+        self.stdout.write("\n[5/17] Creating grade and class levels (Nigerian system)...")
 
+        # Nigerian grade levels
         grade_levels_data = [
-            ('NURSERY', 'PRE_PRIMARY', 'Nursery', 1),
-            ('PRIMARY', 'PRIMARY', 'Primary', 2),
-            ('OLEVEL', 'JSS', 'O-Level', 3),
-            ('ALEVEL', 'SSS', 'A-Level', 4),
+            'JSS 1', 'JSS 2', 'JSS 3',
+            'SS 1', 'SS 2', 'SS 3'
         ]
 
         grade_levels = {}
-        for system_code, section, default_name, sequence_order in grade_levels_data:
+        for i, gl_name in enumerate(grade_levels_data):
+            section = 'JSS' if 'JSS' in gl_name else 'SSS'
             gl, _ = GradeLevel.objects.get_or_create(
-                system_code=system_code,
+                system_code=gl_name.replace(' ', ''),
                 defaults={
                     'section': section,
-                    'default_name': default_name,
-                    'sequence_order': sequence_order,
+                    'default_name': gl_name,
+                    'sequence_order': i + 1,
                     'min_age': 0,
                     'max_age': 18
                 }
             )
-            grade_levels[default_name] = gl
+            grade_levels[gl_name] = gl
 
+        # Class levels with subdivisions
         class_levels_data = [
-            ('Baby Class', 'Nursery'),
-            ('Middle Class', 'Nursery'),
-            ('Top Class', 'Nursery'),
-            ('Primary 1', 'Primary'),
-            ('Primary 2', 'Primary'),
-            ('Primary 3', 'Primary'),
-            ('Primary 4', 'Primary'),
-            ('Primary 5', 'Primary'),
-            ('Primary 6', 'Primary'),
-            ('Primary 7', 'Primary'),
-            ('Senior 1', 'O-Level'),
-            ('Senior 2', 'O-Level'),
-            ('Senior 3', 'O-Level'),
-            ('Senior 4', 'O-Level'),
-            ('Senior 5', 'A-Level'),
-            ('Senior 6', 'A-Level'),
+            ('JSS 1A', 'JSS 1'), ('JSS 1B', 'JSS 1'), ('JSS 1C', 'JSS 1'),
+            ('JSS 2A', 'JSS 2'), ('JSS 2B', 'JSS 2'), ('JSS 2C', 'JSS 2'),
+            ('JSS 3A', 'JSS 3'), ('JSS 3B', 'JSS 3'), ('JSS 3C', 'JSS 3'),
+            ('SS 1A', 'SS 1'), ('SS 1B', 'SS 1'), ('SS 1C', 'SS 1'),
+            ('SS 2A', 'SS 2'), ('SS 2B', 'SS 2'), ('SS 2C', 'SS 2'),
+            ('SS 3A', 'SS 3'), ('SS 3B', 'SS 3'), ('SS 3C', 'SS 3'),
         ]
 
         class_count = 0
@@ -404,14 +395,14 @@ class Command(BaseCommand):
 
         accountants_data = [
             {
-                'first_name': 'Sarah',
-                'last_name': 'Nakato',
-                'email': 'sarah.nakato@hillcrest.edu.ug',
+                'email': 'chukwu@pinnacleacademy.edu.ng',
+                'first_name': 'Chukwu',
+                'last_name': 'Okafor',
             },
             {
-                'first_name': 'James',
-                'last_name': 'Okello',
-                'email': 'james.okello@hillcrest.edu.ug',
+                'email': 'fatima@pinnacleacademy.edu.ng',
+                'first_name': 'Fatima',
+                'last_name': 'Hassan',
             },
         ]
 
@@ -441,25 +432,21 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.accountants)} accountants"))
 
     def create_teachers(self):
-        """Create teacher users"""
+        """Create Nigerian teachers"""
         self.stdout.write("\n[7/17] Creating teachers...")
 
-        first_names = ['John', 'Mary', 'David', 'Susan', 'Peter', 'Grace',
-                      'Michael', 'Alice', 'Robert', 'Jane', 'Daniel', 'Ruth']
-        last_names = ['Mugisha', 'Kamau', 'Ochieng', 'Musoke', 'Asiimwe',
-                     'Wanjiru', 'Okoth', 'Namukasa', 'Kibet', 'Atim']
-
-        designations = ['Head Teacher', 'Senior Teacher', 'Teacher', 'Teacher', 'Teacher']
+        designations = ['Head Teacher', 'Senior Teacher', 'Teacher']
 
         group, _ = Group.objects.get_or_create(name='teacher')
 
         for i in range(self.num_teachers):
-            email = f'teacher{i+1:03d}@hillcrest.edu.ug'
-            first_name = random.choice(first_names)
-            last_name = random.choice(last_names)
-            gender = random.choice(['Male', 'Female'])
+            first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE + NIGERIAN_FIRST_NAMES_FEMALE)
+            last_name = random.choice(NIGERIAN_LAST_NAMES)
+            gender = 'Male' if first_name in NIGERIAN_FIRST_NAMES_MALE else 'Female'
 
-            specializations = random.sample(self.subjects, k=random.randint(1, 3))
+            email = f"{first_name.lower()}.{last_name.lower()}{i}@pinnacleacademy.edu.ng"[:50]
+
+            specializations = random.sample(self.subjects, k=random.randint(2, 4))
 
             # Create user first
             user, user_created = CustomUser.objects.get_or_create(
@@ -469,6 +456,7 @@ class Command(BaseCommand):
                     'last_name': last_name,
                     'is_active': True,
                     'is_teacher': True,
+                    'phone_number': f"+234701{i:06d}",
                 }
             )
             if user_created:
@@ -486,8 +474,8 @@ class Command(BaseCommand):
                 user=user,
                 defaults={
                     'empId': f'TCH{i+1:04d}',
-                    'short_name': f'T{i+1:02d}',
-                    'salary': Decimal(random.randint(800, 1500) * 1000),
+                    'short_name': f"{chr(65 + (i % 26))}{i % 100:02d}"[:3],
+                    'salary': Decimal(random.randint(100000, 500000)),
                     'designation': random.choice(designations),
                 }
             )
@@ -528,32 +516,20 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.classrooms)} classrooms"))
 
     def create_parents(self):
-        """Create parent users"""
+        """Create Nigerian parents"""
         self.stdout.write("\n[9/17] Creating parents...")
 
-        first_names_male = ['Joseph', 'Samuel', 'Patrick', 'Emmanuel', 'Martin',
-                           'Anthony', 'Paul', 'Francis', 'Isaac', 'Moses']
-        first_names_female = ['Rebecca', 'Esther', 'Dorothy', 'Florence', 'Catherine',
-                             'Margaret', 'Betty', 'Rose', 'Judith', 'Agnes']
-        last_names = ['Mukasa', 'Omondi', 'Nyambura', 'Nabirye', 'Koech',
-                     'Auma', 'Kaggwa', 'Wambui', 'Wairimu', 'Nakimuli']
+        num_parents = max(100, int(self.num_students * 0.7))
 
-        occupations = ['Teacher', 'Doctor', 'Engineer', 'Businessman', 'Farmer',
-                      'Nurse', 'Accountant', 'Lawyer', 'Civil Servant', 'Trader']
-
-        num_parents = max(100, int(self.num_students * 0.8))
-
-        # Generate unique phone numbers
         for i in range(num_parents):
-            parent_type = random.choice(['Father', 'Mother', 'Guardian'])
-            gender = 'Male' if parent_type == 'Father' else 'Female'
+            gender = random.choice(['Male', 'Female'])
+            first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE if gender == 'Male' else NIGERIAN_FIRST_NAMES_FEMALE)
+            last_name = random.choice(NIGERIAN_LAST_NAMES)
+            state = random.choice(NIGERIAN_STATES)
 
-            first_name = random.choice(first_names_male if gender == 'Male' else first_names_female)
-            last_name = random.choice(last_names)
-
-            # Generate unique phone number using index to avoid collisions
-            phone = f'+256-70{i//1000}-{i%1000000:06d}'
-            email = f'parent{i+1:04d}@email.com'
+            # Nigerian phone format: max 15 chars
+            phone = f"+234701{i:07d}"[:15]
+            email = f"{first_name.lower()}.{last_name.lower()}{i}@email.com"[:50]
 
             parent, created = Parent.objects.get_or_create(
                 phone_number=phone,
@@ -562,28 +538,23 @@ class Command(BaseCommand):
                     'last_name': last_name,
                     'gender': gender,
                     'email': email,
-                    'parent_type': parent_type,
-                    'occupation': random.choice(occupations),
-                    'monthly_income': Decimal(random.randint(500, 5000) * 1000),
-                    'single_parent': random.choice([True, False]) if parent_type == 'Guardian' else False,
-                    'address': f'Plot {random.randint(1, 500)}, {random.choice(["Kampala", "Entebbe", "Jinja", "Mbarara"])}',
+                    'parent_type': random.choice(['Father', 'Mother', 'Guardian']),
+                    'occupation': random.choice(NIGERIAN_OCCUPATIONS),
+                    'monthly_income': float(random.randint(50000, 500000)) * 100,
+                    'single_parent': random.choice([True, False, False]),
+                    'address': f"{random.randint(1, 500)} Street, {state}, Nigeria",
                 }
             )
-
             self.parents.append(parent)
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.parents)} parents"))
 
     def create_students(self):
-        """Create students and enroll them in classrooms"""
+        """Create Nigerian students and enroll them in classrooms"""
         self.stdout.write("\n[10/17] Creating students...")
 
-        first_names_male = ['Brian', 'Kevin', 'Ivan', 'Allan', 'Jonathan', 'Joshua',
-                           'Samuel', 'Emmanuel', 'Isaac', 'Nathan', 'Andrew', 'Benjamin']
-        first_names_female = ['Sharon', 'Diana', 'Joan', 'Stella', 'Patience', 'Faith',
-                             'Hope', 'Mercy', 'Joy', 'Christine', 'Olivia', 'Emma']
-        religions = ['Christian', 'Islam', 'Other']
-        blood_groups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']
+        religions = NIGERIAN_RELIGIONS
+        blood_groups = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']
 
         current_year = datetime.now().year
         class_year = ClassYear.objects.get(year=current_year + 4)
@@ -613,7 +584,7 @@ class Command(BaseCommand):
 
             for _ in range(num_students_to_create):
                 gender = random.choice(['Male', 'Female'])
-                first_name = random.choice(first_names_male if gender == 'Male' else first_names_female)
+                first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE if gender == 'Male' else NIGERIAN_FIRST_NAMES_FEMALE)
                 parent = random.choice(self.parents)
 
                 student = Student.objects.create(
@@ -626,9 +597,10 @@ class Command(BaseCommand):
                     class_of_year=class_year,
                     parent_guardian=parent,
                     parent_contact=parent.phone_number,
-                    is_active=True,
-                    region='Central',
-                    city=random.choice(['Kampala', 'Entebbe', 'Wakiso', 'Mukono']),
+                    phone_number=parent.phone_number[:20],
+                    date_of_birth=date(current_year - random.randint(13, 18), random.randint(1, 12), random.randint(1, 28)),
+                    region=random.choice(NIGERIAN_STATES),
+                    city=random.choice(['Lagos', 'Abuja', 'Port Harcourt', 'Kano', 'Ibadan']),
                 )
 
                 StudentClassEnrollment.objects.create(
