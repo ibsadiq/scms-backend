@@ -77,8 +77,6 @@ class Teacher(models.Model):
     empId = models.CharField(max_length=8, unique=True, null=True, blank=True)
     tin_number = models.CharField(max_length=9, blank=True, null=True, unique=True)
     short_name = models.CharField(max_length=3, blank=True, null=True, unique=True)
-    salary = models.IntegerField(blank=True, null=True)
-    unpaid_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     subject_specialization = models.ManyToManyField(Subject, blank=True)
     national_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     address = models.CharField(max_length=255, blank=True)
@@ -89,11 +87,6 @@ class Teacher(models.Model):
 
     class Meta:
         ordering = ("id", "user__first_name", "user__last_name")
-
-    def __str__(self):
-        if self.user:
-            return "{} {}".format(self.user.first_name, self.user.last_name)
-        return f"Teacher {self.empId or self.id}"
 
     # Properties to access user fields for backward compatibility
     @property
@@ -150,11 +143,10 @@ class Teacher(models.Model):
         # Ensure user is marked as teacher
         if not self.user.is_teacher:
             self.user.is_teacher = True
-            self.user.save()
+            self.user.save(update_fields=["is_teacher"])
 
-            # Add user to "teacher" group
-            group, _ = Group.objects.get_or_create(name="teacher")
-            self.user.groups.add(group)
+        group, _ = Group.objects.get_or_create(name="teacher")
+        self.user.groups.add(group)
 
         super().save(*args, **kwargs)
 
@@ -173,19 +165,10 @@ class Teacher(models.Model):
                     current_schema=_schema,
                 )
 
-    def update_unpaid_salary(self):
-        # Update unpaid salary at the start of each month
-        current_month = timezone.now().month
-        if self.unpaid_salary > 0:
-            self.unpaid_salary += self.salary  # Add salary amount to unpaid salary
-        else:
-            self.unpaid_salary = (
-                self.salary
-            )  # If unpaid salary is 0, set the first month's salary
-        self.save()
-
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.teacher_id})"
+        if self.user:
+            return f"{self.user.first_name} {self.user.last_name} ({self.teacher_id})"
+        return f"Teacher {self.teacher_id}"
 
 
 class SectionType(models.TextChoices):

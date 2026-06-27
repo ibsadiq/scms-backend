@@ -74,7 +74,7 @@ class TeacherAdminForm(forms.ModelForm):
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
     form = TeacherAdminForm
-    list_display = ('empId', 'get_full_name', 'get_email', 'get_phone', 'designation', 'salary', 'inactive')
+    list_display = ('empId', 'get_full_name', 'get_email', 'get_phone', 'designation', 'inactive')
     list_filter = ('inactive', 'designation', 'subject_specialization')
     search_fields = ('empId', 'user__first_name', 'user__last_name', 'user__email', 'user__phone_number')
     filter_horizontal = ('subject_specialization',)
@@ -84,7 +84,7 @@ class TeacherAdmin(admin.ModelAdmin):
             'fields': ('user', 'first_name', 'middle_name', 'last_name', 'email', 'phone_number')
         }),
         ('Employment Details', {
-            'fields': ('empId', 'designation', 'short_name', 'salary', 'unpaid_salary')
+            'fields': ('empId', 'designation', 'short_name')
         }),
         ('Additional Information', {
             'fields': ('national_id', 'tin_number', 'address', 'alt_email', 'image')

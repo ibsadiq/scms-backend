@@ -19,7 +19,7 @@ class TeacherAttendanceListView(APIView):
     serializer_class = TeacherAttendanceSerializer
     pagination_class = PageNumberPagination
     filter_backends = (SearchFilter,)
-    search_fields = ["teacher__fname", "date"]
+    search_fields = ["teacher__user__first_name", "teacher__user__last_name", "date"]
 
     def get(self, request):
         attendances = TeachersAttendance.objects.all()

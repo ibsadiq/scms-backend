@@ -135,21 +135,10 @@ class TeacherSerializer(serializers.ModelSerializer):
             "national_id",
             "tin_number",
             "date_of_birth",
-            "salary",
-            "unpaid_salary",
-            "payments",
             "image",
             "send_invitation",
         ]
 
-    def get_payments(self, obj):
-        """Lazy import to avoid circular import issue"""
-        from finance.serializers import PaymentSerializer  # Import inside method
-
-        if obj.user:
-            payments = obj.user.payments.all()
-            return PaymentSerializer(payments, many=True).data
-        return []
 
     def validate_email(self, value):
         request = self.context.get("request", None)
