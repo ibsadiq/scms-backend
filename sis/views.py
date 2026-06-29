@@ -1,7 +1,7 @@
 import openpyxl
 from django.db import transaction
 from django.db.models import Q
-from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend
+from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend, NumberFilter
 from rest_framework import views
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
@@ -33,11 +33,22 @@ class StudentFilter(FilterSet):
     grade_level = CharFilter(field_name="class_level__grade_level", lookup_expr="exact")
     # class_level filters by the class level ID directly
     class_level = CharFilter(field_name="class_level", lookup_expr="exact")
+
+    admission_date__year = NumberFilter(
+        field_name="admission_date",
+        lookup_expr="year"
+    )
+
+    admission_date__month = NumberFilter(
+        field_name="admission_date",
+        lookup_expr="month"
+    )
     search = CharFilter(method="filter_search")
 
     class Meta:
         model = Student
-        fields = ["first_name", "middle_name", "last_name", "admission_number", "status", "grade_level", "class_level", "search"]
+        fields = ["first_name", "middle_name", "last_name", "admission_number", "status", "grade_level", "class_level", "search", "admission_date__year",
+            "admission_date__month",]
 
     def filter_search(self, queryset, name, value):
         """Search across multiple fields"""

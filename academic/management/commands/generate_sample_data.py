@@ -601,6 +601,12 @@ class Command(BaseCommand):
                 first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE if gender == 'Male' else NIGERIAN_FIRST_NAMES_FEMALE)
                 parent = random.choice(self.parents)
 
+                # Generate varied admission dates (spread over the past 3 years)
+                years_ago = random.randint(0, 3)
+                admission_month = random.randint(1, 9)  # Admissions typically Jan-Sept
+                admission_day = random.randint(1, 28)
+                admission_date = datetime(current_year - years_ago, admission_month, admission_day)
+
                 student = Student.objects.create(
                     first_name=first_name,
                     last_name=parent.last_name,
@@ -613,6 +619,7 @@ class Command(BaseCommand):
                     parent_contact=parent.phone_number,
                     phone_number=parent.phone_number[:20],
                     date_of_birth=date(current_year - random.randint(13, 18), random.randint(1, 12), random.randint(1, 28)),
+                    admission_date=admission_date,
                     region=random.choice(NIGERIAN_STATES),
                     city=random.choice(['Lagos', 'Abuja', 'Port Harcourt', 'Kano', 'Ibadan']),
                 )

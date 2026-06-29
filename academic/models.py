@@ -584,7 +584,7 @@ class Student(models.Model):
     parent_contact = models.CharField(max_length=15, blank=True, null=True)
 
     date_of_birth = models.DateField(blank=True, null=True)
-    admission_date = models.DateTimeField(auto_now_add=True)
+    admission_date = models.DateTimeField(blank=True, null=True)
     admission_number = models.CharField(max_length=50, blank=True, unique=True)
     siblings = models.ManyToManyField("self", blank=True)
     image = models.ImageField(upload_to="Student_images", blank=True)
@@ -689,6 +689,10 @@ class Student(models.Model):
             year = timezone.now().year
             last_id = Student.objects.all().count() + 1
             self.admission_number = f"ADM-{year}-{last_id:04d}"
+
+        # ✅ AUTO-SET ADMISSION DATE (if blank)
+        if not self.admission_date:
+            self.admission_date = timezone.now()
 
         # ✅ AUTOMATIC ACTIVE STATUS HANDLING
         if self.date_dismissed or self.graduation_date:
