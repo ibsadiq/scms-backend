@@ -417,7 +417,7 @@ class TeacherListView(generics.ListCreateAPIView):
                     teacher = Teacher()
                     model_fields = [f.name for f in Teacher._meta.get_fields()]
                     for key, value in request.data.items():
-                        if key in model_fields and key not in ["user", "subject_specialization"]:
+                        if key in model_fields and key not in ["user", "subject_specialization", "id"]:
                             setattr(teacher, key, value)
                     teacher.user = existing_user
                     teacher.save()
