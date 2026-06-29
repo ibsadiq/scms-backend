@@ -420,9 +420,6 @@ class TeacherListView(generics.ListCreateAPIView):
                         if key in model_fields and key not in ["user", "subject_specialization"]:
                             setattr(teacher, key, value)
                     teacher.user = existing_user
-                    teacher.email = existing_user.email
-                    if "username" in model_fields:
-                        teacher.username = existing_user.username
                     teacher.save()
 
                     if "subject_specialization" in request.data:
