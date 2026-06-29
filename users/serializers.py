@@ -113,7 +113,6 @@ class TeacherSerializer(serializers.ModelSerializer):
     subject_specialization_display = serializers.StringRelatedField(
         many=True, source="subject_specialization", read_only=True
     )
-    payments = serializers.SerializerMethodField()
     send_invitation = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
