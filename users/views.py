@@ -146,9 +146,9 @@ class UserFilter(FilterSet):
 
 
 class TeacherFilter(FilterSet):
-    first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
-    middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
-    last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
+    first_name = CharFilter(field_name="user__first_name", lookup_expr="icontains")
+    middle_name = CharFilter(field_name="user__middle_name", lookup_expr="icontains")
+    last_name = CharFilter(field_name="user__last_name", lookup_expr="icontains")
 
     class Meta:
         model = Teacher
@@ -401,7 +401,7 @@ class TeacherListView(generics.ListCreateAPIView):
     serializer_class = TeacherSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = TeacherFilter
-    search_fields = ['first_name', 'last_name', 'middle_name', 'empId', 'email']
+    search_fields = ['user__first_name', 'user__last_name', 'user__middle_name', 'empId', 'user__email']
 
     def create(self, request, *args, **kwargs):
         email = request.data.get("email")
