@@ -8,6 +8,8 @@ from users.views import MyTokenRefreshView
 from users.views import (
     MyTokenObtainPairView,
     getUserProfile,
+    getUserRoles,
+    switchUserRole,
     UserListView,
     UserDetailView,
     ParentListView,
@@ -33,6 +35,9 @@ urlpatterns = [
     path("token/refresh/", MyTokenRefreshView.as_view(), name="token_refresh"),
     path("logout/", TokenBlacklistView.as_view(), name="token_blacklist"),
     path("profile/", getUserProfile, name="users-profile"),
+    # Role switching URLs
+    path("roles/", getUserRoles, name="user-roles"),
+    path("roles/switch/", switchUserRole, name="user-roles-switch"),
     path("users/", UserListView.as_view(), name="users-list"),
     path("users/<int:pk>/", UserDetailView.as_view(), name="user-detail"),
     # teacher URLs

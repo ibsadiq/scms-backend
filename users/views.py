@@ -131,6 +131,54 @@ def getUserProfile(request):
     return Response(serializer.data)
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def getUserRoles(request):
+    """Get user's available roles and current active role"""
+    user = request.user
+    available_roles = user.get_available_roles()
+
+    # If no active role set, default to first available role
+    if not user.active_role and available_roles:
+        user.active_role = available_roles[0]
+        user.save(update_fields=['active_role'])
+
+    role_labels = {
+        'admin': 'Admin',
+        'teacher': 'Teacher',
+        'parent': 'Parent',
+        'student': 'Student',
+        'accountant': 'Accountant',
+        'inspector': 'Inspector',
+    }
+
+    return Response({
+        'available_roles': available_roles,
+        'active_role': user.active_role,
+        'available_roles_display': [{'value': r, 'label': role_labels.get(r, r.capitalize())} for r in available_roles]
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def switchUserRole(request):
+    """Switch user's active role"""
+    user = request.user
+    new_role = request.data.get('role')
+
+    if not new_role:
+        return Response({'error': 'Role is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user.set_active_role(new_role)
+        return Response({
+            'message': f'Switched to {new_role} role',
+            'active_role': user.active_role
+        })
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class UserFilter(FilterSet):
     first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
     middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
