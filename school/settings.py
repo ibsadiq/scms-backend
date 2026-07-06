@@ -291,6 +291,8 @@ REST_FRAMEWORK = {
     ),
     "EXCEPTION_HANDLER": "api.exceptions.custom_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
+    "PAGE_SIZE": 20,
 
 }
 
