@@ -65,7 +65,8 @@ class StudentSerializer(serializers.ModelSerializer):
     grade_level_name = serializers.SerializerMethodField()
     siblings = SiblingSerializer(many=True, read_only=True)
     status = serializers.SerializerMethodField()
-    class_level = serializers.CharField(write_only=True, required=True)
+    image = serializers.ImageField(required=False, allow_null=True)
+    class_level = serializers.CharField(write_only=True, required=False)
     class_of_year = serializers.CharField(
         write_only=False, required=False, allow_null=True
     )
@@ -99,11 +100,11 @@ class StudentSerializer(serializers.ModelSerializer):
             "class_of_year",  # write-only
             "siblings",
             "status",
+            "image",
         ]
 
     def get_status(self, obj):
         return obj.status
-
 
     def get_full_name(self, obj):
         return obj.full_name
@@ -227,6 +228,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "gender",
             "religion",
             "date_of_birth",
+            "image",
         ]:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])

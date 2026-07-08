@@ -174,29 +174,50 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     def validate_subject_specialization(self, value):
         """
-        Validate that all subject names in the input exist in the database.
+        Validate that all subjects in the input exist in the database.
+        Accepts both subject names (strings) and subject IDs (numbers).
         Ensure it works for both create and update operations.
         """
         if not isinstance(value, list):
             raise serializers.ValidationError(
-                "Subject specialization should be a list of subject names."
+                "Subject specialization should be a list of subject names or IDs."
             )
 
-        # Get existing subjects matching the provided names
-        existing_subjects = Subject.objects.filter(name__in=value).distinct()
+        # Separate into names and IDs
+        subject_names = [v for v in value if isinstance(v, str)]
+        subject_ids = [int(v) for v in value if str(v).isdigit()]
 
-        # Extract names of found subjects
-        existing_subject_names = set(existing_subjects.values_list("name", flat=True))
+        existing_subjects = Subject.objects.none()
 
-        # Identify missing subjects
-        missing_subjects = set(value) - existing_subject_names
+        # Query by names if any
+        if subject_names:
+            existing_subjects = existing_subjects | Subject.objects.filter(name__in=subject_names)
 
-        if missing_subjects:
+        # Query by IDs if any
+        if subject_ids:
+            existing_subjects = existing_subjects | Subject.objects.filter(id__in=subject_ids)
+
+        existing_subjects = existing_subjects.distinct()
+
+        # Check if we found all requested subjects
+        found_count = existing_subjects.count()
+        requested_count = len(value)
+
+        if found_count != requested_count:
+            # Identify what wasn't found
+            found_names = set(existing_subjects.values_list("name", flat=True))
+            found_ids = set(existing_subjects.values_list("id", flat=True))
+            missing = []
+            for v in value:
+                if isinstance(v, str) and v not in found_names:
+                    missing.append(str(v))
+                elif str(v).isdigit() and int(v) not in found_ids:
+                    missing.append(str(v))
             raise serializers.ValidationError(
-                f"The following subjects do not exist: {', '.join(missing_subjects)}"
+                f"The following subjects do not exist: {', '.join(missing)}"
             )
 
-        return existing_subjects  # Return the queryset instead of a list of names
+        return existing_subjects  # Return the queryset instead of a list of names/ids
 
     @transaction.atomic
     def create(self, validated_data):

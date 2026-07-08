@@ -28,6 +28,7 @@ from academic.teacher_views import (
     ClassroomStudentsView,
     TeacherMyScheduleView,
 )
+from academic.views_allocation import AllocatedSubjectViewSet
 from academic.views_promotions import (
     PromotionRuleViewSet,
     StudentPromotionViewSet
@@ -53,6 +54,9 @@ router.register(r'enrollments', StudentEnrollmentViewSet, basename='enrollments'
 # Phase 1.6: Student Portal
 router.register(r'students/auth', StudentAuthViewSet, basename='student-auth')
 router.register(r'students/portal', StudentPortalViewSet, basename='student-portal')
+
+# AllocatedSubject management
+router.register(r'allocated-subjects', AllocatedSubjectViewSet, basename='allocated-subjects')
 
 urlpatterns = [
     # Promotion endpoints (Phase 2.1)
