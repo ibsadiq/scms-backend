@@ -10,8 +10,8 @@ from django.conf import settings
 from django.core.validators import FileExtensionValidator
 
 def validate_file_size(value):
-    """Validate that the uploaded file size is no larger than 5MB."""
-    max_size_mb = 5
+    """Validate that the uploaded file size is no larger than 1MB."""
+    max_size_mb = 1
     if value.size > max_size_mb * 1024 * 1024:
         raise ValidationError(f"The maximum file size that can be uploaded is {max_size_mb}MB")
     return value
@@ -604,7 +604,7 @@ class MarkedScript(models.Model):
             FileExtensionValidator(allowed_extensions=['pdf', 'jpg', 'jpeg', 'png', 'webp']),
             validate_file_size
         ],
-        help_text="Marked exam script file (PDF, images, etc.) - Max 5MB"
+        help_text="Marked exam script file (PDF, images, etc.) - Max 1MB"
     )
     file_name = models.CharField(
         max_length=255,
