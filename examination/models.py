@@ -7,7 +7,14 @@ from academic.models import Student, Teacher, ClassRoom, StudentClassEnrollment,
 from administration.models import AcademicYear, Term
 from django.conf import settings
 
+from django.core.validators import FileExtensionValidator
 
+def validate_file_size(value):
+    """Validate that the uploaded file size is no larger than 5MB."""
+    max_size_mb = 5
+    if value.size > max_size_mb * 1024 * 1024:
+        raise ValidationError(f"The maximum file size that can be uploaded is {max_size_mb}MB")
+    return value
 
 class GradeScale(models.Model):
     """Translate a numeric grade to some other scale.
@@ -593,7 +600,11 @@ class MarkedScript(models.Model):
     # File upload
     script_file = models.FileField(
         upload_to='examination/marked_scripts/%Y/%m/',
-        help_text="Marked exam script file (PDF, images, etc.)"
+        validators=[
+            FileExtensionValidator(allowed_extensions=['pdf', 'jpg', 'jpeg', 'png', 'webp']),
+            validate_file_size
+        ],
+        help_text="Marked exam script file (PDF, images, etc.) - Max 5MB"
     )
     file_name = models.CharField(
         max_length=255,
@@ -635,6 +646,7 @@ class MarkedScript(models.Model):
 
     class Meta:
         ordering = ['-uploaded_at']
+        unique_together = ('exam', 'student', 'subject')
         indexes = [
             models.Index(fields=['exam', 'student', 'subject']),
             models.Index(fields=['student']),
