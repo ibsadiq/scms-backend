@@ -548,7 +548,8 @@ def send_tenant_welcome_email(
     domain,
     username,
     reset_url,
-    has_mobile_access=False
+    has_mobile_access=False,
+    school_logo_url=None
 ):
     """
     Send welcome email to school admin after tenant creation.
@@ -585,6 +586,8 @@ def send_tenant_welcome_email(
             'mobile_app': has_mobile_access,
         }
     }
+    if school_logo_url is not None:
+        context['school_logo_url'] = school_logo_url
     
     return send_email(
         subject=f"Welcome to {app_name} - {school_name}",

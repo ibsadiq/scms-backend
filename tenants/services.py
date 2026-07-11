@@ -315,6 +315,7 @@ class TenantService:
                     'domain':                  domain,
                     'support_email':           getattr(settings, 'SUPPORT_EMAIL', 'support@ssyncportal.com'),
                     'app_name':                getattr(settings, 'APP_NAME', 'SSync'),
+                    'school_logo_url':         getattr(settings, 'PLATFORM_LOGO_URL', None),
                     'estimated_approval_time': '24 hours',
                 },
                 fail_silently=False,
