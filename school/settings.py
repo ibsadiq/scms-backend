@@ -124,7 +124,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django_tenants.middleware.main.TenantMainMiddleware", 
-    "tenants.tenant_header_middleware.TenantHeaderMiddleware",  # handle header before access check
+    "tenants.middleware.TenantHeaderMiddleware",  # handle header before access check
     "tenants.middleware.TenantAccessMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "api.middleware.CustomExceptionMiddleware",
