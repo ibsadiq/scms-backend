@@ -33,8 +33,8 @@ class TenantAccessMiddleware:
                 'detail': f'Access to {tenant.name} has been suspended. Please contact support.',
                 'school_name': tenant.name,
                 'schema_name': tenant.schema_name,
-                'contact_email': 'support@yourdomain.com',
-                'support_url': 'https://yourdomain.com/contact'
+                'contact_email': 'support@tarklish.tech',
+                'support_url': 'https://ssyportal.com/#contact'
             }, status=403)
         
         # Tenant is active, proceed normally
@@ -82,31 +82,24 @@ class TenantHeaderMiddleware:
         return response
 
     def _validate_and_set_tenant(self, request, tenant_slug):
-        """
-        Validate tenant exists and activate its schema.
-        
-        Returns:
-            bool: True if tenant activated successfully, False otherwise.
-        """
         try:
-            # Import here to avoid circular imports
-            from tenants.models import Client
+            from tenants.models import Client, Domain
 
-            # Find tenant by slug (which maps to schema_name in django-tenants)
-            tenant = Client.objects.get(schema_name=tenant_slug)
+            # Resolve via Domain table instead of assuming schema_name matches the slug
+            domain_lookup = f"{tenant_slug}.ssyncportal.com"
+            domain_obj = Domain.objects.select_related('tenant').get(domain=domain_lookup)
+            tenant = domain_obj.tenant
 
-            # Check if tenant is active
             if not tenant.is_active:
-                logger.warning(f"Access attempted to inactive tenant: {tenant_slug} (status: {tenant.status})")
+                logger.warning(f"Access attempted to inactive tenant: {tenant.schema_name} (status: {tenant.status})")
                 return False
 
-            # Activate the tenant's schema
             connection.set_tenant(tenant)
-            logger.debug(f"Tenant schema activated: {tenant_slug}")
+            logger.debug(f"Tenant schema activated: {tenant.schema_name}")
             return True
 
-        except Client.DoesNotExist:
-            logger.warning(f"Tenant not found: {tenant_slug}")
+        except Domain.DoesNotExist:
+            logger.warning(f"Tenant not found for slug: {tenant_slug}")
             return False
         except Exception as e:
             logger.error(f"Error validating tenant {tenant_slug}: {str(e)}")
