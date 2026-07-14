@@ -63,6 +63,7 @@ class TermSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
         ]
+        
 
     def validate(self, data):
         start_date = data.get("start_date") or (self.instance.start_date if self.instance else None)

@@ -603,9 +603,25 @@ class Command(BaseCommand):
 
                 # Generate varied admission dates (spread over the past 3 years)
                 years_ago = random.randint(0, 3)
-                admission_month = random.randint(1, 9)  # Admissions typically Jan-Sept
-                admission_day = random.randint(1, 28)
-                admission_date = datetime(current_year - years_ago, admission_month, admission_day)
+                # Pick a term for admission, weighted mostly toward First Term
+                admission_term_choice = random.choices(
+                    ['first', 'second'],
+                    weights=[80, 20]
+                )[0]
+
+                year_for_admission = current_year - years_ago
+
+                if admission_term_choice == 'first':
+                    # First Term: Jan 15 - Apr 1
+                    term_start = date(year_for_admission, 1, 15)
+                    term_end = date(year_for_admission, 4, 1)
+                else:
+                    # Second Term: Apr 15 - Jul 31
+                    term_start = date(year_for_admission, 4, 15)
+                    term_end = date(year_for_admission, 7, 31)
+
+                days_range = (term_end - term_start).days
+                admission_date = term_start + timedelta(days=random.randint(0, days_range))
 
                 student = Student.objects.create(
                     first_name=first_name,
@@ -884,20 +900,26 @@ class Command(BaseCommand):
             if attendance_date.weekday() >= 5:
                 continue
 
-            for student in random.sample(self.students, min(50, len(self.students))):
+            # Every student gets a record every school day now, including Present
+            for student in self.students:
+                enrollment = student.student_classes.first()
+                if not enrollment:
+                    continue
+
                 status = random.choices(
                     [present, absent, sick, late],
                     weights=[90, 5, 3, 2]
                 )[0]
 
-                if status != present:
-                    StudentAttendance.objects.get_or_create(
-                        student=student,
-                        date=attendance_date,
-                        status=status,
-                        defaults={'ClassRoom': student.student_classes.first().classroom}
-                    )
-                    student_attendance_count += 1
+                StudentAttendance.objects.get_or_create(
+                    student=student,
+                    date=attendance_date,
+                    defaults={
+                        'status': status,
+                        'ClassRoom': enrollment.classroom
+                    }
+                )
+                student_attendance_count += 1
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {student_attendance_count} student attendance records"))
 

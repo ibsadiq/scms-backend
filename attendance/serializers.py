@@ -34,7 +34,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentAttendance
-        fields = ["id", "student", "date", "ClassRoom", "status", "notes"]
+        fields = ["id", "student", "date", "ClassRoom", "term", "status", "notes"]
 
 
 class PeriodAttendanceSerializer(serializers.ModelSerializer):

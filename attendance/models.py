@@ -76,19 +76,32 @@ class TeachersAttendance(models.Model):
 
 
 class StudentAttendance(models.Model):
-    student = models.ForeignKey(Student, blank=True, on_delete=models.CASCADE)
-    date = models.DateField(blank=True, null=True, validators=settings.DATE_VALIDATORS)
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='attendance_records')
+    date = models.DateField(validators=settings.DATE_VALIDATORS)
     ClassRoom = models.ForeignKey(
-        "academic.ClassRoom", on_delete=models.CASCADE, blank=True, null=True
+        "academic.ClassRoom", on_delete=models.CASCADE, blank=True, null=True, related_name='attendance_records'
+    )
+    term = models.ForeignKey(
+        "administration.Term", on_delete=models.PROTECT, blank=True, null=True, related_name='attendance_records'
     )
     status = models.ForeignKey(
-        AttendanceStatus, blank=True, null=True, on_delete=models.CASCADE
+        AttendanceStatus, on_delete=models.PROTECT, related_name='student_attendance_records'
+    )
+    marked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='marked_student_attendance'
     )
     notes = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = (("student", "date", "status"),)
+        unique_together = (("student", "date"),)
         ordering = ("-date", "student")
+        indexes = [
+            models.Index(fields=["date", "ClassRoom"]),
+            models.Index(fields=["student", "date"]),
+            models.Index(fields=["term", "status"]),
+        ]
 
     def __str__(self):
         return f"{self.student.full_name} - {self.date} {self.status}"
@@ -98,16 +111,12 @@ class StudentAttendance(models.Model):
         return f"Edit {self.student.fname} - {self.date}"
 
     def save(self, *args, **kwargs):
-        """Don't save if status is 'Present'"""
-        present, created = AttendanceStatus.objects.get_or_create(name="Present")
-
-        if self.status != present:
-            super(StudentAttendance, self).save(*args, **kwargs)
-        else:
-            # Instead of deleting, just skip saving
-            print(
-                f"Attendance not saved for {self.student} on {self.date} because they are marked as 'Present'."
-            )
+        if self.date and not self.term_id:
+            from administration.models import Term
+            term = Term.objects.filter(start_date__lte=self.date, end_date__gte=self.date).first()
+            if term:
+                self.term = term
+        super().save(*args, **kwargs)
 
 
 class PeriodAttendance(models.Model):

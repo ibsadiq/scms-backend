@@ -57,7 +57,9 @@ class TenantHeaderMiddleware:
 
     def __call__(self, request):
         # Extract tenant slug from header
-        tenant_slug = request.headers.get('X-Tenant-Slug', '').strip()
+        tenant_slug = request.headers.get('X-Tenant-Slug', '').strip().lower()
+        if tenant_slug in ('www', ''):
+            tenant_slug = None  # public schema
 
         # If no header, try to resolve from subdomain (django-tenants default behavior)
         # This happens before this middleware, so connection.schema_name is already set

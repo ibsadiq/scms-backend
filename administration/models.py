@@ -185,8 +185,25 @@ class Term(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
 
+    class Meta:
+        unique_together = (("name", "academic_year"),)
+        ordering = ("start_date",)
+
+    def clean(self):
+        if self.start_date > self.end_date:
+            raise ValidationError("End date must be after start date.")
+        overlapping = Term.objects.filter(
+            academic_year=self.academic_year,
+            start_date__lte=self.end_date,
+            end_date__gte=self.start_date,
+        ).exclude(pk=self.pk)
+        if overlapping.exists():
+            raise ValidationError("This term's dates overlap with another term in the same academic year.")
+
     def __str__(self):
         return f"{self.name} - {self.academic_year.name}"
+    
+
 
 
 class SchoolEvent(models.Model):
