@@ -121,11 +121,11 @@ DATABASE_ROUTERS = (
 
 MIDDLEWARE = [
     # CORS should be as high as possible so preflight requests are handled early
+    "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django_tenants.middleware.main.TenantMainMiddleware", 
     "tenants.tenant_header_middleware.TenantHeaderMiddleware",  # handle header before access check
     "tenants.middleware.TenantAccessMiddleware",
-    "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "api.middleware.CustomExceptionMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
