@@ -83,7 +83,7 @@ class Migration(migrations.Migration):
             model_name="studentattendance",
             name="status",
             field=models.ForeignKey(
-                default=django.utils.timezone.now,
+                default=1,
                 on_delete=django.db.models.deletion.PROTECT,
                 related_name="student_attendance_records",
                 to="attendance.attendancestatus",
