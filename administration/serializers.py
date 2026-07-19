@@ -47,10 +47,12 @@ class CarouselImageSerializer(serializers.ModelSerializer):
 class TermSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
     academic_year = serializers.PrimaryKeyRelatedField(
-        queryset=AcademicYear.objects.all(), required=False
+        queryset=AcademicYear.objects.all(),
+        required=False
     )
     academic_year_name = serializers.StringRelatedField(
-        source="academic_year", read_only=True
+        source="academic_year",
+        read_only=True
     )
 
     class Meta:
@@ -63,23 +65,79 @@ class TermSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
         ]
+        validators = []   # IMPORTANT
         
 
     def validate(self, data):
-        start_date = data.get("start_date") or (self.instance.start_date if self.instance else None)
-        end_date = data.get("end_date") or (self.instance.end_date if self.instance else None)
-        academic_year = data.get("academic_year") or (self.instance.academic_year if self.instance else None)
+        start_date = (
+            data.get("start_date")
+            or getattr(self.instance, "start_date", None)
+        )
+
+        end_date = (
+            data.get("end_date")
+            or getattr(self.instance, "end_date", None)
+        )
+
+        academic_year = (
+            data.get("academic_year")
+            or getattr(self.instance, "academic_year", None)
+        )
+
+        name = (
+            data.get("name")
+            or getattr(self.instance, "name", None)
+        )
+
+        term_id = (
+            data.get("id")
+            or getattr(self.instance, "id", None)
+        )
 
         if start_date and end_date and start_date > end_date:
-            raise serializers.ValidationError({"end_date": "Term end date must be after start date."})
+            raise serializers.ValidationError({
+                "end_date":
+                    "Term end date must be after start date."
+            })
 
-        if academic_year and start_date and end_date:
-            if start_date < academic_year.start_date or (academic_year.end_date and end_date > academic_year.end_date):
-                raise serializers.ValidationError(
-                    {"start_date": f"Term dates must be within the academic year's duration ({academic_year.start_date} to {academic_year.end_date})."}
-                )
+        if academic_year and start_date:
+            if start_date < academic_year.start_date:
+                raise serializers.ValidationError({
+                    "start_date":
+                        f"Term dates must be within the academic year "
+                        f"({academic_year.start_date} "
+                        f"to {academic_year.end_date})."
+                })
+
+        if academic_year and end_date:
+            if (
+                academic_year.end_date
+                and end_date > academic_year.end_date
+            ):
+                raise serializers.ValidationError({
+                    "end_date":
+                        f"Term dates must be within the academic year "
+                        f"({academic_year.start_date} "
+                        f"to {academic_year.end_date})."
+                })
+
+        # Custom uniqueness check
+        if academic_year and name:
+            qs = Term.objects.filter(
+                academic_year=academic_year,
+                name=name,
+            )
+
+            if term_id:
+                qs = qs.exclude(pk=term_id)
+
+            if qs.exists():
+                raise serializers.ValidationError({
+                    "name":
+                        "A term with this name already exists in this academic year."
+                })
+
         return data
-
 
 class AcademicYearSerializer(serializers.ModelSerializer):
     terms = TermSerializer(many=True, required=False)
@@ -125,43 +183,52 @@ class AcademicYearSerializer(serializers.ModelSerializer):
         return academic_year
 
     def update(self, instance, validated_data):
-        terms_data = validated_data.pop('terms', [])
+        terms_data = validated_data.pop("terms", None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
         instance.save()
 
-        # Update or create terms
-        keep_term_ids = []
-        for term_data in terms_data:
-            term_id = term_data.get('id')
-            if term_id:
-                try:
-                    term = Term.objects.get(id=term_id, academic_year=instance)
-                    for attr, value in term_data.items():
-                        if attr != 'id':
+        if terms_data is not None:
+            keep_term_ids = []
+
+            for term_data in terms_data:
+                term_id = term_data.pop("id", None)
+                term_data.pop("academic_year", None)
+
+                if term_id:
+                    try:
+                        term = instance.terms.get(id=term_id)
+
+                        for attr, value in term_data.items():
                             setattr(term, attr, value)
-                    term.save()
-                    keep_term_ids.append(term.id)
-                except Term.DoesNotExist:
-                    term_data.pop('id', None)
-                    term_data.pop('academic_year', None)
-                    term = Term.objects.create(academic_year=instance, **term_data)
-                    keep_term_ids.append(term.id)
-            else:
-                term_data.pop('academic_year', None)
-                term = Term.objects.create(academic_year=instance, **term_data)
+
+                        term.save()
+
+                    except Term.DoesNotExist:
+                        term = Term.objects.create(
+                            academic_year=instance,
+                            **term_data
+                        )
+                else:
+                    term = Term.objects.create(
+                        academic_year=instance,
+                        **term_data
+                    )
+
                 keep_term_ids.append(term.id)
 
-        # Delete terms not in the payload
-        instance.terms.exclude(id__in=keep_term_ids).delete()
+            instance.terms.exclude(
+                id__in=keep_term_ids
+            ).delete()
 
         return instance
 
-
 class SchoolEventSerializer(serializers.ModelSerializer):
     term_name = serializers.CharField(source="term.name", read_only=True)
-    academic_year = serializers.CharField(
-        source="term.academic_year.name", read_only=True
+    academic_year_name = serializers.CharField(
+        source="academic_year.name", read_only=True
     )
 
     class Meta:
@@ -173,6 +240,7 @@ class SchoolEventSerializer(serializers.ModelSerializer):
             "term",
             "term_name",
             "academic_year",
+            "academic_year_name",
             "start_date",
             "end_date",
             "description",

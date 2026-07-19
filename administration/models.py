@@ -219,7 +219,17 @@ class SchoolEvent(models.Model):
         "Term",
         on_delete=models.CASCADE,
         related_name="events",
-        help_text="The term this event belongs to",
+        null=True,
+        blank=True,
+        help_text="Optional term this event belongs to",
+    )
+    academic_year = models.ForeignKey(
+        "AcademicYear",
+        on_delete=models.CASCADE,
+        related_name="events",
+        null=True,
+        blank=True,
+        help_text="The academic year this event belongs to",
     )
     name = models.CharField(
         max_length=255, help_text="Name of the event (e.g., Midterm Exams, Eid Holiday)"
@@ -241,21 +251,27 @@ class SchoolEvent(models.Model):
         if self.end_date and self.start_date > self.end_date:
             raise ValidationError("End date must be after start date.")
             
-        if self.event_type == "holiday":
-            # For holidays, ensure they fall within the academic year 
-            # rather than strictly inside the term boundaries.
-            academic_year = self.term.academic_year
-            if not (academic_year.start_date <= self.start_date <= academic_year.end_date):
-                raise ValidationError("Holiday start date must be within the academic year.")
-            if self.end_date and not (
-                academic_year.start_date <= self.end_date <= academic_year.end_date
-            ):
-                raise ValidationError("Holiday end date must be within the academic year.")
-        else:
-            # For other events, strictly enforce term boundaries
+        # If academic year is not provided, try to infer it from the term
+        if not self.academic_year and self.term:
+            self.academic_year = self.term.academic_year
+            
+        if not self.academic_year:
+            raise ValidationError("An event must belong to an academic year.")
+            
+        # Ensure dates fall within the academic year
+        if not (self.academic_year.start_date <= self.start_date <= self.academic_year.end_date):
+            raise ValidationError(f"Start date must be within the academic year ({self.academic_year.name}).")
+        if self.end_date and not (
+            self.academic_year.start_date <= self.end_date <= self.academic_year.end_date
+        ):
+            raise ValidationError(f"End date must be within the academic year ({self.academic_year.name}).")
+            
+        # If explicitly linked to a term and it's NOT a holiday, strictly enforce term boundaries
+        if self.term and self.event_type != "holiday":
             if not (self.term.start_date <= self.start_date <= self.term.end_date):
-                raise ValidationError("Start date must be within the term's duration.")
+                raise ValidationError(f"Start date must be within the term's duration ({self.term.name}).")
             if self.end_date and not (
                 self.term.start_date <= self.end_date <= self.term.end_date
             ):
-                raise ValidationError("End date must be within the term's duration.")
+                raise ValidationError(f"End date must be within the term's duration ({self.term.name}).")
+
