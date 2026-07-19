@@ -181,7 +181,7 @@ class Client(TenantMixin):
         try:
             with schema_context(self.schema_name):
                 User = get_user_model()
-                support_email = 'support@ssync.online'
+                support_email = 'support@tarklish.tech'
                 
                 if not User.objects.filter(email=support_email).exists():
                     User.objects.create_superuser(

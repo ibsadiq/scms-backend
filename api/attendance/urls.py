@@ -6,6 +6,7 @@ from attendance.views import (
     PeriodAttendanceListView,
     PeriodAttendanceDetailView,
 )
+from attendance.views_student import ClassAttendanceSummaryView
 from attendance.views_student import StudentAttendanceViewSet
 from academic.teacher_views import BulkMarkAttendanceView
 
@@ -44,4 +45,6 @@ urlpatterns = [
         BulkMarkAttendanceView.as_view(),
         name="bulk-mark-attendance"
     ),
+    path('class/<int:classroom_id>/summary/', ClassAttendanceSummaryView.as_view(), name='class-attendance-summary'),
+
 ]

@@ -17,8 +17,15 @@ from rest_framework import serializers as drf_serializers
 from rest_framework import status, generics
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.utils import timezone
+from django.db.models import Sum, Count
 
-from academic.models import Teacher, Subject, Parent
+
+
+
+from academic.models import StudentClassEnrollment, Teacher, Subject, Parent, AllocatedSubject
+from examination.models import ExaminationListHandler, MarksManagement
+from schedule.models import Period
 from .models import CustomUser as User, UserInvitation
 from .serializers import (
     UserSerializer,
@@ -706,13 +713,7 @@ class TeacherDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.utils import timezone
-        from schedule.models import Period
-        from examination.models import ExaminationListHandler
-        from academic.models import AllocatedSubject
-
         try:
-            # Get the teacher object for the logged-in user
             teacher = Teacher.objects.get(user=request.user)
         except Teacher.DoesNotExist:
             return Response(
@@ -723,60 +724,78 @@ class TeacherDashboardView(APIView):
         today = timezone.now().date()
         current_time = timezone.now().time()
 
-        # Get teacher's allocated subjects (classes they teach)
-        allocated_subjects = AllocatedSubject.objects.filter(
-            teacher_name=teacher
-        ).select_related('class_room', 'subject')
+        # ===== ALLOCATED SUBJECTS (single query, sliced to top 5) =====
+        all_allocations = AllocatedSubject.objects.filter(teacher_name=teacher).select_related('class_room', 'subject')
 
-        # ===== BASIC STATS =====
-        total_classes = allocated_subjects.count()
-        total_students = sum(
-            alloc.class_room.capacity if alloc.class_room else 0
-            for alloc in allocated_subjects
+        classroom_ids = all_allocations.values_list('class_room_id', flat=True).distinct()
+
+
+        total_classes = all_allocations.values('class_room_id').distinct().count() 
+        total_students = StudentClassEnrollment.objects.filter(
+            classroom_id__in=classroom_ids,
+            academic_year__active_year=True
+        ).values('student_id').distinct().count()
+
+      
+
+        # Today's periods — single query with all related data
+        todays_periods = list(
+            Period.objects.filter(
+                teacher=teacher,
+                day_of_week=today.strftime('%A'),
+                is_active=True
+            ).select_related('classroom', 'subject', 'subject__subject')
+            .order_by('start_time')
         )
 
-        # Today's periods
-        todays_periods = Period.objects.filter(
-            teacher=teacher,
-            day_of_week=today.strftime('%A'),
-            is_active=True
-        ).select_related('classroom', 'subject').order_by('start_time')
+        # ===== PENDING GRADES (batch query, zero N+1) =====
+        teacher_exams = list(
+            ExaminationListHandler.objects.filter(
+                created_by=teacher
+            ).prefetch_related('classrooms')
+        )
 
-        # Pending grades (exams without full marks submitted)
-        from examination.models import MarksManagement
-        teacher_exams = ExaminationListHandler.objects.filter(
-            created_by=teacher
-        ).values_list('id', flat=True)
+        # Single query for all marks counts
+        exam_ids = [exam.id for exam in teacher_exams]
+        marks_counts = {
+            item['exam_name_id']: item['count']
+            for item in MarksManagement.objects.filter(
+                exam_name_id__in=exam_ids
+            ).values('exam_name_id').annotate(count=Count('id'))
+        }
 
         pending_grades = 0
-        for exam_id in teacher_exams:
-            exam = ExaminationListHandler.objects.get(id=exam_id)
+        for exam in teacher_exams:
             expected_marks = sum(
                 classroom.capacity for classroom in exam.classrooms.all()
             )
-            submitted_marks = MarksManagement.objects.filter(exam_name_id=exam_id).count()
+            submitted_marks = marks_counts.get(exam.id, 0)
             if submitted_marks < expected_marks:
                 pending_grades += (expected_marks - submitted_marks)
 
         stats = {
             "totalClasses": total_classes,
             "totalStudents": total_students,
-            "todaysClasses": todays_periods.count(),
+            "todaysClasses": len(todays_periods),
             "pendingGrades": pending_grades
         }
 
         # ===== TODAY'S SCHEDULE =====
         todays_schedule = []
         for period in todays_periods:
-            period_status = 'upcoming'
             if period.end_time < current_time:
                 period_status = 'completed'
             elif period.start_time <= current_time <= period.end_time:
                 period_status = 'ongoing'
+            else:
+                period_status = 'upcoming'
 
             todays_schedule.append({
                 "id": period.id,
-                "subject_name": period.subject.subject.name if period.subject and period.subject.subject else 'N/A',
+                "subject_name": (
+                    period.subject.subject.name
+                    if period.subject and period.subject.subject else 'N/A'
+                ),
                 "classroom_name": str(period.classroom.name) if period.classroom else 'N/A',
                 "start_time": period.start_time.strftime('%H:%M'),
                 "end_time": period.end_time.strftime('%H:%M'),
@@ -785,46 +804,69 @@ class TeacherDashboardView(APIView):
 
         # ===== MY CLASSES =====
         my_classes = []
-        for alloc in allocated_subjects[:5]:  # Top 5 classes
+        for alloc in all_allocations:
+            student_count = 0
+            if alloc.class_room:
+                student_count = StudentClassEnrollment.objects.filter(
+                    classroom=alloc.class_room,
+                    academic_year__active_year=True
+                ).count()
+
             my_classes.append({
                 "id": alloc.id,
                 "name": str(alloc.class_room.name) if alloc.class_room else 'N/A',
                 "subject": alloc.subject.name if alloc.subject else 'N/A',
-                "student_count": alloc.class_room.capacity if alloc.class_room else 0
+                "student_count": student_count
             })
 
-        # ===== RECENT ACTIVITIES =====
+        # ===== RECENT ACTIVITIES (single query with full join chain) =====
+        recent_marks = list(
+            MarksManagement.objects.filter(
+                created_by=teacher
+            ).select_related(
+                'exam_name',
+                'student',              # StudentClassEnrollment
+                'student__student',       # Student
+            ).order_by('-date_time')[:3]
+        )
+
         recent_activities = []
-
-        # Recent grade submissions
-        recent_marks = MarksManagement.objects.filter(
-            created_by=teacher
-        ).select_related('exam_name', 'student').order_by('-date_time')[:3]
-
         for mark in recent_marks:
+            # mark.student = StudentClassEnrollment
+            # mark.student.student = Student
+            student_name = (
+                mark.student.student.full_name
+                if mark.student and mark.student.student else 'Student'
+            )
+
             recent_activities.append({
                 "id": f"grade_{mark.id}",
                 "type": "grade",
                 "icon": "lucide:award",
                 "title": "Grades Submitted",
-                "description": f"{mark.exam_name.name if mark.exam_name else 'Assessment'} - {mark.student.first_name if mark.student else 'Student'}",
+                "description": (
+                    f"{mark.exam_name.name if mark.exam_name else 'Assessment'} - {student_name}"
+                ),
                 "time": f"{(timezone.now() - mark.date_time).days} days ago"
             })
 
-        # ===== UPCOMING ASSESSMENTS =====
-        upcoming_assessments = []
-        future_exams = ExaminationListHandler.objects.filter(
-            created_by=teacher,
-            start_date__gte=today
-        ).order_by('start_date')[:3]
+        # ===== UPCOMING ASSESSMENTS (prefetch classrooms to avoid N+1) =====
+        future_exams = list(
+            ExaminationListHandler.objects.filter(
+                created_by=teacher,
+                start_date__gte=today
+            ).prefetch_related('classrooms').order_by('start_date')[:3]
+        )
 
+        upcoming_assessments = []
         for exam in future_exams:
+            classroom_count = exam.classrooms.count()  # Uses prefetched data, no DB hit
             upcoming_assessments.append({
                 "id": exam.id,
                 "name": exam.name,
                 "type": "Exam",
-                "subject": "Multiple" if exam.classrooms.count() > 1 else "Single Class",
-                "classroom": f"{exam.classrooms.count()} classes",
+                "subject": "Multiple" if classroom_count > 1 else "Single Class",
+                "classroom": f"{classroom_count} classes",
                 "date": exam.start_date.strftime('%Y-%m-%d')
             })
 

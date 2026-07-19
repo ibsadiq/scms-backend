@@ -37,8 +37,7 @@ from administration.models import (
     School, Day, AcademicYear, Term, SchoolEvent, Article
 )
 from finance.models import (
-    FeeStructure, StudentFeeAssignment, Receipt, Payment,
-    PaymentCategory, FeePaymentAllocation
+    FeeStructure, StudentFeeAssignment, Receipt, FeePaymentAllocation
 )
 from attendance.models import AttendanceStatus, StudentAttendance, TeachersAttendance
 from examination.models import GradeScale, GradeScaleRule, ExaminationListHandler, MarksManagement
@@ -129,15 +128,22 @@ class Command(BaseCommand):
         schema_name = options.get('schema')
         if schema_name:
             if schema_context is None:
-                raise CommandError(
-                    'django-tenants is required to use --schema. Install django-tenants or run without --schema in an active tenant context.'
-                )
+                raise CommandError(...)
+
+            # Fetch Client info from public schema BEFORE switching context
+            from tenants.models import Client
+            try:
+                self.tenant_client = Client.objects.get(schema_name=schema_name)
+            except Client.DoesNotExist:
+                raise CommandError(f"No tenant found with schema_name='{schema_name}'")
+
             self.stdout.write(self.style.WARNING(
                 f"Running sample data generation inside tenant schema '{schema_name}'"
             ))
             with schema_context(schema_name):
                 self._run_generation()
         else:
+            self.tenant_client = None
             self._run_generation()
 
     def _run_generation(self):
@@ -179,27 +185,33 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created/verified {len(groups)} user groups"))
 
     def create_school_info(self):
-        """Create Nigerian school information if not already set"""
         self.stdout.write("\n[2/17] Creating school information...")
-        
-        # Only create school if none exists
+
         school = School.objects.filter(active=True).first()
         if school:
             self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing school: {school.name}"))
         else:
+            client = getattr(self, 'tenant_client', None)
+            school_name = client.name if client else 'Sample Academy'
+            domain_slug = client.schema_name if client else 'sample'
+
             school = School.objects.create(
                 active=True,
-                name='Pinnacle Excellence Academy',
-                address='123 Awolowo Road, Ikoyi, Lagos, Nigeria',
+                name=school_name,
+                address=client.address if client and client.address else '123 Sample Street, Lagos, Nigeria',
                 school_type='Secondary School',
                 students_gender='Mixed',
                 ownership='Private',
-                mission='To provide quality education that nurtures academic excellence, moral character, and leadership development in the Nigerian context.',
-                vision='To be Nigeria\'s leading school producing globally competitive yet culturally rooted citizens.',
-                telephone='+234-803-456-7890',
-                school_email='info@pinnacleacademy.edu.ng'
+                mission='To provide quality education that nurtures academic excellence, moral character, and leadership development.',
+                vision="To be a leading school producing globally competitive yet culturally rooted citizens.",
+                telephone=client.contact_phone if client and client.contact_phone else '+234-800-000-0000',
+                school_email=client.contact_email if client and client.contact_email else f'info@{domain_slug}.edu.ng',
             )
             self.stdout.write(self.style.SUCCESS(f"  ✓ Created school: {school.name}"))
+
+        self.school_domain = domain_slug if not school else (
+            getattr(self, 'tenant_client', None).schema_name if getattr(self, 'tenant_client', None) else 'sample'
+        )
 
         days = [
             (1, 'Monday'), (2, 'Tuesday'), (3, 'Wednesday'),
@@ -354,26 +366,15 @@ class Command(BaseCommand):
         """Create Nigerian grade and class levels"""
         self.stdout.write("\n[5/17] Creating grade and class levels (Nigerian system)...")
 
-        # Nigerian grade levels
-        grade_levels_data = [
-            'JSS 1', 'JSS 2', 'JSS 3',
-            'SS 1', 'SS 2', 'SS 3'
-        ]
-
+        # GradeLevel rows are already seeded by GradeLevel.initialize_defaults()
+        # during tenant provisioning — just fetch the ones we need.
         grade_levels = {}
-        for i, gl_name in enumerate(grade_levels_data):
-            section = 'JSS' if 'JSS' in gl_name else 'SSS'
-            gl, _ = GradeLevel.objects.get_or_create(
-                system_code=gl_name.replace(' ', ''),
-                defaults={
-                    'section': section,
-                    'default_name': gl_name,
-                    'sequence_order': i + 1,
-                    'min_age': 0,
-                    'max_age': 18
-                }
-            )
-            grade_levels[gl_name] = gl
+        code_map = {
+            'JSS 1': 'JSS_1', 'JSS 2': 'JSS_2', 'JSS 3': 'JSS_3',
+            'SS 1': 'SS_1', 'SS 2': 'SS_2', 'SS 3': 'SS_3',
+        }
+        for gl_name, code in code_map.items():
+            grade_levels[gl_name] = GradeLevel.objects.get(system_code=code)
 
         # Class levels with subdivisions
         class_levels_data = [
@@ -395,7 +396,7 @@ class Command(BaseCommand):
             )
             class_count += 1
 
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(grade_levels_data)} grade levels and {class_count} class levels"))
+        self.stdout.write(self.style.SUCCESS(f"  ✓ Using {len(grade_levels)} existing grade levels, created {class_count} class levels"))
 
         current_year = datetime.now().year
         for i in range(-2, 5):
@@ -409,12 +410,12 @@ class Command(BaseCommand):
 
         accountants_data = [
             {
-                'email': 'chukwu@pinnacleacademy.edu.ng',
+                'email': f'chukwu@{self.school_domain}.edu.ng',
                 'first_name': 'Chukwu',
                 'last_name': 'Okafor',
             },
             {
-                'email': 'fatima@pinnacleacademy.edu.ng',
+                'email': f'fatima@{self.school_domain}.edu.ng',
                 'first_name': 'Fatima',
                 'last_name': 'Hassan',
             },
@@ -458,7 +459,7 @@ class Command(BaseCommand):
             last_name = random.choice(NIGERIAN_LAST_NAMES)
             gender = 'Male' if first_name in NIGERIAN_FIRST_NAMES_MALE else 'Female'
 
-            email = f"{first_name.lower()}.{last_name.lower()}{i}@pinnacleacademy.edu.ng"[:50]
+            email = f"{first_name.lower()}.{last_name.lower()}{i}@{self.school_domain}.edu.ng"[:50]
 
             specializations = random.sample(self.subjects, k=random.randint(2, 4))
 
@@ -489,7 +490,6 @@ class Command(BaseCommand):
                 defaults={
                     'empId': f'TCH{i+1:04d}',
                     'short_name': f"{chr(65 + (i % 26))}{i % 100:02d}"[:3],
-                    'salary': Decimal(random.randint(100000, 500000)),
                     'designation': random.choice(designations),
                 }
             )
@@ -811,51 +811,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"  ✓ Created {receipt_count} receipts with {allocation_count} allocations"))
 
-        categories_data = [
-            ('Salaries', 'SAL'),
-            ('Utilities', 'UTL'),
-            ('Maintenance', 'MNT'),
-            ('Supplies', 'SUP'),
-        ]
 
-        for cat_name, abbr in categories_data:
-            PaymentCategory.objects.get_or_create(
-                name=cat_name,
-                defaults={'abbr': abbr}
-            )
-
-        salary_cat = PaymentCategory.objects.get(name='Salaries')
-        utilities_cat = PaymentCategory.objects.get(name='Utilities')
-
-        payment_count = 0
-
-        for teacher in random.sample(self.teachers, min(10, len(self.teachers))):
-            Payment.objects.create(
-                date=timezone.now().date() - timedelta(days=random.randint(1, 30)),
-                paid_to=f"{teacher.first_name} {teacher.last_name}",
-                user=teacher.user,
-                category=salary_cat,
-                paid_through='Bank Transfer',
-                amount=teacher.salary,
-                description=f'Monthly salary for {teacher.first_name} {teacher.last_name}',
-                status='Completed',
-                paid_by=random.choice(self.accountants) if self.accountants else None
-            )
-            payment_count += 1
-
-        Payment.objects.create(
-            date=timezone.now().date() - timedelta(days=15),
-            paid_to='Electricity Company',
-            category=utilities_cat,
-            paid_through='Bank Transfer',
-            amount=Decimal('5000000'),
-            description='Electricity bill for the month',
-            status='Completed',
-            paid_by=random.choice(self.accountants) if self.accountants else None
-        )
-        payment_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {payment_count} expense payments"))
 
     def create_attendance_statuses(self):
         """Create attendance status types"""
@@ -1131,15 +1087,14 @@ class Command(BaseCommand):
         self.stdout.write(f"   • Students: {Student.objects.count()}")
         self.stdout.write(f"   • Fee Structures: {FeeStructure.objects.count()}")
         self.stdout.write(f"   • Receipts: {Receipt.objects.count()}")
-        self.stdout.write(f"   • Payments (Expenses): {Payment.objects.count()}")
         self.stdout.write(f"   • Examinations: {ExaminationListHandler.objects.count()}")
         self.stdout.write(f"   • Exam Marks: {MarksManagement.objects.count()}")
         self.stdout.write(f"   • Subject Allocations: {AllocatedSubject.objects.count()}")
         self.stdout.write(f"   • Timetable Periods: {Period.objects.count()}")
 
         self.stdout.write(self.style.SUCCESS("\n🔑 SAMPLE LOGIN CREDENTIALS:"))
-        self.stdout.write("   Teachers: teacher001@hillcrest.edu.ug (password: password)")
-        self.stdout.write("   Accountants: sarah.nakato@hillcrest.edu.ug (password: password)")
+        self.stdout.write(f"   Teachers: teacher001@{self.school_domain}.edu.ng (password: password)")
+        self.stdout.write(f"   Accountants: sarah.nakato@{self.school_domain}.edu.ng (password: password)")
         self.stdout.write("   Parents: Use phone number as username (password: password)")
 
         self.stdout.write(self.style.SUCCESS("\n💡 NEXT STEPS:"))

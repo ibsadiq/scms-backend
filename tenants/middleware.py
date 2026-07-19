@@ -84,9 +84,12 @@ class TenantHeaderMiddleware:
     def _validate_and_set_tenant(self, request, tenant_slug):
         try:
             from tenants.models import Client, Domain
+            from django.conf import settings
+
 
             # Resolve via Domain table instead of assuming schema_name matches the slug
-            domain_lookup = f"{tenant_slug}.ssyncportal.com"
+            base_domain = getattr(settings, 'BASE_DOMAIN', 'ssyncportal.com')
+            domain_lookup = f"{tenant_slug}.{base_domain}"
             domain_obj = Domain.objects.select_related('tenant').get(domain=domain_lookup)
             tenant = domain_obj.tenant
 

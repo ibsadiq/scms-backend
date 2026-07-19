@@ -157,7 +157,7 @@ urlpatterns = [
     ),
     # Teacher-specific URLs
     path(
-        "allocated-subjects/my-classes/",
+        "teachers/my-classes/",
         TeacherMyClassesView.as_view(),
         name="teacher-my-classes"
     ),
