@@ -240,9 +240,22 @@ class SchoolEvent(models.Model):
     def clean(self):
         if self.end_date and self.start_date > self.end_date:
             raise ValidationError("End date must be after start date.")
-        if not (self.term.start_date <= self.start_date <= self.term.end_date):
-            raise ValidationError("Start date must be within the term's duration.")
-        if self.end_date and not (
-            self.term.start_date <= self.end_date <= self.term.end_date
-        ):
-            raise ValidationError("End date must be within the term's duration.")
+            
+        if self.event_type == "holiday":
+            # For holidays, ensure they fall within the academic year 
+            # rather than strictly inside the term boundaries.
+            academic_year = self.term.academic_year
+            if not (academic_year.start_date <= self.start_date <= academic_year.end_date):
+                raise ValidationError("Holiday start date must be within the academic year.")
+            if self.end_date and not (
+                academic_year.start_date <= self.end_date <= academic_year.end_date
+            ):
+                raise ValidationError("Holiday end date must be within the academic year.")
+        else:
+            # For other events, strictly enforce term boundaries
+            if not (self.term.start_date <= self.start_date <= self.term.end_date):
+                raise ValidationError("Start date must be within the term's duration.")
+            if self.end_date and not (
+                self.term.start_date <= self.end_date <= self.term.end_date
+            ):
+                raise ValidationError("End date must be within the term's duration.")
