@@ -21,6 +21,7 @@ from .serializers import (
     InspectorUpdateSerializer,
 )
 from .models import Client, Domain, TenantStatus, Inspector
+from .utils import build_school_url
 
 from django.conf import settings
 
@@ -137,14 +138,12 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                         token = PasswordResetTokenGenerator().make_token(admin_user)
                     
                     domain = tenant.domains.filter(is_primary=True).first()
-                    _frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-                    _parsed = urlparse(_frontend)
-                    _port = f':{_parsed.port}' if _parsed.port else ''
                     _subdomain = domain.domain.split('.')[0]
                     
-                    reset_url = (
-                        f"{_parsed.scheme}://{_subdomain}.{_parsed.hostname}{_port}"
-                        f"/reset-password?uid={uid}&token={token}"
+                    reset_url = build_school_url(
+                        getattr(settings, 'FRONTEND_URL', None),
+                        subdomain=_subdomain,
+                        path=f"/reset-password?uid={uid}&token={token}",
                     )
                     
                     from django.utils import timezone
@@ -496,16 +495,12 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
 
             domain       = tenant.domains.filter(is_primary=True).first()
             subdomain    = domain.domain.split('.')[0] if domain else tenant.schema_name
-
-            # Build reset URL on the school's own subdomain so the link lands
-            # on the correct portal and "Go to Login" works without extra params.
-            from urllib.parse import urlparse
-            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-            parsed       = urlparse(frontend_url)
-            port         = f':{parsed.port}' if parsed.port else ''
-            base_host    = parsed.hostname or 'localhost'
-            school_host  = f'{subdomain}.{base_host}{port}'
-            reset_url    = f'{parsed.scheme}://{school_host}/reset-password?uid={uid}&token={token}'
+      
+            reset_url = build_school_url(
+                getattr(settings, 'FRONTEND_URL', None),
+                subdomain=subdomain,
+                path=f"/reset-password?uid={uid}&token={token}",
+            )
 
             from core.email_utils import send_email
             try:

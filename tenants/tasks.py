@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from celery import shared_task
 from django.utils.timezone import now
 from django.conf import settings
+from .utils import build_school_url
 
 
 logger = logging.getLogger(__name__)
@@ -98,17 +99,11 @@ def provision_tenant_task(self, tenant_id, admin_user_id):
         if not domain:
             raise ValueError('No primary domain found for tenant')
 
-        _frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-        _parsed = urlparse(_frontend)
-        _port = f':{_parsed.port}' if _parsed.port else ''
-        _subdomain = domain.domain.split('.')[0]
-
-        reset_url = (
-            f"{_parsed.scheme}://{_subdomain}.{_parsed.hostname}{_port}"
-            f"/reset-password"
-            f"?uid={uid}&token={token}"
-        )
-        
+        reset_url = build_school_url(
+            getattr(settings, 'FRONTEND_URL', None),
+            subdomain=domain.domain.split('.')[0],
+            path=f"/reset-password?uid={uid}&token={token}",
+        )        
         # 4. Activate tenant
         try:
             approving_user = User.objects.get(pk=admin_user_id)
