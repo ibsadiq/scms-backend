@@ -10,7 +10,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # Pull from environment variables
         schema_name = os.getenv('PUBLIC_SCHEMA_NAME', 'public')
-        domain_name = os.getenv('PUBLIC_DOMAIN', 'localhost')
+        domain_name = os.getenv('BASE_DOMAIN', 'localhost')
         platform_name = os.getenv('PLATFORM_NAME', 'SSync')
 
         self.stdout.write(f"Attempting to setup public tenant: {domain_name}...")
