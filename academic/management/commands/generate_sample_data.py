@@ -135,6 +135,25 @@ class Command(BaseCommand):
             )
             return ContentFile(VALID_PNG, name=f"{prefix}_{random.randint(10000, 99999)}.png")
 
+    def get_gender_avatar_file(self, gender):
+        """
+        Loads male.png / female.png from the project root (same directory as
+        manage.py) for student avatars. Falls back to a generated placeholder
+        if the file is missing, so a bad path doesn't abort the whole run.
+        """
+        filename = 'male.png' if gender == 'Male' else 'female.png'
+        path = os.path.join(settings.BASE_DIR, filename)
+        try:
+            with open(path, 'rb') as f:
+                data = f.read()
+            return ContentFile(data, name=filename)
+        except FileNotFoundError:
+            self.stdout.write(self.style.WARNING(
+                f"  Warning: {filename} not found at {path} — using a generated placeholder instead."
+            ))
+            return self.get_avatar_file(gender.lower())
+
+
     def get_avatar(self, gender=None):
         return self.get_avatar_file("avatar")
 
@@ -379,24 +398,24 @@ class Command(BaseCommand):
         demo_p, _ = CustomUser.objects.get_or_create(
             email='parent@demo.com',
             defaults={
-                'first_name': 'Demo',
-                'last_name': 'Parent',
+                'first_name': 'Ngozi',
+                'last_name': 'Okafor',
                 'is_active': True,
                 'is_parent': True,
                 'phone_number': '+2348000000000',
             }
         )
-        demo_p.first_name = 'Demo'
-        demo_p.last_name = 'Parent'
+        demo_p.first_name = 'Ngozi'
+        demo_p.last_name = 'Okafor'
         demo_p.set_password('password123')
         demo_p.save()
 
         dp, _ = Parent.objects.get_or_create(
             user=demo_p, 
-            defaults={'phone_number': demo_p.phone_number, 'first_name': 'Demo', 'last_name': 'Parent', 'email': demo_p.email}
+            defaults={'phone_number': demo_p.phone_number, 'first_name': 'Ngozi', 'last_name': 'Okafor', 'email': demo_p.email}
         )
-        dp.first_name = 'Demo'
-        dp.last_name = 'Parent'
+        dp.first_name = 'Ngozi'
+        dp.last_name = 'Okafor'
         dp.email = demo_p.email
         if not dp.image:
             try:
@@ -458,7 +477,7 @@ class Command(BaseCommand):
             email='student@demo.com',
             defaults={
                 'first_name': 'Lara',
-                'last_name': 'Parent',
+                'last_name': 'Okafor',
                 'is_active': True,
                 'is_student': True,
             }
@@ -473,11 +492,12 @@ class Command(BaseCommand):
             user=demo_st_user,
             defaults={
                 'first_name': 'Lara',
-                'last_name': 'Parent',
+                'last_name': 'Okafor',
                 'admission_number': 'ADM-2026-0001',
                 'classroom': self.classrooms[0] if self.classrooms else None,
                 'parent_guardian': parent,
-                'parent_contact': parent_contact
+                'parent_contact': parent_contact,
+                'gender': 'Female',
             }
         )
         if parent:
@@ -545,9 +565,13 @@ class Command(BaseCommand):
             student.parent_guardian = parent
             if not student.image:
                 try:
-                    student.image.save(f"student_{user.id}.png", self.get_avatar_file("student"), save=False)
-                except Exception:
-                    pass
+                    student.image.save(
+                        f"student_{user.id}_{gender.lower()}.png",
+                        self.get_gender_avatar_file(gender),
+                        save=False,
+                    )
+                except Exception as e:
+                    self.stdout.write(self.style.WARNING(f"  Warning: Could not set student avatar ({e})"))
             student.save()
 
             StudentClassEnrollment.objects.get_or_create(student=student, classroom=classroom, academic_year=self.academic_year)
