@@ -2,7 +2,7 @@ import os
 from django.core.management.base import BaseCommand
 from django.db import connection
 from django_tenants.utils import schema_context
-from tenants.models import Client, Domain
+from tenants.models import Client, Domain, TenantStatus
 
 class Command(BaseCommand):
     help = 'Automatically sets up the public schema and domain from .env'
@@ -18,7 +18,7 @@ class Command(BaseCommand):
         # 1. Create the Client (Tenant) if it doesn't exist
         tenant, created = Client.objects.get_or_create(
             schema_name=schema_name,
-            defaults={'name': platform_name, 'is_active': True}
+            defaults={'name': platform_name, 'status': TenantStatus.ACTIVE}
         )
 
         if created:
