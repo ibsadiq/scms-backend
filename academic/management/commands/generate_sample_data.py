@@ -372,12 +372,8 @@ class Command(BaseCommand):
             user.save()
             t, _ = Teacher.objects.get_or_create(
                 user=user,
-                defaults={'empId': f'TCH{i:04d}', 'first_name': fname, 'last_name': lname, 'email': email}
+                defaults={'empId': f'TCH{i:04d}'}
             )
-            t.first_name = fname
-            t.last_name = lname
-            t.email = email
-            t.save()
             t.subject_specialization.set(random.sample(self.subjects, 2))
             self.teachers.append(t)
 
