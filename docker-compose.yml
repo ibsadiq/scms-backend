@@ -3,10 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: ssync-postgres
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ssync}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ssync}
-      POSTGRES_DB: ${POSTGRES_DB:-ssync}
+    env_file:
+      - .env.production
     volumes:
       - ssync-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,14 +14,12 @@ services:
       retries: 5
     networks:
       - utonez
-
   ssync-redis:
     image: redis:7-alpine
     container_name: ssync-redis
     restart: unless-stopped
     networks:
       - utonez
-
   ssync-backend:
     build:
       context: .
@@ -51,14 +47,45 @@ services:
       - "traefik.http.routers.ssync.service=ssync"
       - "traefik.http.services.ssync.loadbalancer.server.port=8000"
       - "traefik.http.services.ssync.loadbalancer.passhostheader=true"
-      - "traefik.http.routers.ssync-http.rule=Host(`api.ssyncportal.com`) || HostRegexp(`{subdomain:[a-z0-9-]+}.ssyncportal.com`)"
       - "traefik.http.routers.ssync-http.entrypoints=http"
       - "traefik.http.routers.ssync-http.middlewares=redirect-to-https"
       - "traefik.http.routers.ssync-http.priority=1"
-
+  ssync-celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ssync-celery-worker
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      ssync-postgres:
+        condition: service_healthy
+      ssync-redis:
+        condition: service_started
+    command: ["celery", "-A", "school", "worker", "--loglevel=info"]
+    networks:
+      - utonez
+  ssync-celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ssync-celery-beat
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      ssync-postgres:
+        condition: service_healthy
+      ssync-redis:
+        condition: service_started
+    command: ["celery", "-A", "school", "beat", "--loglevel=info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+    networks:
+      - utonez
 volumes:
   ssync-pgdata:
-
 networks:
   utonez:
     external: true
