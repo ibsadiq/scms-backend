@@ -55,6 +55,8 @@ class TermSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    is_active = serializers.SerializerMethodField()
+
     class Meta:
         model = Term
         fields = [
@@ -64,8 +66,15 @@ class TermSerializer(serializers.ModelSerializer):
             "academic_year_name",
             "start_date",
             "end_date",
+            "is_active",
         ]
         validators = []   # IMPORTANT
+        
+    @extend_schema_field(serializers.BooleanField)
+    def get_is_active(self, obj):
+        from django.utils import timezone
+        today = timezone.now().date()
+        return obj.start_date <= today <= obj.end_date
         
 
     def validate(self, data):

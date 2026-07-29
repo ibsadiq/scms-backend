@@ -1,13 +1,31 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 
-from academic.models import ClassRoom, Teacher, AllocatedSubject
+from academic.models import ClassRoom, Teacher, AllocatedSubject, Term
 
 
-class Period(models.Model):
+class Room(models.Model):
     """
-    Represents a timetable period/schedule entry.
-    Defines when a subject is taught to a classroom.
+    Physical room a class can be held in. Replaces the old free-text room_number.
+    """
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=20, blank=True, null=True)
+    capacity = models.PositiveIntegerField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class PeriodSlot(models.Model):
+    """
+    Defines the school's daily time grid for a given term — e.g. 'Period 3 on
+    Tuesday runs 9:40-10:20'. This is shared infrastructure, not tied to any
+    one class or subject. TimetableEntry references this instead of storing
+    its own start/end time.
     """
     DAYS_OF_WEEK = [
         ("Monday", "Monday"),
@@ -19,118 +37,153 @@ class Period(models.Model):
         ("Sunday", "Sunday"),
     ]
 
-    day_of_week = models.CharField(
-        max_length=10,
-        choices=DAYS_OF_WEEK,
-        help_text="Day of the week"
+    term = models.ForeignKey(
+        Term, on_delete=models.CASCADE, related_name='period_slots'
     )
-    start_time = models.TimeField(help_text="Start time of the class")
-    end_time = models.TimeField(help_text="End time of the class")
-    classroom = models.ForeignKey(
-        ClassRoom,
-        on_delete=models.CASCADE,
-        related_name='periods',
-        help_text="Classroom this period is for"
+    day_of_week = models.CharField(max_length=10, choices=DAYS_OF_WEEK)
+    period_number = models.PositiveSmallIntegerField(
+        help_text="Ordinal position in the day, e.g. 1, 2, 3. Breaks get a number too so ordering stays correct."
     )
-    subject = models.ForeignKey(
-        AllocatedSubject,
-        on_delete=models.CASCADE,
-        related_name='periods',
-        help_text="Subject being taught"
-    )
-    teacher = models.ForeignKey(
-        Teacher,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='periods',
-        help_text="Teacher assigned to teach this session"
-    )
-
-    # Additional fields
-    room_number = models.CharField(
+    label = models.CharField(
         max_length=50,
         blank=True,
-        null=True,
-        help_text="Physical room where class takes place"
+        help_text="Optional display label, e.g. 'Period 1' or 'Break'. Defaults to period_number if blank."
     )
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Whether this period is currently active"
-    )
-    notes = models.TextField(
-        blank=True,
-        null=True,
-        help_text="Additional notes about this period"
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    is_break = models.BooleanField(
+        default=False,
+        help_text="Break periods are excluded from subject/teacher assignment."
     )
 
     class Meta:
-        unique_together = ("day_of_week", "start_time", "classroom")
-        ordering = ['day_of_week', 'start_time']
-        verbose_name = "Period"
-        verbose_name_plural = "Periods"
+        unique_together = ("term", "day_of_week", "period_number")
+        ordering = ['term', 'day_of_week', 'period_number']
         indexes = [
-            models.Index(fields=['classroom', 'day_of_week', 'start_time']),
-            models.Index(fields=['teacher', 'day_of_week', 'start_time']),
+            models.Index(fields=['term', 'day_of_week']),
         ]
 
     def __str__(self):
-        return f"{self.classroom} - {self.subject} ({self.day_of_week} {self.start_time}-{self.end_time})"
+        return f"{self.term} - {self.day_of_week} P{self.period_number} ({self.start_time}-{self.end_time})"
 
     def clean(self):
-        """
-        Validate period to prevent conflicts.
-        Checks for:
-        1. Time validity (end_time > start_time)
-        2. Classroom conflicts (same classroom, same day, overlapping times)
-        3. Teacher conflicts (same teacher, same day, overlapping times)
-        """
-        super().clean()
-
-        # 1. Validate time order
-        if self.start_time and self.end_time:
-            if self.end_time <= self.start_time:
-                raise ValidationError({
-                    'end_time': 'End time must be after start time.'
-                })
-
-        # 2. Check for classroom conflicts
-        if self.classroom and self.day_of_week and self.start_time and self.end_time and self.is_active:
-            classroom_conflicts = Period.objects.filter(
-                classroom=self.classroom,
-                day_of_week=self.day_of_week,
-                is_active=True
-            ).exclude(pk=self.pk if self.pk else None)
-
-            for period in classroom_conflicts:
-                # Check if times overlap
-                # Overlap occurs if: start_time < other.end_time AND end_time > other.start_time
-                if (self.start_time < period.end_time and self.end_time > period.start_time):
-                    raise ValidationError({
-                        '__all__': f'Classroom conflict: {self.classroom} is already scheduled for '
-                                 f'{self.day_of_week} from {period.start_time.strftime("%H:%M")} to '
-                                 f'{period.end_time.strftime("%H:%M")} (Subject: {period.subject}).'
-                    })
-
-        # 3. Check for teacher conflicts
-        if self.teacher and self.day_of_week and self.start_time and self.end_time and self.is_active:
-            teacher_conflicts = Period.objects.filter(
-                teacher=self.teacher,
-                day_of_week=self.day_of_week,
-                is_active=True
-            ).exclude(pk=self.pk if self.pk else None)
-
-            for period in teacher_conflicts:
-                # Check if times overlap
-                if (self.start_time < period.end_time and self.end_time > period.start_time):
-                    raise ValidationError({
-                        '__all__': f'Teacher conflict: {self.teacher} is already scheduled for '
-                                 f'{self.day_of_week} from {period.start_time.strftime("%H:%M")} to '
-                                 f'{period.end_time.strftime("%H:%M")} '
-                                 f'(Classroom: {period.classroom}, Subject: {period.subject}).'
-                    })
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValidationError({'end_time': 'End time must be after start time.'})
 
     def save(self, *args, **kwargs):
-        """Run validation before saving"""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class TeacherAvailability(models.Model):
+    """
+    Optional per-teacher constraint used by the auto-generation algorithm and
+    by conflict checks (e.g. a teacher who only works mornings, or is on
+    leave for a given slot).
+    """
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='teacher_availabilities')
+    teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='availabilities')
+    slot = models.ForeignKey(PeriodSlot, on_delete=models.CASCADE, related_name='teacher_availabilities')
+    is_available = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("teacher", "slot")
+        indexes = [
+            models.Index(fields=['teacher', 'term']),
+        ]
+
+    def __str__(self):
+        return f"{self.teacher} - {self.slot} ({'available' if self.is_available else 'unavailable'})"
+
+
+class TimetableEntry(models.Model):
+    """
+    A single assignment: this class has this subject (or activity, or is
+    free) during this slot, optionally with a teacher and room.
+    """
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='timetable_entries')
+    slot = models.ForeignKey(PeriodSlot, on_delete=models.PROTECT, related_name='timetable_entries')
+    classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name='timetable_entries')
+
+    subject = models.ForeignKey(
+        AllocatedSubject, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='timetable_entries',
+        help_text="Leave blank for free periods or non-subject activities."
+    )
+    activity_label = models.CharField(
+        max_length=100, blank=True,
+        help_text="e.g. 'Assembly', 'Extra-Moral Lesson', 'Library Period'. Used when subject is blank and this isn't a free period."
+    )
+    is_free_period = models.BooleanField(
+        default=False,
+        help_text="Explicitly marks this slot as free for this classroom."
+    )
+
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.SET_NULL, null=True, blank=True, related_name='timetable_entries'
+    )
+    room = models.ForeignKey(
+        Room, on_delete=models.SET_NULL, null=True, blank=True, related_name='timetable_entries'
+    )
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        unique_together = ("term", "slot", "classroom")
+        ordering = ['slot__day_of_week', 'slot__period_number']
+        indexes = [
+            models.Index(fields=['classroom', 'term']),
+            models.Index(fields=['teacher', 'term']),
+            models.Index(fields=['room', 'term']),
+        ]
+
+    def __str__(self):
+        if self.is_free_period:
+            return f"{self.classroom} - Free ({self.slot})"
+        if self.activity_label:
+            return f"{self.classroom} - {self.activity_label} ({self.slot})"
+        return f"{self.classroom} - {self.subject} ({self.slot})"
+
+    def clean(self):
+        super().clean()
+
+        if not self.slot_id:
+            return
+
+        # Exactly one of: real subject / named activity / free period
+        filled = [bool(self.subject_id), bool(self.activity_label), self.is_free_period]
+        if sum(filled) == 0:
+            raise ValidationError('Provide a subject, an activity_label, or mark this as a free period.')
+        if sum(filled) > 1:
+            raise ValidationError('An entry can only be one of: subject, activity, or free period — not a combination.')
+
+        if self.slot.is_break and (self.subject_id or self.teacher_id or self.activity_label):
+            raise ValidationError({'slot': 'Cannot assign a subject/activity/teacher to a break slot.'})
+
+        # Teacher conflict: same teacher, same term, same slot, different classroom
+        if self.teacher_id and self.is_active:
+            conflict = TimetableEntry.objects.filter(
+                term=self.term, slot=self.slot, teacher_id=self.teacher_id, is_active=True,
+            ).exclude(pk=self.pk).exclude(classroom=self.classroom)
+            existing = conflict.select_related('classroom').first()
+            if existing:
+                raise ValidationError({
+                    '__all__': f'Teacher conflict: {self.teacher} is already engaged with '
+                               f'{existing.classroom} during {self.slot}.'
+                })
+
+        # Room conflict: same room, same term, same slot, different classroom
+        if self.room_id and self.is_active:
+            conflict = TimetableEntry.objects.filter(
+                term=self.term, slot=self.slot, room_id=self.room_id, is_active=True,
+            ).exclude(pk=self.pk).exclude(classroom=self.classroom)
+            existing = conflict.select_related('classroom').first()
+            if existing:
+                raise ValidationError({
+                    '__all__': f'Room conflict: {self.room} is already booked by '
+                               f'{existing.classroom} during {self.slot}.'
+                })
+
+    def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)

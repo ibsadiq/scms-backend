@@ -22,6 +22,7 @@ from academic.views import (
     StudentClassListCreateView,
     StudentClassDetailView,
     BulkUploadStudentClassView,
+    BulkUploadStudentsProfileView,
 )
 from academic.teacher_views import (
     TeacherMyClassesView,
@@ -155,6 +156,11 @@ urlpatterns = [
         BulkUploadStudentClassView.as_view(),
         name="student-class-bulk-upload",
     ),
+    path(
+        "students/bulk-upload/",
+        BulkUploadStudentsProfileView.as_view(),
+        name="student-profile-bulk-upload",
+    ),
     # Teacher-specific URLs
     path(
         "teachers/my-classes/",
@@ -171,6 +177,5 @@ urlpatterns = [
         TeacherMyScheduleView.as_view(),
         name="teacher-my-schedule"
     ),
-    # Examination/Assessment URLs (includes assessments, marks, results, grade-scales)
-    path("", include("api.examination.urls")),
+    # Examination/Assessment URLs are registered directly in school/urls.py
 ]

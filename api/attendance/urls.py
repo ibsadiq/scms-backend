@@ -6,16 +6,25 @@ from attendance.views import (
     PeriodAttendanceListView,
     PeriodAttendanceDetailView,
 )
-from attendance.views_student import ClassAttendanceSummaryView
-from attendance.views_student import StudentAttendanceViewSet
-from academic.teacher_views import BulkMarkAttendanceView
+from attendance.views_student import (
+    ClassAttendanceSummaryView,
+    StudentAttendanceViewSet,
+    BulkMarkAttendanceView,  # <-- import from here, not academic.teacher_views
+)
 
 # Router for ViewSet-based endpoints
 router = DefaultRouter()
 router.register(r'student-attendance', StudentAttendanceViewSet, basename='student-attendance')
 
 urlpatterns = [
-    # ViewSet routes (includes summary endpoint)
+    # Bulk attendance marking (must come BEFORE router include to avoid shadowing)
+    path(
+        "student-attendance/bulk-mark/",
+        BulkMarkAttendanceView.as_view(),
+        name="bulk-mark-attendance"
+    ),
+    
+    # ViewSet routes (includes list, detail, summary, monthly-breakdown, marked_dates)
     path('', include(router.urls)),
 
     # Legacy class-based views
@@ -39,12 +48,9 @@ urlpatterns = [
         PeriodAttendanceDetailView.as_view(),
         name="period-attendance-detail",
     ),
-    # Bulk attendance marking for teachers
     path(
-        "student-attendance/bulk-mark/",
-        BulkMarkAttendanceView.as_view(),
-        name="bulk-mark-attendance"
+        'class/<int:classroom_id>/summary/',
+        ClassAttendanceSummaryView.as_view(),
+        name='class-attendance-summary'
     ),
-    path('class/<int:classroom_id>/summary/', ClassAttendanceSummaryView.as_view(), name='class-attendance-summary'),
-
 ]

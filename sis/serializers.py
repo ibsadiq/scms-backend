@@ -101,6 +101,9 @@ class StudentSerializer(serializers.ModelSerializer):
             "siblings",
             "status",
             "image",
+            "graduation_date",
+            "date_dismissed",
+            "reason_left",
         ]
 
     def get_status(self, obj):

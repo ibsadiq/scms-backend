@@ -39,4 +39,8 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tenants.tasks.sync_all_tenant_stats',
         'schedule': crontab(minute='*/30'),  # every 30 minutes
     },
+    'send-fee-reminders': {
+        'task': 'finance.send_fee_reminders',
+        'schedule': crontab(hour=8, minute=0),  # run daily at 8:00 AM
+    },
 }

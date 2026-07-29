@@ -8,7 +8,8 @@ from .models import (
     Receipt,
     FeePaymentAllocation,
     Payment,
-    PaymentCategory
+    PaymentCategory,
+    ReminderSetting
 )
 # from academic.models import Student
 # from administration.models import Term, AcademicYear
@@ -329,3 +330,16 @@ class StudentFeeBalanceSerializer(serializers.Serializer):
     balance = serializers.DecimalField(max_digits=10, decimal_places=2)
     status = serializers.CharField()
     fee_breakdown = serializers.ListField()
+
+
+class ReminderSettingSerializer(serializers.ModelSerializer):
+    """Serializer for ReminderSetting model."""
+    fee_structure = serializers.PrimaryKeyRelatedField(
+        queryset=FeeStructure.objects.all(),
+        allow_null=True,
+        required=False
+    )
+    
+    class Meta:
+        model = ReminderSetting
+        fields = '__all__'

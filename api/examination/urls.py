@@ -1,58 +1,36 @@
+# results/urls.py  (or examination/urls.py — match your actual app name)
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from examination.views import (
-    ExaminationViewSet,
-    MarksViewSet,
-    ResultViewSet,
-    GradeScaleViewSet,
-    MarkedScriptViewSet
+
+from examination.views.grading import (
+    GradingSchemeViewSet, AssessmentComponentViewSet,
+    GradeRuleViewSet, PromotionRuleViewSet,
 )
-from examination.views_result_computation import (
-    TermResultViewSet,
-    SubjectResultViewSet
+from examination.views.assessment import (
+    AssessmentSessionViewSet, AssessmentEntryViewSet, MarkedScriptViewSet,
 )
-from examination.views_report_cards import ReportCardViewSet
-from examination.views_teacher import (
-    TeacherDashboardViewSet,
-    TeacherMarksViewSet,
-    TeacherResultsViewSet
-)
-from examination.views_parent import (
-    ParentDashboardViewSet,
-    ParentResultsViewSet,
-    ParentAttendanceViewSet,
-    ParentFeeViewSet,
-    ParentTimetableViewSet
+from examination.views.result import (
+    TermResultViewSet, AnnualResultViewSet, ReportCardViewSet,
 )
 
 router = DefaultRouter()
-router.register(r'assessments', ExaminationViewSet, basename='assessments')
-router.register(r'marks', MarksViewSet, basename='marks')
-router.register(r'results', ResultViewSet, basename='results')
-router.register(r'grade-scales', GradeScaleViewSet, basename='grade-scales')
 
-# Result Computation endpoints (Phase 1.1)
-router.register(r'term-results', TermResultViewSet, basename='term-results')
-router.register(r'subject-results', SubjectResultViewSet, basename='subject-results')
+# Grading setup
+router.register(r"grading-schemes", GradingSchemeViewSet, basename="grading-scheme")
+router.register(r"assessment-components", AssessmentComponentViewSet, basename="assessment-component")
+router.register(r"grade-rules", GradeRuleViewSet, basename="grade-rule")
+router.register(r"promotion-rules", PromotionRuleViewSet, basename="promotion-rule")
 
-# Report Card endpoints (Phase 1.2)
-router.register(r'report-cards', ReportCardViewSet, basename='report-cards')
+# Assessment / score entry
+router.register(r"assessment-sessions", AssessmentSessionViewSet, basename="assessment-session")
+router.register(r"assessment-entries", AssessmentEntryViewSet, basename="assessment-entry")
+router.register(r"marked-scripts", MarkedScriptViewSet, basename="marked-script")
 
-# Marked Scripts endpoints (Teacher uploads)
-router.register(r'marked-scripts', MarkedScriptViewSet, basename='marked-scripts')
-
-# Teacher-specific endpoints (Phase 1.3)
-router.register(r'teacher', TeacherDashboardViewSet, basename='teacher')
-router.register(r'teacher/marks', TeacherMarksViewSet, basename='teacher-marks')
-router.register(r'teacher/results', TeacherResultsViewSet, basename='teacher-results')
-
-# Parent-specific endpoints (Phase 1.4)
-router.register(r'parent', ParentDashboardViewSet, basename='parent')
-router.register(r'parent/results', ParentResultsViewSet, basename='parent-results')
-router.register(r'parent/attendance', ParentAttendanceViewSet, basename='parent-attendance')
-router.register(r'parent/fees', ParentFeeViewSet, basename='parent-fees')
-router.register(r'parent/timetable', ParentTimetableViewSet, basename='parent-timetable')
+# Results
+router.register(r"term-results", TermResultViewSet, basename="term-result")
+router.register(r"annual-results", AnnualResultViewSet, basename="annual-result")
+router.register(r"report-cards", ReportCardViewSet, basename="report-card")
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path("", include(router.urls)),
 ]

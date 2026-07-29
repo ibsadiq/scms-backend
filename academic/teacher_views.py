@@ -20,7 +20,7 @@ from .models import (
 )
 from attendance.models import StudentAttendance, AttendanceStatus
 from administration.models import AcademicYear
-from schedule.models import Period
+from schedule.models import PeriodSlot
 
 
 class TeacherMyClassesView(APIView):
@@ -105,6 +105,7 @@ class TeacherMyClassesView(APIView):
                 'id': allocation.id,
                 'classroom_id': classroom.id,
                 'classroom_name': str(classroom),
+                'subject_id': allocation.subject.id,
                 'subject_name': allocation.subject.name,
                 'grade_level_name': classroom.name.name if classroom.name else '',
                 'student_count': student_count,
@@ -180,9 +181,33 @@ class ClassroomStudentsView(APIView):
         ).order_by('admission_number')
 
         # Format the response
-        students_data = [
-            {
-                'id': student['id'],
+        students_data = []
+        
+        # Check if subject and component are provided to fetch existing scores
+        subject_id = request.query_params.get('subject_id')
+        component_id = request.query_params.get('component_id')
+        
+        existing_scores = {}
+        if subject_id and component_id:
+            from examination.models import AssessmentEntry
+            entries = AssessmentEntry.objects.filter(
+                student__student__in=[s['id'] for s in students],
+                student__academic_year=current_academic_year,
+                subject_id=subject_id,
+                component_id=component_id
+            ).select_related('student')
+            for entry in entries:
+                existing_scores[entry.student.student_id] = {
+                    'score': float(entry.score) if entry.score is not None else None,
+                    'remarks': entry.remarks or ''
+                }
+
+        for student in students:
+            student_id = student['id']
+            score_data = existing_scores.get(student_id, {'score': None, 'remarks': ''})
+            
+            students_data.append({
+                'id': student_id,
                 'admission_number': student['admission_number'],
                 'first_name': student['first_name'].capitalize() if student['first_name'] else '',
                 'last_name': student['last_name'].capitalize() if student['last_name'] else '',
@@ -190,10 +215,10 @@ class ClassroomStudentsView(APIView):
                 'phone': student['parent_contact'] or student['phone_number'] or '',
                 'photo': student['image'] if student['image'] else None,
                 'status': 'active',
-                'grade_level_name': classroom.name.name if classroom.name else ''
-            }
-            for student in students
-        ]
+                'grade_level_name': classroom.name.name if classroom.name else '',
+                'score': score_data['score'],
+                'remarks': score_data['remarks']
+            })
 
         return Response(students_data, status=status.HTTP_200_OK)
 
@@ -369,7 +394,7 @@ class TeacherMyScheduleView(APIView):
         day_filter = request.query_params.get('day')
 
         # Query all periods for this teacher
-        periods_query = Period.objects.filter(
+        periods_query = PeriodSlot.objects.filter(
             teacher=teacher,
             is_active=True
         ).select_related(

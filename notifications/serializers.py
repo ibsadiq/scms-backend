@@ -2,7 +2,7 @@
 Notification Serializers - Phase 1.5: Automated Notifications System
 """
 from rest_framework import serializers
-from .models import Notification, NotificationPreference, NotificationTemplate
+from .models import Notification, NotificationPreference, NotificationTemplate, DirectMessage
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -192,6 +192,28 @@ class NotificationTemplateSerializer(serializers.ModelSerializer):
             'message_template',
             'is_active',
             'created_at',
-            'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+class DirectMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.CharField(source='sender.get_full_name', read_only=True)
+    recipient_name = serializers.CharField(source='recipient.get_full_name', read_only=True)
+    student_name = serializers.CharField(source='student.full_name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = DirectMessage
+        fields = [
+            'id', 'sender', 'sender_name', 'recipient', 'recipient_name',
+            'student', 'student_name', 'subject', 'body', 'parent_message',
+            'is_read', 'created_at'
+        ]
+        read_only_fields = ['id', 'sender', 'created_at', 'is_read']
+
+class DirectMessageCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DirectMessage
+        fields = ['recipient', 'student', 'subject', 'body', 'parent_message']
+
+    def validate(self, data):
+        # Additional validation can be placed here
+        return data

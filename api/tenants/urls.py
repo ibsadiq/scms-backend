@@ -29,8 +29,6 @@ urlpatterns = [
     path('branding/', views.TenantBrandingView.as_view(), name='tenant-branding'),
     path('search/', views.SchoolSearchView.as_view(), name='school-search'),
 
-    # Public — consumed by the /reset-password frontend page
-    path('password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='tenant-password-reset-confirm'),
 
     # School admin — manage their own school settings (called from school subdomain)
     path('school/settings/', views.SchoolSettingsView.as_view(), name='school-settings'),

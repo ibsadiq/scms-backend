@@ -26,6 +26,8 @@ from users.views import (
     ResendInvitationView,
     AccountantListView,
     AccountantDetailView,
+    PasswordResetRequestView,
+    PasswordResetConfirmView,
 )
 
 
@@ -35,6 +37,8 @@ urlpatterns = [
     path("token/refresh/", MyTokenRefreshView.as_view(), name="token_refresh"),
     path("logout/", TokenBlacklistView.as_view(), name="token_blacklist"),
     path("profile/", getUserProfile, name="users-profile"),
+    path("password-reset/", PasswordResetRequestView.as_view(), name="password-reset-request"),
+    path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
     # Role switching URLs
     path("roles/", getUserRoles, name="user-roles"),
     path("roles/switch/", switchUserRole, name="user-roles-switch"),

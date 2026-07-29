@@ -81,7 +81,7 @@ class TenantListSerializer(serializers.ModelSerializer):
             'created_on', 'has_mobile_access', 'plan',
             'domain', 'student_count', 'teacher_count',
             'admin_email', 'contact_email', 'contact_phone',
-            'logo_url', 'website', 'address',
+            'logo_url', 'website', 'address', 'motto',
             'approved_at', 'rejection_reason',
         ]
 

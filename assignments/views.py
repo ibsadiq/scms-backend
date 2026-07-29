@@ -484,7 +484,7 @@ class ParentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         parent = get_object_or_404(Parent, user=self.request.user)
         
         # Get all active children
-        children = parent.students.filter(is_active=True)
+        children = parent.children.filter(is_active=True)
         
         # Get classrooms of all children
         from academic.models import StudentClassEnrollment
@@ -521,7 +521,7 @@ class ParentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         from academic.models import Parent
         parent = get_object_or_404(Parent, user=request.user)
         
-        children = parent.students.filter(is_active=True)
+        children = parent.children.filter(is_active=True)
         overview = []
         
         for child in children:

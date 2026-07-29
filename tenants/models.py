@@ -10,10 +10,12 @@ env = environ.Env()
 
 
 class TenantStatus(models.TextChoices):
-    PENDING   = 'pending',   'Pending Approval'
-    ACTIVE    = 'active',    'Active'
-    SUSPENDED = 'suspended', 'Suspended'
-    REJECTED  = 'rejected',  'Rejected'
+    PENDING      = 'pending',      'Pending Approval'
+    PROVISIONING = 'provisioning', 'Provisioning'
+    ACTIVE       = 'active',       'Active'
+    SUSPENDED    = 'suspended',    'Suspended'
+    REJECTED     = 'rejected',     'Rejected'
+    FAILED       = 'failed',       'Provisioning Failed'
 
 
 
@@ -23,7 +25,6 @@ class Client(TenantMixin):
     cached_teacher_count = models.PositiveIntegerField(default=0)
     stats_last_synced    = models.DateTimeField(null=True, blank=True)
 
-    
     name = models.CharField(max_length=100)
     created_on = models.DateField(auto_now_add=True)
 
@@ -45,11 +46,23 @@ class Client(TenantMixin):
     contact_email = models.EmailField(blank=True, null=True, unique=True)
     contact_phone = models.CharField(max_length=20, blank=True, null=True)
 
+    # ── Pending admin details (stored at registration, used at approval) ──
+    pending_admin_email      = models.EmailField(blank=True, null=True)
+    pending_admin_first_name = models.CharField(max_length=150, blank=True)
+    pending_admin_last_name  = models.CharField(max_length=150, blank=True)
+    pending_admin_phone      = models.CharField(max_length=20, blank=True)
+
     logo = models.ImageField(
         upload_to='tenant_logos/',
         blank=True,
         null=True,
         help_text="School logo (appears in emails and portal)"
+    )
+    motto = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="School motto (appears in emails and portal)"
     )
     primary_color = models.CharField(
         max_length=7,
@@ -84,7 +97,6 @@ class Client(TenantMixin):
     suspension_reason = models.TextField(blank=True, null=True)
     rejection_reason  = models.TextField(blank=True, null=True)
 
-    
     # Optional: Track when mobile access was granted
     mobile_access_granted = models.DateField(blank=True, null=True)
 
@@ -93,7 +105,8 @@ class Client(TenantMixin):
         help_text="True once the school admin has completed (or skipped) the first-run setup wizard"
     )
 
-    auto_create_schema = True
+    # ── Schema creation is handled manually at approval time ──────────────
+    auto_create_schema = False
     
     def __str__(self):
         return self.name
@@ -124,10 +137,8 @@ class Client(TenantMixin):
         if self.logo:
             from django.conf import settings
             logo_url = self.logo.url
-            # Cloud storage (S3/Cloudinary/Spaces/etc.) — url is already absolute
             if logo_url.startswith('http://') or logo_url.startswith('https://'):
                 return logo_url
-            # Local dev — prepend backend host
             base_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000').rstrip('/')
             return f"{base_url}{logo_url}"
         return None
@@ -137,7 +148,6 @@ class Client(TenantMixin):
         if self.website:
             return self.website
         
-        # Fallback to primary domain
         domain = self.domains.filter(is_primary=True).first()
         if domain:
             return f"https://{domain.domain}"
@@ -159,42 +169,10 @@ class Client(TenantMixin):
             return {'total_students': 0, 'total_teachers': 0}
     
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        
         if self.contact_email:
             self.contact_email = self.contact_email.lower()
             
         super().save(*args, **kwargs)
-        
-        # Only run for new tenants (not the 'public' tenant)
-        if is_new and self.schema_name != 'public':
-            self._setup_new_tenant()
-
-    def _setup_new_tenant(self):
-        """Internal helper to provision a new tenant's initial data"""
-        from django_tenants.utils import schema_context
-        from django.contrib.auth import get_user_model
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        try:
-            with schema_context(self.schema_name):
-                User = get_user_model()
-                support_email = 'support@tarklish.tech'
-                
-                if not User.objects.filter(email=support_email).exists():
-                    User.objects.create_superuser(
-                        email=env('TENANT_ADMIN_EMAIL', default=support_email),
-                        password=env('TENANT_ADMIN_PASSWORD', default='ChangeMe123!'), 
-                        phone_number='+00000000000',
-                        first_name='SSync',
-                        last_name='Support',
-                        is_active=True
-                    )
-        except Exception as e:
-            logger.error(f"Failed to provision tenant {self.schema_name}: {str(e)}")                
-
 class Domain(DomainMixin):
     pass
 

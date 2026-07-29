@@ -206,8 +206,10 @@ class FeeStructure(models.Model):
         elif term:
             terms_to_assign = [term]
         else:
-            # Assign to all terms in the academic year
-            terms_to_assign = Term.objects.filter(academic_year=self.academic_year)
+            # Annual fee (term is None): Assign only to the first chronological term of the year
+            first_term = Term.objects.filter(academic_year=self.academic_year).first()
+            if first_term:
+                terms_to_assign = [first_term]
 
         for student in students:
             for assignment_term in terms_to_assign:
@@ -648,3 +650,23 @@ class Payment(models.Model):
             )
 
         super().save(*args, **kwargs)
+
+
+# ============================================================================
+# REMINDER SYSTEM
+# ============================================================================
+
+class ReminderSetting(models.Model):
+    name = models.CharField(max_length=255)
+    # If fee_structure is null, this is a default rule applying to all fees.
+    # If set, it applies only to that specific fee.
+    fee_structure = models.ForeignKey('FeeStructure', null=True, blank=True, on_delete=models.CASCADE, related_name='reminder_settings')
+    days_before_due = models.IntegerField(help_text="Positive for days before due date, negative for overdue days.")
+    is_active = models.BooleanField(default=False)  # User requested disabled by default
+    message_template = models.TextField(help_text="Variables available: {{student_name}}, {{fee_name}}, {{amount_owed}}, {{due_date}}")
+    partial_payment_template = models.TextField(help_text="Variables available: {{student_name}}, {{fee_name}}, {{balance}}, {{amount_paid}}, {{due_date}}", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.days_before_due} days)"

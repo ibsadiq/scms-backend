@@ -1,473 +1,151 @@
-"""
-Custom Permissions for Examination Module (Phase 1.3)
-Handles authorization for marks entry, result viewing, and publishing.
-"""
-from rest_framework import permissions
-from academic.models import AllocatedSubject
+from rest_framework.permissions import BasePermission
 
 
-class CanEnterMarks(permissions.BasePermission):
-    """
-    Permission to check if a teacher can enter marks for a specific subject and classroom.
-
-    Rules:
-    - Admins can enter marks for any subject/classroom
-    - Teachers can only enter marks for subjects they are allocated to
-    - Must have AllocatedSubject record linking teacher → subject → classroom
-    """
-
-    message = "You are not authorized to enter marks for this subject/classroom combination."
-
+class IsAdmin(BasePermission):
+    """Compute, approve, publish, lock/unlock, generate reports, manage grading schemes."""
     def has_permission(self, request, view):
-        if not request.user.is_authenticated:
-            return False
-        if request.user.is_superuser or request.user.is_admin:
-            return True
-        # Any user with a teacher profile can attempt; object-level checks allocation
-        return hasattr(request.user, 'teacher')
+        return bool(request.user and request.user.is_authenticated and request.user.is_admin)
+
+
+class IsTeacher(BasePermission):
+    """Base check — user has a linked Teacher profile."""
+    def has_permission(self, request, view):
+        return bool(request.user and hasattr(request.user, "teacher"))
+
+
+class CanComputeResults(BasePermission):
+    """Admin or Teacher computing results for a student or classroom."""
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_admin or hasattr(request.user, "teacher"))
+        )
+
+
+class CanEnterScores(BasePermission):
+    """
+    Teacher entering/editing scores for their own allocated subjects,
+    or Admin entering on a teacher's behalf.
+    Row-level allocation (teacher actually assigned to this subject/class)
+    is still enforced by AssessmentEntry.clean() regardless of this passing.
+    """
+    def has_permission(self, request, view):
+        return bool(
+            request.user.is_authenticated
+            and (hasattr(request.user, "teacher") or request.user.is_admin)
+        )
 
     def has_object_permission(self, request, view, obj):
-        """
-        Check if teacher is allocated to the subject and classroom for this mark.
-
-        Args:
-            obj: MarksManagement instance
-        """
-        # Admins have full access
-        if request.user.is_superuser or request.user.is_admin:
+        if request.user.is_admin:
             return True
-
-        # Check if user has a teacher profile
-        try:
-            teacher = request.user.teacher
-        except AttributeError:
-            return False
-
-        # MarksManagement.student is a StudentClassEnrollment; get its classroom
-        enrollment = obj.student
-        student_classroom = getattr(enrollment, 'classroom', None)
-
-        if not student_classroom:
-            return False
-
-        is_allocated = AllocatedSubject.objects.filter(
-            teacher_name=teacher,
-            subject=obj.subject,
-            class_room=student_classroom
-        ).exists()
-
-        return is_allocated
+        return obj.entered_by_id == request.user.teacher.id
 
 
-class CanViewResults(permissions.BasePermission):
-    """
-    Permission to check if a user can view specific results.
+class IsHomeroomTeacherOfClass(BasePermission):
+    """Homeroom teacher acting on their own class's TermResult only."""
+    def has_object_permission(self, request, view, obj):
+        teacher = getattr(request.user, "teacher", None)
+        return bool(teacher) and obj.classroom.class_teacher_id == teacher.id
 
-    Rules:
-    - Admins can view all results
-    - Teachers can view results for their allocated subjects/classrooms
-    - Parents can view only their children's published results
-    - Students can view only their own published results
-    """
 
-    message = "You are not authorized to view these results."
-
+class CanAddHomeroomRemarks(BasePermission):
     def has_permission(self, request, view):
-        """Check if user is authenticated"""
-        return request.user.is_authenticated
+        return hasattr(request.user, "teacher")
 
     def has_object_permission(self, request, view, obj):
-        """
-        Check viewing permission based on user role.
+        return IsHomeroomTeacherOfClass().has_object_permission(request, view, obj)
 
-        Args:
-            obj: TermResult or SubjectResult instance
-        """
+
+class CanHomeroomApprove(BasePermission):
+    """Only the homeroom teacher of that specific class — admin does not bypass this step."""
+    def has_permission(self, request, view):
+        return hasattr(request.user, "teacher")
+
+    def has_object_permission(self, request, view, obj):
+        return IsHomeroomTeacherOfClass().has_object_permission(request, view, obj)
+
+
+class CanApproveResults(IsAdmin):
+    """Admin final approval — TermResult.approve() itself still blocks if homeroom_approved is False."""
+    pass
+
+
+class CanPublishResults(IsAdmin):
+    pass
+
+
+class CanLockResults(IsAdmin):
+    pass
+
+
+class CanGenerateReports(IsAdmin):
+    pass
+
+
+from rest_framework.permissions import BasePermission, SAFE_METHODS
+
+class CanManageGradingScheme(BasePermission):
+    """GradingScheme, AssessmentComponent, GradeRule, PromotionRule — admin-only setup. Teachers can view them."""
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return bool(request.user and request.user.is_authenticated)
+        return bool(request.user and request.user.is_authenticated and request.user.is_admin)
+
+
+class CanUploadMarkedScript(BasePermission):
+    def has_permission(self, request, view):
+        return hasattr(request.user, "teacher") or request.user.is_admin
+
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_admin:
+            return True
+        return obj.uploaded_by_id == request.user.teacher.id
+    
+class CanViewOwnStudentResult(BasePermission):
+    """
+    Allow Admin, Teacher (Homeroom or Subject teacher), or Student/Parent to view a TermResult detail.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
         user = request.user
-
-        # Admins have full access
-        if user.is_superuser or user.is_admin:
-            return True
-
-        # For TermResult or SubjectResult
-        if hasattr(obj, 'student'):
-            result_student = obj.student
-        elif hasattr(obj, 'term_result'):
-            result_student = obj.term_result.student
-        else:
+        if not user or not user.is_authenticated:
             return False
 
-        # Teachers can view results for their allocated students
-        if user.is_staff:
-            try:
-                teacher = user.teacher
-                # Check if teacher is allocated to any subject in student's classroom
-                student_classroom = result_student.classroom
-                is_allocated = AllocatedSubject.objects.filter(
-                    teacher_name=teacher,
-                    class_room=student_classroom
-                ).exists()
-
-                if is_allocated:
-                    return True
-            except AttributeError:
-                pass
-
-        # Parents can view their children's published results
-        try:
-            parent = user.parent
-            is_parent_of_student = result_student.parent_guardian == parent
-
-            # Check if result is published
-            is_published = obj.is_published if hasattr(obj, 'is_published') else obj.term_result.is_published
-
-            return is_parent_of_student and is_published
-        except AttributeError:
-            pass
-
-        # Students can view their own published results
-        try:
-            if hasattr(user, 'student') and user.student == result_student:
-                is_published = obj.is_published if hasattr(obj, 'is_published') else obj.term_result.is_published
-                return is_published
-        except AttributeError:
-            pass
-
-        return False
-
-
-class CanPublishResults(permissions.BasePermission):
-    """
-    Permission to publish or unpublish results.
-
-    Rules:
-    - Only admins and head teachers can publish/unpublish results
-    - Regular teachers cannot publish results
-    """
-
-    message = "Only administrators and head teachers can publish results."
-
-    def has_permission(self, request, view):
-        """Check if user has admin privileges"""
-        if not request.user.is_authenticated:
-            return False
-
-        # Superusers and school admins can always publish
-        if request.user.is_superuser or request.user.is_admin:
+        if user.is_admin:
             return True
 
-        return False
-
-
-class CanManageExaminations(permissions.BasePermission):
-    """
-    Permission to create, update, or delete examinations/assessments.
-
-    Rules:
-    - Admins can manage all examinations
-    - Teachers can only manage examinations for their allocated classrooms
-    """
-
-    message = "You are not authorized to manage this examination."
-
-    def has_permission(self, request, view):
-        if not request.user.is_authenticated:
-            return False
-        return request.user.is_superuser or request.user.is_admin or hasattr(request.user, 'teacher')
-
-    def has_object_permission(self, request, view, obj):
-        """
-        Check if user can manage this specific examination.
-
-        Args:
-            obj: ExaminationListHandler instance
-        """
-        user = request.user
-
-        # Superusers and school admins have full access
-        if user.is_superuser or user.is_admin:
-            return True
-
-        # Check if user created this examination
-        if obj.created_by == user:
-            return True
-
-        # Check if user is a teacher allocated to any of the examination's classrooms
-        try:
+        if hasattr(user, "teacher"):
             teacher = user.teacher
-            exam_classrooms = obj.classrooms.all()
+            if obj.classroom and obj.classroom.class_teacher_id == teacher.id:
+                return True
+            if obj.subject_results.filter(teacher=teacher).exists():
+                return True
+            return False
 
-            for classroom in exam_classrooms:
-                is_allocated = AllocatedSubject.objects.filter(
-                    teacher_name=teacher,
-                    class_room=classroom
-                ).exists()
+        if user.is_student and user.active_role == "student":
+            profile = getattr(user, "student_profile", None)
+            return bool(profile) and obj.student_id == profile.id and obj.can_view
 
-                if is_allocated:
-                    return True
-        except AttributeError:
-            pass
+        if user.is_parent and user.active_role == "parent":
+            parent = getattr(user, "parent", None)
+            return bool(parent) and obj.student.parent_guardian_id == parent.id and obj.can_view
 
         return False
 
 
-class CanGenerateReportCards(permissions.BasePermission):
-    """
-    Permission to generate report cards.
-
-    Rules:
-    - Only admins can generate report cards
-    - Teachers cannot generate report cards (prevents premature distribution)
-    """
-
-    message = "Only administrators can generate report cards."
-
-    def has_permission(self, request, view):
-        """Check if user is admin"""
-        if not request.user.is_authenticated:
-            return False
-
-        return request.user.is_superuser or request.user.is_admin
-
-
-class IsTeacherOrAdmin(permissions.BasePermission):
-    """
-    Simple permission to check if user is a teacher or admin.
-    Used for general teacher-specific endpoints.
-    """
-
-    message = "You must be a teacher or administrator."
-
-    def has_permission(self, request, view):
-        """Check if user is staff (teacher or admin)"""
-        if not request.user.is_authenticated:
-            return False
-
-        return request.user.is_staff or request.user.is_admin
-
-
-class IsTeacherOfClass(permissions.BasePermission):
-    """
-    Permission to check if teacher is allocated to a specific classroom.
-    """
-
-    message = "You are not allocated to this classroom."
-
-    def has_permission(self, request, view):
-        """Check if user is authenticated and is staff or school admin"""
-        if not request.user.is_authenticated:
-            return False
-
-        return request.user.is_staff or request.user.is_admin
-
-    def check_allocation(self, user, classroom):
-        """
-        Check if user is allocated to the given classroom.
-
-        Args:
-            user: CustomUser instance
-            classroom: ClassRoom instance
-
-        Returns:
-            bool: True if allocated, False otherwise
-        """
-        # Admins are always "allocated"
-        if user.is_superuser or user.is_admin:
-            return True
-
-        try:
-            teacher = user.teacher
-            return AllocatedSubject.objects.filter(
-                teacher_name=teacher,
-                class_room=classroom
-            ).exists()
-        except AttributeError:
-            return False
-
-
-class IsParentOfStudent(permissions.BasePermission):
-    """
-    Permission to check if user is a parent and can access their child's data.
-
-    Rules:
-    - Only parents can access their children's information
-    - Admins can access all data
-    - Parents cannot access other children's data
-    """
-
-    message = "You can only access your own children's data."
-
-    def has_permission(self, request, view):
-        """Check if user is authenticated"""
-        if not request.user.is_authenticated:
-            return False
-
-        # Admins have full access
-        if request.user.is_superuser or request.user.is_admin:
-            return True
-
-        # Check if user has a parent profile
-        return hasattr(request.user, 'parent')
-
+class CanViewMarkedScript(BasePermission):
     def has_object_permission(self, request, view, obj):
-        """
-        Check if parent is viewing their own child's data.
-
-        Args:
-            obj: Student, TermResult, or other student-related instance
-        """
         user = request.user
 
-        # Admins have full access
-        if user.is_superuser or user.is_admin:
-            return True
+        if user.is_student and user.active_role == "student":
+            profile = getattr(user, "student_profile", None)
+            return bool(profile) and obj.student_id == profile.id and obj.visible_to_student
 
-        try:
-            parent = user.parent
-        except AttributeError:
-            return False
-
-        # Determine the student from various object types
-        student = None
-
-        if hasattr(obj, 'student'):
-            # For results, marks, attendance, etc.
-            student = obj.student
-        elif obj.__class__.__name__ == 'Student':
-            # Direct student object
-            student = obj
-        elif hasattr(obj, 'term_result'):
-            # For subject results
-            student = obj.term_result.student
-
-        if not student:
-            return False
-
-        # Check if this student is a child of this parent
-        return student.parent_guardian == parent
-
-
-class CanViewChildData(permissions.BasePermission):
-    """
-    Permission for parents to view their children's non-sensitive data.
-
-    Rules:
-    - Parents can view their children's information
-    - Results must be published for parents to view
-    - Attendance is always viewable by parents
-    - Fee information is always viewable by parents
-    """
-
-    message = "You can only view your own children's data."
-
-    def has_permission(self, request, view):
-        """Check if user is authenticated and has parent profile"""
-        if not request.user.is_authenticated:
-            return False
-
-        # Admins have full access
-        if request.user.is_superuser or request.user.is_admin:
-            return True
-
-        return hasattr(request.user, 'parent')
-
-    def has_object_permission(self, request, view, obj):
-        """
-        Check if parent can view this specific data.
-        Only published results are viewable by parents.
-        """
-        user = request.user
-
-        # Admins have full access
-        if user.is_superuser or user.is_admin:
-            return True
-
-        try:
-            parent = user.parent
-        except AttributeError:
-            return False
-
-        # Determine student and check relationship
-        student = None
-
-        if hasattr(obj, 'student'):
-            student = obj.student
-        elif obj.__class__.__name__ == 'Student':
-            student = obj
-        elif hasattr(obj, 'term_result'):
-            student = obj.term_result.student
-
-        if not student or student.parent_guardian != parent:
-            return False
-
-        # For results, check if published
-        if hasattr(obj, 'is_published'):
-            return obj.is_published
-        elif hasattr(obj, 'term_result') and hasattr(obj.term_result, 'is_published'):
-            return obj.term_result.is_published
-
-        # For other data (attendance, fees, etc.), allow access
-        return True
-
-
-class CanManageScript(permissions.BasePermission):
-    """
-    Permission for MarkedScript operations.
-
-    Write (upload / edit / delete / toggle_visibility):
-        - Teachers (is_staff with teacher profile) and admins only.
-        - On object actions: only the teacher who uploaded it, or an admin.
-
-    Read (list / retrieve / by_* actions):
-        - Admins and teachers: see their own uploads.
-        - Students: see their own scripts where visible_to_student=True.
-        - Parents: see their children's scripts where visible_to_parent=True.
-    """
-
-    WRITE_ACTIONS = frozenset({
-        'create', 'update', 'partial_update', 'destroy',
-        'bulk_upload', 'toggle_visibility',
-    })
-
-    message = "You do not have permission to perform this action on scripts."
-
-    def has_permission(self, request, view):
-        if not request.user.is_authenticated:
-            return False
-
-        if view.action in self.WRITE_ACTIONS:
-            u = request.user
-            return u.is_superuser or u.is_admin or hasattr(u, 'teacher')
-
-        return True  # reads: let get_queryset do the filtering
-
-    def has_object_permission(self, request, view, obj):
-        u = request.user
-
-        if u.is_superuser or u.is_admin:
-            return True
-
-        # Write: only the uploader
-        if view.action in self.WRITE_ACTIONS:
-            try:
-                return obj.uploaded_by == u.teacher
-            except AttributeError:
-                return False
-
-        # Read: teacher sees own uploads
-        if u.is_staff and hasattr(u, 'teacher'):
-            return obj.uploaded_by == u.teacher
-
-        # Student: own visible script
-        try:
-            return obj.student == u.student_profile and obj.visible_to_student
-        except AttributeError:
-            pass
-
-        # Parent: child's visible script
-        try:
-            return obj.student.parent_guardian == u.parent and obj.visible_to_parent
-        except AttributeError:
-            pass
+        if user.is_parent and user.active_role == "parent":
+            parent = getattr(user, "parent", None)
+            return bool(parent) and obj.student.parent_guardian_id == parent.id and obj.visible_to_parent
 
         return False

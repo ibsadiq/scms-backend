@@ -88,6 +88,7 @@ TENANT_APPS = [
     "django.contrib.contenttypes",
 
     # Your Business Logic Apps
+    "rest_framework_simplejwt.token_blacklist", # Fix for foreign key constraint 500 error on tenant login
     "users.apps.UsersConfig", # IMPORTANT: Needed here for Students/Teachers
     "academic.apps.AcademicConfig",
     "administration.apps.AdministrationConfig",

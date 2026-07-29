@@ -63,6 +63,39 @@ class ClientAdmin(admin.ModelAdmin):
         }),
     )
 
+    def save_model(self, request, obj, form, change):
+        is_new = obj.pk is None
+        super().save_model(request, obj, form, change)
+        
+        if is_new:
+            from .models import Domain
+            from django.conf import settings
+            from .tasks import provision_tenant_task
+            from django.contrib import messages
+            
+            # 1. Ensure Domain exists
+            full_domain = f"{obj.schema_name}.{settings.BASE_DOMAIN}"
+            Domain.objects.get_or_create(
+                domain=full_domain,
+                tenant=obj,
+                defaults={'is_primary': True}
+            )
+            
+            # 2. Set default admin info if not provided
+            update_fields = ['status']
+            if not obj.pending_admin_email:
+                obj.pending_admin_email = f"admin@{full_domain}"
+                obj.pending_admin_first_name = "Admin"
+                obj.pending_admin_last_name = "User"
+                update_fields.extend(['pending_admin_email', 'pending_admin_first_name', 'pending_admin_last_name'])
+                
+            # 3. Transition to provisioning state and queue task
+            obj.status = TenantStatus.PROVISIONING
+            obj.save(update_fields=update_fields)
+            
+            provision_tenant_task.delay(obj.id, request.user.id)
+            messages.info(request, f"Background provisioning started for {obj.name} (Celery task queued).")
+
     # ─── Display helpers ───────────────────────────────────────────────────────
 
     @admin.display(description='Plan')

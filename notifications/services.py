@@ -352,7 +352,7 @@ class NotificationService:
                     results['sms_sent'] += 1
 
             except Exception as e:
-                logger.error(f"Failed to create notification for {recipient.username}: {str(e)}")
+                logger.error(f"Failed to create notification for {recipient.email}: {str(e)}")
                 results['errors'] += 1
 
         return results
@@ -371,7 +371,7 @@ class NotificationService:
         try:
             prefs = NotificationPreference.objects.get(user=user)
         except NotificationPreference.DoesNotExist:
-            logger.warning(f"No preferences found for user {user.username}")
+            logger.warning(f"No preferences found for user {user.email}")
             return False
 
         if not prefs.daily_digest:
@@ -392,7 +392,7 @@ class NotificationService:
         subject = f"Daily Digest - {notifications.count()} New Notifications"
 
         body_parts = [
-            f"Hello {user.get_full_name() or user.username},\n",
+            f"Hello {user.get_full_name() or user.email},\n",
             f"\nYou have {notifications.count()} unread notifications:\n\n"
         ]
 
@@ -449,8 +449,8 @@ class NotificationService:
             Dictionary with variables for template
         """
         context = {
-            'recipient_name': notification.recipient.get_full_name() or notification.recipient.username,
-            'recipient_username': notification.recipient.username,
+            'recipient_name': notification.recipient.get_full_name() or notification.recipient.email,
+            'recipient_username': notification.recipient.email,
             'notification_title': notification.title,
             'notification_message': notification.message,
             'notification_type': notification.get_notification_type_display(),

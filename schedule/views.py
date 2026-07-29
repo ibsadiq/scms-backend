@@ -1,243 +1,270 @@
-from django.http import JsonResponse
+from django.db import transaction
 from django.core.management import call_command
-from django.core.exceptions import ValidationError
+from django.core.management.base import CommandError
 from io import StringIO
-from rest_framework import viewsets, status
+
+from rest_framework import viewsets, status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from .models import Period
-from .serializers import PeriodSerializer, PeriodListSerializer, PeriodCreateSerializer
-from academic.models import AllocatedSubject
+
+from .models import PeriodSlot, TimetableEntry, Room, TeacherAvailability
+from .serializers import (
+    PeriodSlotSerializer, RoomSerializer, TeacherAvailabilitySerializer,
+    TimetableEntryListSerializer, TimetableEntryWriteSerializer,
+    BulkCopyTimetableSerializer, BulkActivitySerializer,
+)
+from academic.models import ClassRoom
 
 
-class PeriodViewSet(viewsets.ModelViewSet):
+class IsAdminOrReadOnly(permissions.BasePermission):
     """
-    ViewSet for managing timetable periods with conflict detection.
-
-    Provides:
-    - List all periods
-    - Create new period (with conflict validation)
-    - Retrieve period details
-    - Update period (with conflict validation)
-    - Delete period
-    - Check for conflicts before saving
+    Admins (and homeroom-equivalent staff, if you want to extend this) can
+    write. Everyone authenticated can read — actual row-level scoping for
+    teachers/parents happens in get_queryset, not here.
     """
-    queryset = Period.objects.all().select_related(
-        'classroom', 'subject', 'teacher', 'subject__subject'
-    ).order_by('day_of_week', 'start_time')
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return getattr(request.user, "is_admin", False)
+
+
+class RoomViewSet(viewsets.ModelViewSet):
+    queryset = Room.objects.filter(is_active=True)
+    serializer_class = RoomSerializer
+    permission_classes = [IsAdminOrReadOnly]
+
+
+class PeriodSlotViewSet(viewsets.ModelViewSet):
+    queryset = PeriodSlot.objects.all()
+    serializer_class = PeriodSlotSerializer
+    permission_classes = [IsAdminOrReadOnly]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        term = self.request.query_params.get("term")
+        if term:
+            qs = qs.filter(term_id=term)
+        return qs
+
+
+class TeacherAvailabilityViewSet(viewsets.ModelViewSet):
+    queryset = TeacherAvailability.objects.all()
+    serializer_class = TeacherAvailabilitySerializer
+    permission_classes = [IsAdminOrReadOnly]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if not getattr(self.request.user, "is_admin", False):
+            qs = qs.filter(teacher__user=self.request.user)
+        return qs
+
+
+class TimetableEntryViewSet(viewsets.ModelViewSet):
+    queryset = TimetableEntry.objects.select_related(
+        "slot", "classroom", "subject", "subject__subject", "teacher", "room"
+    ).order_by("slot__day_of_week", "slot__period_number")
+    permission_classes = [IsAdminOrReadOnly]
 
     def get_serializer_class(self):
-        """
-        Use different serializers for different actions.
-        """
-        if self.action in ['create', 'update', 'partial_update']:
-            return PeriodCreateSerializer
-        return PeriodListSerializer
+        if self.action in ["create", "update", "partial_update"]:
+            return TimetableEntryWriteSerializer
+        return TimetableEntryListSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+
+        term = self.request.query_params.get("term")
+        if term:
+            qs = qs.filter(term_id=term)
+
+        if not getattr(user, "is_admin", False):
+            if getattr(user, "is_teacher", False):
+                qs = qs.filter(teacher__user=user)
+            elif hasattr(user, "student_profile") and user.student_profile:
+                qs = qs.filter(classroom=user.student_profile.classroom)
+            elif hasattr(user, "parent") and user.parent:
+                child_classrooms = user.parent.children.values_list("classroom", flat=True)
+                qs = qs.filter(classroom__in=child_classrooms)
+            else:
+                qs = qs.none()
+
+        return qs
 
     def create(self, request, *args, **kwargs):
-        """
-        Create a new period with conflict validation.
-        """
         serializer = self.get_serializer(data=request.data)
-
-        try:
-            serializer.is_valid(raise_exception=True)
-            self.perform_create(serializer)
-
-            # Return with nested data for display
-            instance = serializer.instance
-            response_serializer = PeriodListSerializer(instance)
-
-            return Response(
-                response_serializer.data,
-                status=status.HTTP_201_CREATED
-            )
-        except ValidationError as e:
-            # Handle Django model validation errors
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            return Response(
-                {'error': f'Failed to create period: {str(e)}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = serializer.instance
+        return Response(
+            TimetableEntryListSerializer(instance).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def update(self, request, *args, **kwargs):
-        """
-        Update a period with conflict validation.
-        """
-        partial = kwargs.pop('partial', False)
+        partial = kwargs.pop("partial", False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(TimetableEntryListSerializer(serializer.instance).data)
 
-        try:
-            serializer.is_valid(raise_exception=True)
-            self.perform_update(serializer)
+    @action(detail=False, methods=["get"])
+    def by_classroom(self, request):
+        classroom_id = request.query_params.get("classroom")
+        if not classroom_id:
+            return Response({"error": "classroom parameter is required"}, status=400)
+        qs = self.get_queryset().filter(classroom_id=classroom_id)
+        return Response(TimetableEntryListSerializer(qs, many=True).data)
 
-            # Return with nested data for display
-            response_serializer = PeriodListSerializer(serializer.instance)
-
-            return Response(response_serializer.data)
-        except ValidationError as e:
-            # Handle Django model validation errors
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            return Response(
-                {'error': f'Failed to update period: {str(e)}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-    @action(detail=False, methods=['post'])
-    def check_conflicts(self, request):
+    @action(detail=False, methods=["get"])
+    def my_timetable(self, request):
         """
-        Check for timetable conflicts without saving.
-
-        POST /api/timetable/check_conflicts/
-        Body: {
-            "classroom": 1,
-            "teacher": 2,
-            "day_of_week": "Monday",
-            "start_time": "09:00",
-            "end_time": "10:00",
-            "exclude_id": 5  # Optional: ID of period being edited
-        }
+        Resolves from request.user by default — admins can pass ?teacher=id
+        explicitly to look someone up.
         """
-        classroom_id = request.data.get('classroom')
-        teacher_id = request.data.get('teacher')
-        day_of_week = request.data.get('day_of_week')
-        start_time = request.data.get('start_time')
-        end_time = request.data.get('end_time')
-        exclude_id = request.data.get('exclude_id')
+        user = request.user
+        qs = self.get_queryset()
 
-        conflicts = []
+        teacher_id = request.query_params.get("teacher")
+        if teacher_id and getattr(user, "is_admin", False):
+            qs = qs.filter(teacher_id=teacher_id)
+        elif getattr(user, "is_teacher", False):
+            qs = qs.filter(teacher__user=user)
+        else:
+            return Response({"error": "No timetable available for this user."}, status=403)
 
-        # Check classroom conflicts
-        if classroom_id and day_of_week and start_time and end_time:
-            classroom_periods = Period.objects.filter(
-                classroom_id=classroom_id,
-                day_of_week=day_of_week,
-                is_active=True
-            )
+        return Response(TimetableEntryListSerializer(qs, many=True).data)
 
-            if exclude_id:
-                classroom_periods = classroom_periods.exclude(id=exclude_id)
+    @action(detail=False, methods=["post"])
+    def bulk_copy(self, request):
+        """
+        Copies every entry from source_classroom to target_classroom for a
+        given term, in one atomic transaction.
+        """
+        serializer = BulkCopyTimetableSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-            for period in classroom_periods:
-                # Check time overlap
-                if (start_time < str(period.end_time) and end_time > str(period.start_time)):
-                    conflicts.append({
-                        'type': 'classroom',
-                        'message': f'Classroom is already scheduled from {period.start_time} to {period.end_time}',
-                        'period_id': period.id,
-                        'subject': str(period.subject)
-                    })
+        source_entries = TimetableEntry.objects.filter(
+            classroom=data["source_classroom"], term=data["term"], is_active=True
+        ).select_related("slot")
 
-        # Check teacher conflicts
-        if teacher_id and day_of_week and start_time and end_time:
-            teacher_periods = Period.objects.filter(
-                teacher_id=teacher_id,
-                day_of_week=day_of_week,
-                is_active=True
-            )
+        created, skipped = [], []
 
-            if exclude_id:
-                teacher_periods = teacher_periods.exclude(id=exclude_id)
+        with transaction.atomic():
+            if data["overwrite"]:
+                TimetableEntry.objects.filter(
+                    classroom=data["target_classroom"], term=data["term"]
+                ).update(is_active=False)
 
-            for period in teacher_periods:
-                # Check time overlap
-                if (start_time < str(period.end_time) and end_time > str(period.start_time)):
-                    conflicts.append({
-                        'type': 'teacher',
-                        'message': f'Teacher is already scheduled from {period.start_time} to {period.end_time}',
-                        'period_id': period.id,
-                        'classroom': str(period.classroom),
-                        'subject': str(period.subject)
-                    })
-
-        if conflicts:
-            return Response({
-                'has_conflicts': True,
-                'conflicts': conflicts
-            }, status=status.HTTP_200_OK)
+            for entry in source_entries:
+                new_entry = TimetableEntry(
+                    term=data["term"],
+                    slot=entry.slot,
+                    classroom=data["target_classroom"],
+                    subject=entry.subject,
+                    activity_label=entry.activity_label,
+                    is_free_period=entry.is_free_period,
+                    teacher=entry.teacher,
+                    room=entry.room,
+                    notes=entry.notes,
+                )
+                try:
+                    new_entry.full_clean()
+                    new_entry.save()
+                    created.append(new_entry.id)
+                except Exception as e:
+                    skipped.append({"slot": str(entry.slot), "reason": str(e)})
 
         return Response({
-            'has_conflicts': False,
-            'message': 'No conflicts found'
-        }, status=status.HTTP_200_OK)
+            "created_count": len(created),
+            "skipped": skipped,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'])
-    def by_classroom(self, request):
+    @action(detail=False, methods=["post"])
+    def bulk_activity(self, request):
         """
-        Get all periods for a specific classroom.
-
-        GET /api/timetable/by_classroom/?classroom=1
+        Apply an activity or free period to a slot across every classroom
+        that doesn't already have an active entry there (or all, if
+        overwrite=True). E.g. Friday's Extra-Moral Lesson, school-wide Assembly.
         """
-        classroom_id = request.query_params.get('classroom')
-        if not classroom_id:
-            return Response(
-                {'error': 'classroom parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        serializer = BulkActivitySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        periods = self.get_queryset().filter(classroom_id=classroom_id)
-        serializer = PeriodListSerializer(periods, many=True)
-        return Response(serializer.data)
+        all_classrooms = ClassRoom.objects.all()
+        created, skipped = [], []
 
-    @action(detail=False, methods=['get'])
-    def by_teacher(self, request):
-        """
-        Get all periods for a specific teacher.
+        with transaction.atomic():
+            if data["overwrite"]:
+                TimetableEntry.objects.filter(
+                    term=data["term"], slot=data["slot"]
+                ).update(is_active=False)
 
-        GET /api/timetable/by_teacher/?teacher=1
-        """
-        teacher_id = request.query_params.get('teacher')
-        if not teacher_id:
-            return Response(
-                {'error': 'teacher parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            for classroom in all_classrooms:
+                if not data["overwrite"]:
+                    exists = TimetableEntry.objects.filter(
+                        term=data["term"], slot=data["slot"], classroom=classroom, is_active=True
+                    ).exists()
+                    if exists:
+                        skipped.append({"classroom": str(classroom), "reason": "already has an active entry"})
+                        continue
 
-        periods = self.get_queryset().filter(teacher_id=teacher_id)
-        serializer = PeriodListSerializer(periods, many=True)
-        return Response(serializer.data)
+                entry = TimetableEntry(
+                    term=data["term"], slot=data["slot"], classroom=classroom,
+                    activity_label=data.get("activity_label", ""),
+                    is_free_period=data["is_free_period"],
+                    teacher=data.get("teacher"), room=data.get("room"),
+                )
+                try:
+                    entry.full_clean()
+                    entry.save()
+                    created.append(entry.id)
+                except Exception as e:
+                    skipped.append({"classroom": str(classroom), "reason": str(e)})
+
+        return Response({
+            "created_count": len(created),
+            "skipped": skipped,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
-class PeriodCreateView(APIView):
-    """
-    Legacy view for creating periods via AllocatedSubject.
-    Kept for backward compatibility.
-    """
+class GenerateTimetableView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
     def post(self, request, *args, **kwargs):
-        allocated_subject_id = request.data.get("allocated_subject")
+        if not getattr(request.user, "is_admin", False):
+            return Response({"error": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        term_id = request.data.get("term")
+        if not term_id:
+            return Response({"error": "term is required"}, status=400)
+
+        dry_run = bool(request.data.get("dry_run", False))
+        max_backtracks = request.data.get("max_backtracks", 5000)
+
         try:
-            allocated_subject = AllocatedSubject.objects.get(id=allocated_subject_id)
-        except AllocatedSubject.DoesNotExist:
-            return Response(
-                {"error": "AllocatedSubject not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            max_backtracks = int(max_backtracks)
+        except (TypeError, ValueError):
+            return Response({"error": "max_backtracks must be an integer"}, status=400)
 
-        serializer = PeriodSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(allocated_subject=allocated_subject)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        command_args = ["--term", str(term_id), "--max-backtracks", str(max_backtracks)]
+        if dry_run:
+            command_args.append("--dry-run")
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-def run_generate_timetable(request):
-    """
-    View to trigger the timetable generation management command.
-    """
-    output = StringIO()
-    try:
-        call_command("generate_timetable", stdout=output)
-        return JsonResponse({"status": "success", "message": output.getvalue()})
-    except Exception as e:
-        return JsonResponse({"status": "error", "message": str(e)})
+        output = StringIO()
+        try:
+            call_command("generate_timetable", *command_args, stdout=output)
+            return Response({
+                "status": "success",
+                "dry_run": dry_run,
+                "message": output.getvalue(),
+            })
+        except CommandError as e:
+            return Response({"status": "error", "message": str(e)}, status=400)
+        except Exception as e:
+            return Response({"status": "error", "message": str(e)}, status=500)

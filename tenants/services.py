@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
-from django_tenants.utils import schema_context
+from django_tenants.utils import connection, schema_context
 from django.conf import settings
 
 from .models import Client, Domain, TenantStatus
@@ -83,16 +83,8 @@ class TenantService:
         auto_activate=False,
     ):
         """
-        Create a new tenant with all required setup.
-
-        Args:
-            admin_email:    Email used to create the admin account (login credential).
-            contact_email:  School's public contact email (optional; falls back to admin_email).
-            contact_phone:  School's public contact phone (optional).
-            auto_activate:  If False (default), tenant is created as PENDING.
-
-        Returns:
-            dict with tenant, domain, admin_user, etc.
+        Create a new tenant RECORD only. Schema and migrations are deferred
+        until the admin approves the registration.
         """
         if not school_name or not subdomain or not admin_email:
             raise TenantCreationError("School name, subdomain, and admin email are required")
@@ -101,15 +93,19 @@ class TenantService:
         TenantService.validate_domain(full_domain)
         schema_name = TenantService.validate_schema_name(school_name)
 
-        # 1. Create the tenant record
+        # 1. Create the tenant record (schema NOT created yet — auto_create_schema=False)
         tenant = Client.objects.create(
             schema_name=schema_name,
             name=school_name,
             has_mobile_access=enable_mobile,
             contact_email=contact_email or admin_email,
             contact_phone=contact_phone or '',
-            # Use proper status field — never touch is_active directly
-            status=TenantStatus.ACTIVE if auto_activate else TenantStatus.PENDING,
+            status=TenantStatus.PENDING,  # Always pending at creation
+            # Store admin details for approval time
+            pending_admin_email=admin_email,
+            pending_admin_first_name=admin_first_name,
+            pending_admin_last_name=admin_last_name,
+            pending_admin_phone=admin_phone or '',
         )
 
         # 2. Create the primary domain
@@ -119,46 +115,49 @@ class TenantService:
             is_primary=True,
         )
 
-        # 3. Create school admin user inside the tenant schema
+        logger.info("Tenant record '%s' created (status=%s, schema deferred)", schema_name, tenant.status)
+
+        return {
+            'tenant':            tenant,
+            'domain':            domain,
+            'has_mobile_access': enable_mobile,
+            'status':            tenant.status,
+        }
+
+    @staticmethod
+    def setup_tenant_schema(tenant, admin_email, admin_first_name, admin_last_name, admin_phone=None):
+        """
+        Create the PostgreSQL schema, run migrations, create admin user,
+        and initialize default school data. Called during approval.
+        """
+        from django.core.management import call_command
+        
+        schema_name = tenant.schema_name
+        
+        # 1. Create the schema
+        with connection.cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"')
+        
+        # 2. Run migrations on the new schema
+        # The migrate command resets the search_path to public at the end of its execution!
+        with schema_context(schema_name):
+            call_command('migrate', schema_name=schema_name, interactive=False)
+            
+        # 3. Create admin user and initialize school data in a fresh schema context
         with schema_context(schema_name):
             admin_user = User.objects.create_user(
                 email=admin_email,
-                password=User.objects.make_random_password(length=20),  # unusable until reset
+                password=User.objects.make_random_password(length=20),
                 first_name=admin_first_name,
                 last_name=admin_last_name,
                 is_admin=True,
                 is_active=True,
             )
+            
+            # 4. Initialize school data
             TenantService._initialize_school_data(schema_name)
-
-        # Build password-set URL using FRONTEND_URL (respects dev port)
-        _frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-        _parsed   = urlparse(_frontend)
-        _port     = f':{_parsed.port}' if _parsed.port else ''
-        _subdomain = subdomain  # already validated above
-        _reset_url = (
-            f"{_parsed.scheme}://{_subdomain}.{_parsed.hostname}{_port}"
-            f"/reset-password"
-            f"?uid={urlsafe_base64_encode(force_bytes(admin_user.pk))}"
-            f"&token={PasswordResetTokenGenerator().make_token(admin_user)}"
-        )
-
-        # Note: Email notifications were previously sent from inside this
-        # service. Move sending of acknowledgement and notification emails to
-        # the calling view so that emails are only sent after the view has
-        # confirmed the tenant creation completed successfully.
-
-        logger.info("Tenant '%s' created (status=%s)", schema_name, tenant.status)
-
-        return {
-            'tenant':           tenant,
-            'domain':           domain,
-            'admin_user':       admin_user,
-            'reset_url':        _reset_url,
-            'login_url':        _reset_url,
-            'has_mobile_access': enable_mobile,
-            'status':           tenant.status,
-        }
+            
+            return admin_user
 
     # ─── School data initialisation ───────────────────────────────────────────
 
@@ -171,12 +170,17 @@ class TenantService:
 
         with schema_context(schema_name):
             GradeLevel.initialize_defaults()
-            current_year  = date.today().year
-            academic_year = AcademicYear.objects.create(
+            today = date.today()
+            # If we are before August, we are still in the previous year's academic session (e.g. July 2026 is in the 2025/2026 session)
+            current_year = today.year if today.month >= 8 else today.year - 1
+            
+            academic_year, _ = AcademicYear.objects.get_or_create(
                 name=f"{current_year}/{current_year + 1}",
-                start_date=date(current_year,     9,  1),
-                end_date=date(current_year + 1,   6, 30),
-                active_year=True,
+                defaults={
+                    'start_date': date(current_year, 9, 1),
+                    'end_date': date(current_year + 1, 6, 30),
+                    'active_year': True,
+                }
             )
             Term.objects.bulk_create([
                 Term(
@@ -197,7 +201,7 @@ class TenantService:
                     start_date=date(current_year + 1,  4, 20),
                     end_date=date(current_year + 1,    6, 30),
                 ),
-            ])
+            ], ignore_conflicts=True)
 
     # ─── Lifecycle actions ────────────────────────────────────────────────────
 

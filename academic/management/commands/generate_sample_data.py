@@ -1,27 +1,17 @@
 """
 Django Management Command: Generate Nigerian School Sample Data for SCMS
-
-This comprehensive script generates realistic sample data for a Nigerian school system including:
-- Nigerian names, locations, occupations
-- Academic structure (JSS/SSS system)
-- Teachers, parents, and students with relationships
-- Fee structures
-- Student class enrollments and dormitories
-- Attendance records
-- Financial transactions
-
-Usage:
-    python manage.py generate_sample_data
-    python manage.py generate_sample_data --students 200
 """
+import os
+import random
+from datetime import datetime, timedelta, date
+from decimal import Decimal
 
 from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth.models import Group
 from django.utils import timezone
-from datetime import datetime, timedelta, date
-from decimal import Decimal
-import random
-
+from django.conf import settings
+from django.core.files import File
+from django.core.files.base import ContentFile
 try:
     from django_tenants.utils import schema_context
 except ImportError:
@@ -40,10 +30,13 @@ from finance.models import (
     FeeStructure, StudentFeeAssignment, Receipt, FeePaymentAllocation
 )
 from attendance.models import AttendanceStatus, StudentAttendance, TeachersAttendance
-from examination.models import GradeScale, GradeScaleRule, ExaminationListHandler, MarksManagement
-from schedule.models import Period
 
-# Nigerian Names Data
+from examination.models import (
+    GradingScheme, AssessmentComponent, GradeRule,
+    AssessmentSession, AssessmentEntry, AssessmentType
+)
+from schedule.models import PeriodSlot, TimetableEntry
+
 NIGERIAN_FIRST_NAMES_MALE = [
     'Chioma', 'Emeka', 'Tunde', 'Adebayo', 'Oluwaseun', 'Chidi', 'Babatunde',
     'Obinna', 'Kunle', 'Segun', 'Karim', 'Ahmed', 'Ibrahim', 'Ali', 'Yusuf',
@@ -75,13 +68,7 @@ NIGERIAN_STATES = [
     'Abia', 'Imo', 'Enugu', 'Ebonyi', 'Anambra', 'Federal Capital Territory'
 ]
 
-NIGERIAN_RELIGIONS = [
-    'Christianity',
-    'Islam',
-    'Traditional Religion',
-    'Other'
-]
-
+NIGERIAN_RELIGIONS = ['Christianity', 'Islam', 'Traditional Religion', 'Other']
 NIGERIAN_OCCUPATIONS = [
     'Civil Servant', 'Business Owner', 'Trader', 'Teacher', 'Nurse', 'Doctor',
     'Engineer', 'Lawyer', 'Accountant', 'Banker', 'Farmer', 'Artisan',
@@ -90,1015 +77,722 @@ NIGERIAN_OCCUPATIONS = [
     'Beautician', 'Hairdresser', 'Barber', 'Cleaner', 'Laborer'
 ]
 
+AVATAR_PATHS = [
+    f"avatars/avatar_{i}.png" for i in range(5)
+]
 
 class Command(BaseCommand):
-    help = 'Generate comprehensive Nigerian school sample data for the SCMS'
+    help = 'Generate comprehensive Nigerian school sample data for the SCMS demo'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--students',
-            type=int,
-            default=150,
-            help='Number of students to generate (default: 150)'
-        )
-        parser.add_argument(
-            '--teachers',
-            type=int,
-            default=20,
-            help='Number of teachers to generate (default: 20)'
-        )
-        parser.add_argument(
-            '--schema',
-            type=str,
-            help='Tenant schema name to run this command within',
-        )
+        parser.add_argument('--students', type=int, default=300)
+        parser.add_argument('--teachers', type=int, default=20)
+        parser.add_argument('--schema', type=str)
 
     def handle(self, *args, **options):
+        self.num_students = options['students']
+        self.num_teachers = options['teachers']
         self.teachers = []
         self.parents = []
         self.students = []
         self.classrooms = []
         self.subjects = []
-        self.academic_year = None
-        self.current_term = None
         self.accountants = []
-        self.num_students = options['students']
-        self.num_teachers = options['teachers']
-
+        self.grading_schemes = []
+        
         schema_name = options.get('schema')
         if schema_name:
             if schema_context is None:
-                raise CommandError(...)
-
-            # Fetch Client info from public schema BEFORE switching context
+                raise CommandError("django_tenants is not installed")
+            
             from tenants.models import Client
             try:
                 self.tenant_client = Client.objects.get(schema_name=schema_name)
             except Client.DoesNotExist:
                 raise CommandError(f"No tenant found with schema_name='{schema_name}'")
 
-            self.stdout.write(self.style.WARNING(
-                f"Running sample data generation inside tenant schema '{schema_name}'"
-            ))
+            self.school_domain = self.tenant_client.schema_name
             with schema_context(schema_name):
                 self._run_generation()
         else:
-            self.tenant_client = None
+            self.school_domain = "demo"
             self._run_generation()
 
-    def _run_generation(self):
-        self.stdout.write("=" * 80)
-        self.stdout.write(self.style.SUCCESS("🎓 NIGERIAN SCHOOL MANAGEMENT SYSTEM - DATA GENERATOR"))
-        self.stdout.write("=" * 80)
+    def get_avatar_file(self, prefix="avatar"):
+        try:
+            from io import BytesIO
+            from PIL import Image
+            color = (random.randint(40, 200), random.randint(40, 200), random.randint(40, 200))
+            img = Image.new('RGB', (200, 200), color=color)
+            buf = BytesIO()
+            img.save(buf, format='PNG')
+            return ContentFile(buf.getvalue(), name=f"{prefix}_{random.randint(10000, 99999)}.png")
+        except Exception:
+            VALID_PNG = (
+                b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00d\x00\x00\x00d\x08\x02\x00\x00\x00'
+                b'\xff\x80\x02\x03\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xdc'
+                b'\xcc\x59\x00\x00\x00\x00IEND\xaeB`\x82'
+            )
+            return ContentFile(VALID_PNG, name=f"{prefix}_{random.randint(10000, 99999)}.png")
 
+    def get_avatar(self, gender=None):
+        return self.get_avatar_file("avatar")
+
+    def _run_generation(self):
+        self.stdout.write(self.style.SUCCESS("🎓 GENERATING DEMO DATA (2025/2026 Session)"))
         self.create_groups()
-        self.create_school_info()
         self.create_academic_calendar()
         self.create_departments_and_subjects()
         self.create_grade_levels()
+        self.create_grading_schemes()
+        self.create_demo_admin()
         self.create_accountants()
         self.create_teachers()
         self.create_classrooms()
         self.create_parents()
         self.create_students()
-        self.create_dormitories()
         self.create_fee_structures()
         self.create_receipts_and_payments()
-        self.create_attendance_statuses()
-        self.create_attendance_records()
-        self.create_grade_scale()
-        self.create_examinations()
-        self.create_allocated_subjects()
-        self.create_articles()
-
-        self.stdout.write("\n" + "=" * 60)
+        self.create_attendance()
+        self.create_examinations_and_scores()
+        self.create_timetable()
+        self.create_school_events()
+        
         self.stdout.write(self.style.SUCCESS("DATA GENERATION COMPLETE!"))
-        self.stdout.write("=" * 60)
-        self.print_summary()
+        
+        # Print demo accounts
+        print("\n--- DEMO ACCOUNTS ---")
+        print("Admin: admin@demo.com / password123")
+        print("Teacher: teacher@demo.com / password123")
+        print("Parent: parent@demo.com / password123")
+        print("Accountant: accountant@demo.com / password123")
 
     def create_groups(self):
-        """Create user groups if they don't exist"""
-        self.stdout.write("\n[1/17] Creating user groups...")
-        groups = ['teacher', 'parent', 'accountant', 'family']
-        for group_name in groups:
-            Group.objects.get_or_create(name=group_name)
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created/verified {len(groups)} user groups"))
-
-    def create_school_info(self):
-        self.stdout.write("\n[2/17] Creating school information...")
-
-        school = School.objects.filter(active=True).first()
-        if school:
-            self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing school: {school.name}"))
-        else:
-            client = getattr(self, 'tenant_client', None)
-            school_name = client.name if client else 'Sample Academy'
-            domain_slug = client.schema_name if client else 'sample'
-
-            school = School.objects.create(
-                active=True,
-                name=school_name,
-                address=client.address if client and client.address else '123 Sample Street, Lagos, Nigeria',
-                school_type='Secondary School',
-                students_gender='Mixed',
-                ownership='Private',
-                mission='To provide quality education that nurtures academic excellence, moral character, and leadership development.',
-                vision="To be a leading school producing globally competitive yet culturally rooted citizens.",
-                telephone=client.contact_phone if client and client.contact_phone else '+234-800-000-0000',
-                school_email=client.contact_email if client and client.contact_email else f'info@{domain_slug}.edu.ng',
-            )
-            self.stdout.write(self.style.SUCCESS(f"  ✓ Created school: {school.name}"))
-
-        self.school_domain = domain_slug if not school else (
-            getattr(self, 'tenant_client', None).schema_name if getattr(self, 'tenant_client', None) else 'sample'
-        )
-
-        days = [
-            (1, 'Monday'), (2, 'Tuesday'), (3, 'Wednesday'),
-            (4, 'Thursday'), (5, 'Friday'), (6, 'Saturday'), (7, 'Sunday')
-        ]
-        for day_num, day_name in days:
-            Day.objects.get_or_create(day=day_num)
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created days of the week"))
+        for g in ['teacher', 'parent', 'accountant', 'family', 'student']:
+            Group.objects.get_or_create(name=g)
 
     def create_academic_calendar(self):
-        """Create Nigerian academic year and terms if not already set"""
-        self.stdout.write("\n[3/17] Creating academic calendar (Nigerian system)...")
+        self.stdout.write("1. Creating Academic Calendar 2025/2026...")
+        # Force the 2025/2026 academic year
+        self.academic_year, _ = AcademicYear.objects.update_or_create(
+            name="2025/2026",
+            defaults={
+                'start_date': date(2025, 9, 1),
+                'end_date': date(2026, 7, 30),
+                'active_year': True
+            }
+        )
+        # Deactivate others
+        AcademicYear.objects.exclude(id=self.academic_year.id).update(active_year=False)
 
-        current_year = datetime.now().year
-        
-        # Check if academic year already exists (created during tenant setup)
-        self.academic_year = AcademicYear.objects.filter(active_year=True).first()
-        if self.academic_year:
-            self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing academic year: {self.academic_year.name}"))
-        else:
-            self.academic_year = AcademicYear.objects.create(
-                name=f"{current_year}",
-                start_date=date(current_year, 1, 15),
-                end_date=date(current_year, 12, 15),
-                active_year=True
-            )
-            self.stdout.write(self.style.SUCCESS(f"  ✓ Created academic year: {self.academic_year.name}"))
-
-        # Check if terms already exist
-        existing_terms = Term.objects.filter(academic_year=self.academic_year).count()
-        if existing_terms > 0:
-            self.stdout.write(self.style.SUCCESS(f"  ✓ Using existing {existing_terms} terms"))
-            self.current_term = Term.objects.filter(academic_year=self.academic_year).first()
-        else:
-            # Nigerian Terms
-            terms_data = [
-                ('First Term', date(current_year, 1, 15), date(current_year, 4, 1), Decimal('150000')),
-                ('Second Term', date(current_year, 4, 15), date(current_year, 7, 31), Decimal('150000')),
-                ('Third Term', date(current_year, 9, 1), date(current_year, 12, 15), Decimal('150000')),
-            ]
-
-            for term_name, start, end, fee in terms_data:
-                term, _ = Term.objects.get_or_create(
-                    name=term_name,
-                    academic_year=self.academic_year,
-                    defaults={
-                        'start_date': start,
-                        'end_date': end
-                    }
-                )
-                if term_name == 'First Term':
-                    self.current_term = term
-
-            self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(terms_data)} terms"))
-
-        # Create school events
-        events_data = [
-            ('Mid-term Break', 'holiday', 30, 7),
-            ('End of Term Exams', 'exam', -14, 7),
-            ('Graduation Ceremony', 'graduation', -7, 1),
+        # Create terms
+        terms_data = [
+            ('First Term', date(2025, 9, 1), date(2025, 12, 15)),
+            ('Second Term', date(2026, 1, 5), date(2026, 4, 15)),
+            ('Third Term', date(2026, 4, 20), date(2026, 7, 30)),
         ]
-
-        for event_name, event_type, days_offset, duration in events_data:
-            event_date = self.current_term.end_date + timedelta(days=days_offset)
-            SchoolEvent.objects.get_or_create(
-                term=self.current_term,
-                name=event_name,
-                defaults={
-                    'event_type': event_type,
-                    'start_date': event_date,
-                    'end_date': event_date + timedelta(days=duration),
-                    'description': f'{event_name} for Term {self.current_term.name}'
-                }
+        self.terms = []
+        for name, start, end in terms_data:
+            term, _ = Term.objects.update_or_create(
+                name=name,
+                academic_year=self.academic_year,
+                defaults={'start_date': start, 'end_date': end}
             )
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created school events"))
+            self.terms.append(term)
+        
+        # Current term is Third Term for demo purposes
+        self.current_term = self.terms[2]
+        
+        # Create days
+        for day_num, day_name in enumerate(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], 1):
+            Day.objects.get_or_create(day=day_num)
 
     def create_departments_and_subjects(self):
-        """Create Nigerian curriculum subjects"""
-        self.stdout.write("\n[4/17] Creating departments and subjects (Nigerian curriculum)...")
-
+        self.stdout.write("2. Creating Departments and Subjects...")
         departments_subjects = {
-            'Languages': [
-                ('English Language', 'ENG', True, True),
-                ('Hausa Language', 'HAS', True, True),
-                ('Igbo Language', 'IGO', True, True),
-                ('Yoruba Language', 'YOR', True, True),
-                ('French', 'FRE', True, True),
-            ],
-            'Mathematics': [
-                ('Mathematics', 'MATH', False, True),
-                ('Further Mathematics', 'FMATH', True, True),
-            ],
-            'Sciences': [
-                ('Physics', 'PHY', False, True),
-                ('Chemistry', 'CHEM', False, True),
-                ('Biology', 'BIO', False, True),
-                ('Integrated Science', 'INTSC', False, True),
-            ],
-            'Social Sciences': [
-                ('History', 'HIST', True, True),
-                ('Geography', 'GEO', True, True),
-                ('Government', 'GOVT', True, True),
-                ('Economics', 'ECON', True, True),
-                ('Civic Education', 'CIVIC', True, True),
-            ],
-            'Vocational Studies': [
-                ('Computer Science', 'CS', True, True),
-                ('Information Technology', 'IT', True, True),
-                ('Accounting', 'ACC', True, True),
-                ('Commerce', 'COM', True, True),
-            ],
-            'Arts': [
-                ('Fine Arts', 'ART', True, True),
-                ('Music', 'MUS', True, True),
-                ('Home Economics', 'HOME', True, True),
-                ('Agricultural Science', 'AGRIC', True, True),
-            ],
-            'Religion & Ethics': [
-                ('Christian Religious Studies', 'CRS', True, True),
-                ('Islamic Religious Studies', 'IRS', True, True),
-            ],
-            'Physical Education': [
-                ('Physical Education', 'PE', False, False),
-            ],
+            'Languages': [('English Language', 'ENG'), ('French', 'FRE')],
+            'Mathematics': [('Mathematics', 'MATH')],
+            'Sciences': [('Physics', 'PHY'), ('Chemistry', 'CHEM'), ('Biology', 'BIO'), ('Basic Science', 'BSC')],
+            'Social Sciences': [('Geography', 'GEO'), ('Economics', 'ECON')],
+            'Vocational': [('Computer Science', 'CS'), ('Accounting', 'ACC')]
         }
-
-        dept_count = 0
-        subj_count = 0
 
         for dept_name, subjects in departments_subjects.items():
-            dept, _ = Department.objects.get_or_create(
-                name=dept_name.lower()
-            )
-            dept_count += 1
-
-            for subj_name, code, selectable, graded in subjects:
+            dept, _ = Department.objects.get_or_create(name=dept_name.lower())
+            for subj_name, code in subjects:
                 subject, _ = Subject.objects.get_or_create(
                     subject_code=code,
-                    defaults={
-                        'name': subj_name,
-                        'is_selectable': selectable,
-                        'graded': graded,
-                        'department': dept
-                    }
+                    defaults={'name': subj_name, 'is_selectable': False, 'graded': True, 'department': dept}
                 )
                 self.subjects.append(subject)
-                subj_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {dept_count} departments and {subj_count} subjects"))
 
     def create_grade_levels(self):
-        """Create Nigerian grade and class levels"""
-        self.stdout.write("\n[5/17] Creating grade and class levels (Nigerian system)...")
-
-        # GradeLevel rows are already seeded by GradeLevel.initialize_defaults()
-        # during tenant provisioning — just fetch the ones we need.
-        grade_levels = {}
-        code_map = {
-            'JSS 1': 'JSS_1', 'JSS 2': 'JSS_2', 'JSS 3': 'JSS_3',
-            'SS 1': 'SS_1', 'SS 2': 'SS_2', 'SS 3': 'SS_3',
-        }
-        for gl_name, code in code_map.items():
-            grade_levels[gl_name] = GradeLevel.objects.get(system_code=code)
-
-        # Class levels with subdivisions
-        class_levels_data = [
-            ('JSS 1A', 'JSS 1'), ('JSS 1B', 'JSS 1'), ('JSS 1C', 'JSS 1'),
-            ('JSS 2A', 'JSS 2'), ('JSS 2B', 'JSS 2'), ('JSS 2C', 'JSS 2'),
-            ('JSS 3A', 'JSS 3'), ('JSS 3B', 'JSS 3'), ('JSS 3C', 'JSS 3'),
-            ('SS 1A', 'SS 1'), ('SS 1B', 'SS 1'), ('SS 1C', 'SS 1'),
-            ('SS 2A', 'SS 2'), ('SS 2B', 'SS 2'), ('SS 2C', 'SS 2'),
-            ('SS 3A', 'SS 3'), ('SS 3B', 'SS 3'), ('SS 3C', 'SS 3'),
+        self.stdout.write("3. Fetching Grade Levels and creating Class Levels...")
+        # Assume GradeLevel.initialize_defaults() ran, fetch them
+        jss1 = GradeLevel.objects.get(system_code='JSS_1')
+        jss2 = GradeLevel.objects.get(system_code='JSS_2')
+        jss3 = GradeLevel.objects.get(system_code='JSS_3')
+        ss1 = GradeLevel.objects.get(system_code='SS_1')
+        ss2 = GradeLevel.objects.get(system_code='SS_2')
+        ss3 = GradeLevel.objects.get(system_code='SS_3')
+        
+        classes = [
+            ('JSS 1A', jss1), ('JSS 1B', jss1), ('JSS 2A', jss2),
+            ('JSS 3A', jss3), ('SS 1A', ss1), ('SS 2A', ss2), ('SS 3A', ss3)
         ]
+        
+        for cl_name, gl in classes:
+            ClassLevel.objects.get_or_create(name=cl_name, defaults={'grade_level': gl})
 
-        class_count = 0
-        for cl_name, gl_name in class_levels_data:
-            ClassLevel.objects.get_or_create(
-                name=cl_name,
-                defaults={
-                    'grade_level': grade_levels[gl_name]
-                }
-            )
-            class_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Using {len(grade_levels)} existing grade levels, created {class_count} class levels"))
-
+        # Class years
         current_year = datetime.now().year
-        for i in range(-2, 5):
-            year = current_year + i
-            ClassYear.objects.get_or_create(year=year)
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created class years"))
+        for i in range(-1, 6):
+            ClassYear.objects.get_or_create(year=current_year + i)
+
+    def create_grading_schemes(self):
+        self.stdout.write("4. Creating Grading Schemes...")
+        for gl in GradeLevel.objects.all():
+            scheme, _ = GradingScheme.objects.update_or_create(
+                name=f"Standard WAEC Scheme ({gl.default_name})",
+                academic_year=self.academic_year,
+                grade_level=gl,
+                defaults={'description': 'Standard secondary school grading scheme'}
+            )
+            
+            AssessmentComponent.objects.update_or_create(
+                scheme=scheme, name="1st CA", defaults={'max_score': 20, 'weight': 20, 'order': 1}
+            )
+            AssessmentComponent.objects.update_or_create(
+                scheme=scheme, name="2nd CA", defaults={'max_score': 20, 'weight': 20, 'order': 2}
+            )
+            AssessmentComponent.objects.update_or_create(
+                scheme=scheme, name="Examination", defaults={'max_score': 60, 'weight': 60, 'order': 3}
+            )
+            
+            rules = [
+                (75, 100, 'A1', 'Excellent'),
+                (70, 74.99, 'B2', 'Very Good'),
+                (65, 69.99, 'B3', 'Good'),
+                (60, 64.99, 'C4', 'Credit'),
+                (55, 59.99, 'C5', 'Credit'),
+                (50, 54.99, 'C6', 'Credit'),
+                (45, 49.99, 'D7', 'Pass'),
+                (40, 44.99, 'E8', 'Pass'),
+                (0,  39.99, 'F9', 'Fail'),
+            ]
+            for min_s, max_s, grade, remark in rules:
+                GradeRule.objects.update_or_create(
+                    scheme=scheme,
+                    min_score=min_s,
+                    defaults={'max_score': max_s, 'grade': grade, 'remark': remark}
+                )
+            
+            self.grading_schemes.append(scheme)
+
+    def create_demo_admin(self):
+        admin, _ = CustomUser.objects.get_or_create(
+            email='admin@demo.com',
+            defaults={
+                'first_name': 'Demo',
+                'last_name': 'Admin',
+                'is_active': True,
+                'is_admin': True,
+            }
+        )
+        admin.set_password('password123')
+        admin.save()
 
     def create_accountants(self):
-        """Create accountant users"""
-        self.stdout.write("\n[6/17] Creating accountants...")
-
-        accountants_data = [
-            {
-                'email': f'chukwu@{self.school_domain}.edu.ng',
-                'first_name': 'Chukwu',
-                'last_name': 'Okafor',
-            },
-            {
-                'email': f'fatima@{self.school_domain}.edu.ng',
-                'first_name': 'Fatima',
-                'last_name': 'Hassan',
-            },
-        ]
-
-        group, _ = Group.objects.get_or_create(name='accountant')
-
-        for acc_data in accountants_data:
-            user, created = CustomUser.objects.get_or_create(
-                email=acc_data['email'],
-                defaults={
-                    'first_name': acc_data['first_name'],
-                    'last_name': acc_data['last_name'],
-                    'is_active': True,
-                    'is_accountant': True,
-                }
-            )
-            if created:
-                user.set_password('password')
-                user.save()
-
-            if not user.is_accountant:
-                user.is_accountant = True
-                user.save()
-
-            user.groups.add(group)
-            self.accountants.append(user)
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.accountants)} accountants"))
+        acc, _ = CustomUser.objects.get_or_create(
+            email='accountant@demo.com',
+            defaults={
+                'first_name': 'Demo',
+                'last_name': 'Accountant',
+                'is_active': True,
+                'is_accountant': True,
+            }
+        )
+        acc.set_password('password123')
+        acc.save()
+        self.accountants.append(acc)
 
     def create_teachers(self):
-        """Create Nigerian teachers"""
-        self.stdout.write("\n[7/17] Creating teachers...")
-
-        designations = ['Head Teacher', 'Senior Teacher', 'Teacher']
-
-        group, _ = Group.objects.get_or_create(name='teacher')
-
-        for i in range(self.num_teachers):
-            first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE + NIGERIAN_FIRST_NAMES_FEMALE)
-            last_name = random.choice(NIGERIAN_LAST_NAMES)
-            gender = 'Male' if first_name in NIGERIAN_FIRST_NAMES_MALE else 'Female'
-
-            email = f"{first_name.lower()}.{last_name.lower()}{i}@{self.school_domain}.edu.ng"[:50]
-
-            specializations = random.sample(self.subjects, k=random.randint(2, 4))
-
-            # Create user first
-            user, user_created = CustomUser.objects.get_or_create(
+        self.stdout.write("5. Creating Teachers...")
+        demo_t, _ = CustomUser.objects.get_or_create(
+            email='teacher@demo.com',
+            defaults={
+                'first_name': 'Demo',
+                'last_name': 'Teacher',
+                'is_active': True,
+                'is_teacher': True,
+            }
+        )
+        demo_t.set_password('password123')
+        demo_t.save()
+        
+        dt, _ = Teacher.objects.get_or_create(user=demo_t, defaults={'empId': 'TCH001'})
+        dt.subject_specialization.set(random.sample(self.subjects, 2))
+        self.teachers.append(dt)
+        
+        for i in range(1, self.num_teachers):
+            fname = NIGERIAN_FIRST_NAMES_MALE[i % len(NIGERIAN_FIRST_NAMES_MALE)]
+            lname = NIGERIAN_LAST_NAMES[i % len(NIGERIAN_LAST_NAMES)]
+            email = f"teacher_{i:02d}@school.com"
+            user, _ = CustomUser.objects.get_or_create(
                 email=email,
                 defaults={
-                    'first_name': first_name,
-                    'last_name': last_name,
+                    'first_name': fname,
+                    'last_name': lname,
                     'is_active': True,
                     'is_teacher': True,
-                    'phone_number': f"+234701{i:06d}",
                 }
             )
-            if user_created:
-                user.set_password('password')
-                user.save()
-
-            if not user.is_teacher:
-                user.is_teacher = True
-                user.save()
-
-            user.groups.add(group)
-
-            # Create teacher with user
-            teacher, created = Teacher.objects.get_or_create(
+            user.first_name = fname
+            user.last_name = lname
+            user.set_password('password123')
+            user.save()
+            t, _ = Teacher.objects.get_or_create(
                 user=user,
-                defaults={
-                    'empId': f'TCH{i+1:04d}',
-                    'short_name': f"{chr(65 + (i % 26))}{i % 100:02d}"[:3],
-                    'designation': random.choice(designations),
-                }
+                defaults={'empId': f'TCH{i:04d}', 'first_name': fname, 'last_name': lname, 'email': email}
             )
-
-            if created:
-                teacher.subject_specialization.set(specializations)
-
-            self.teachers.append(teacher)
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.teachers)} teachers"))
+            t.first_name = fname
+            t.last_name = lname
+            t.email = email
+            t.save()
+            t.subject_specialization.set(random.sample(self.subjects, 2))
+            self.teachers.append(t)
 
     def create_classrooms(self):
-        """Create classrooms with teachers"""
-        self.stdout.write("\n[8/17] Creating classrooms...")
-
-        class_levels = ClassLevel.objects.filter(
-            id__in=[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
-        )
-
-        streams = ['A', 'B', 'C']
-        teacher_idx = 0
-
-        for class_level in class_levels:
-            num_streams = 2 if 'Primary' in class_level.name else 3
-
-            for stream in streams[:num_streams]:
-                classroom, created = ClassRoom.objects.get_or_create(
-                    name=class_level,
-                    defaults={
-                        'class_teacher': self.teachers[teacher_idx % len(self.teachers)],
-                        'capacity': random.randint(35, 50),
-                        'occupied_sits': 0
-                    }
-                )
-                self.classrooms.append(classroom)
-                teacher_idx += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.classrooms)} classrooms"))
+        self.stdout.write("6. Creating Classrooms...")
+        class_levels = list(ClassLevel.objects.all())
+        t_idx = 0
+        for cl in class_levels:
+            classroom, _ = ClassRoom.objects.get_or_create(
+                name=cl,
+                defaults={'class_teacher': self.teachers[t_idx % len(self.teachers)], 'capacity': 50}
+            )
+            self.classrooms.append(classroom)
+            t_idx += 1
 
     def create_parents(self):
-        """Create Nigerian parents"""
-        self.stdout.write("\n[9/17] Creating parents...")
+        self.stdout.write("7. Creating Parents...")
+        demo_p, _ = CustomUser.objects.get_or_create(
+            email='parent@demo.com',
+            defaults={
+                'first_name': 'Demo',
+                'last_name': 'Parent',
+                'is_active': True,
+                'is_parent': True,
+                'phone_number': '+2348000000000',
+            }
+        )
+        demo_p.first_name = 'Demo'
+        demo_p.last_name = 'Parent'
+        demo_p.set_password('password123')
+        demo_p.save()
 
-        num_parents = max(100, int(self.num_students * 0.7))
+        dp, _ = Parent.objects.get_or_create(
+            user=demo_p, 
+            defaults={'phone_number': demo_p.phone_number, 'first_name': 'Demo', 'last_name': 'Parent', 'email': demo_p.email}
+        )
+        dp.first_name = 'Demo'
+        dp.last_name = 'Parent'
+        dp.email = demo_p.email
+        if not dp.image:
+            try:
+                dp.image.save("parent_demo.png", self.get_avatar_file("parent_demo"), save=False)
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"  Warning: Could not upload demo parent image ({e})"))
+        dp.save()
+        self.parents.append(dp)
+        
+        num_p = max(50, int(self.num_students * 0.7))
+        for i in range(num_p):
+            fname = random.choice(NIGERIAN_FIRST_NAMES_MALE + NIGERIAN_FIRST_NAMES_FEMALE)
+            lname = random.choice(NIGERIAN_LAST_NAMES)
+            phone_num = f"701{i+1:07d}"
+            phone = f"+234{phone_num}"[:15]
+            email = f"parent_{phone_num}@school.com"
+            gender = 'Male' if fname in NIGERIAN_FIRST_NAMES_MALE else 'Female'
 
-        for i in range(num_parents):
-            gender = random.choice(['Male', 'Female'])
-            first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE if gender == 'Male' else NIGERIAN_FIRST_NAMES_FEMALE)
-            last_name = random.choice(NIGERIAN_LAST_NAMES)
-            state = random.choice(NIGERIAN_STATES)
-
-            # Nigerian phone format: max 15 chars
-            phone = f"+234701{i:07d}"[:15]
-            email = f"{first_name.lower()}.{last_name.lower()}{i}@email.com"[:50]
-
-            parent, created = Parent.objects.get_or_create(
-                phone_number=phone,
+            user, _ = CustomUser.objects.get_or_create(
+                email=email,
                 defaults={
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'gender': gender,
-                    'email': email,
-                    'parent_type': random.choice(['Father', 'Mother', 'Guardian']),
-                    'occupation': random.choice(NIGERIAN_OCCUPATIONS),
-                    'monthly_income': float(random.randint(50000, 500000)) * 100,
-                    'single_parent': random.choice([True, False, False]),
-                    'address': f"{random.randint(1, 500)} Street, {state}, Nigeria",
+                    'phone_number': phone,
+                    'first_name': fname,
+                    'last_name': lname,
+                    'is_active': True,
+                    'is_parent': True,
                 }
             )
-            self.parents.append(parent)
+            user.first_name = fname
+            user.last_name = lname
+            if not user.phone_number:
+                user.phone_number = phone
+            user.set_password('password')
+            user.save()
 
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(self.parents)} parents"))
+            p, _ = Parent.objects.get_or_create(
+                user=user,
+                defaults={'phone_number': phone, 'first_name': fname, 'last_name': lname, 'email': email, 'gender': gender}
+            )
+            p.first_name = fname
+            p.last_name = lname
+            p.email = email
+            p.gender = gender
+            p.phone_number = phone
+            if not p.image:
+                try:
+                    p.image.save(f"parent_{user.id}.png", self.get_avatar_file("parent"), save=False)
+                except Exception:
+                    pass
+            p.save()
+            self.parents.append(p)
 
     def create_students(self):
-        """Create Nigerian students and enroll them in classrooms"""
-        self.stdout.write("\n[10/17] Creating students...")
+        self.stdout.write("8. Creating Students...")
+        class_year = ClassYear.objects.get(year=2028)
+        
+        # Create Demo Student Account
+        demo_st_user, _ = CustomUser.objects.get_or_create(
+            email='student@demo.com',
+            defaults={
+                'first_name': 'Lara',
+                'last_name': 'Parent',
+                'is_active': True,
+                'is_student': True,
+            }
+        )
+        demo_st_user.set_password('password123')
+        demo_st_user.save()
+        
+        parent = self.parents[0] if self.parents else None
+        parent_contact = parent.phone_number if (parent and parent.phone_number) else "+2348010000000"
 
-        religions = NIGERIAN_RELIGIONS
-        blood_groups = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']
+        demo_st, _ = Student.objects.get_or_create(
+            user=demo_st_user,
+            defaults={
+                'first_name': 'Lara',
+                'last_name': 'Parent',
+                'admission_number': 'ADM-2026-0001',
+                'classroom': self.classrooms[0] if self.classrooms else None,
+                'parent_guardian': parent,
+                'parent_contact': parent_contact
+            }
+        )
+        if parent:
+            demo_st.parent_guardian = parent
+            demo_st.parent_contact = parent_contact
+            demo_st.save()
+        self.students.append(demo_st)
+        
+        newly_enrolled_count = int(self.num_students * 0.18)  # ~18% new enrollments
+        first_term_new_count = int(newly_enrolled_count * 0.88) # ~88% in First Term
 
-        current_year = datetime.now().year
-        class_year = ClassYear.objects.get(year=current_year + 4)
+        for i in range(self.num_students):
+            fname = random.choice(NIGERIAN_FIRST_NAMES_MALE + NIGERIAN_FIRST_NAMES_FEMALE)
+            parent = self.parents[0] if i < 3 else random.choice(self.parents)
+            lname = parent.last_name
+            classroom = self.classrooms[i % len(self.classrooms)]
+            gender = 'Male' if fname in NIGERIAN_FIRST_NAMES_MALE else 'Female'
 
-        students_per_classroom = int(self.num_students / len(self.classrooms))
-        student_count = 0
+            if i < first_term_new_count:
+                d_val = date(2025, 9, random.randint(1, 20))
+            elif i < newly_enrolled_count:
+                d_val = date(2026, 1, random.randint(5, 20))
+            else:
+                d_val = date(random.choice([2023, 2024]), 9, random.randint(1, 20))
+            admission_date = timezone.make_aware(datetime.combine(d_val, datetime.min.time()))
+            
+            phone_num = f"801{i+1:07d}"
+            phone = f"+234{phone_num}"[:15]
+            email = f"student_{phone_num}@school.com"
 
-        for classroom in self.classrooms:
-            # Refresh classroom from DB to get current occupancy
-            classroom.refresh_from_db()
-
-            # Calculate how many students we can add
-            available_space = classroom.capacity - classroom.occupied_sits
-            num_students_to_create = min(students_per_classroom, available_space)
-
-            if num_students_to_create <= 0:
-                # Classroom is full, just get existing students
-                existing_students = StudentClassEnrollment.objects.filter(
-                    classroom=classroom,
-                    academic_year=self.academic_year
-                ).select_related('student')
-
-                for enrollment in existing_students:
-                    if enrollment.student not in self.students:
-                        self.students.append(enrollment.student)
-                continue
-
-            for _ in range(num_students_to_create):
-                gender = random.choice(['Male', 'Female'])
-                first_name = random.choice(NIGERIAN_FIRST_NAMES_MALE if gender == 'Male' else NIGERIAN_FIRST_NAMES_FEMALE)
-                parent = random.choice(self.parents)
-
-                # Generate varied admission dates (spread over the past 3 years)
-                years_ago = random.randint(0, 3)
-                # Pick a term for admission, weighted mostly toward First Term
-                admission_term_choice = random.choices(
-                    ['first', 'second'],
-                    weights=[80, 20]
-                )[0]
-
-                year_for_admission = current_year - years_ago
-
-                if admission_term_choice == 'first':
-                    # First Term: Jan 15 - Apr 1
-                    term_start = date(year_for_admission, 1, 15)
-                    term_end = date(year_for_admission, 4, 1)
-                else:
-                    # Second Term: Apr 15 - Jul 31
-                    term_start = date(year_for_admission, 4, 15)
-                    term_end = date(year_for_admission, 7, 31)
-
-                days_range = (term_end - term_start).days
-                admission_date = term_start + timedelta(days=random.randint(0, days_range))
-
-                student = Student.objects.create(
-                    first_name=first_name,
-                    last_name=parent.last_name,
-                    gender=gender,
-                    religion=random.choice(religions),
-                    blood_group=random.choice(blood_groups),
-                    class_level=classroom.name,
-                    class_of_year=class_year,
-                    parent_guardian=parent,
-                    parent_contact=parent.phone_number,
-                    phone_number=parent.phone_number[:20],
-                    date_of_birth=date(current_year - random.randint(13, 18), random.randint(1, 12), random.randint(1, 28)),
-                    admission_date=admission_date,
-                    region=random.choice(NIGERIAN_STATES),
-                    city=random.choice(['Lagos', 'Abuja', 'Port Harcourt', 'Kano', 'Ibadan']),
-                )
-
-                StudentClassEnrollment.objects.create(
-                    student=student,
-                    classroom=classroom,
-                    academic_year=self.academic_year
-                )
-
-                self.students.append(student)
-                student_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {student_count} new students (total: {len(self.students)} students)"))
-
-    def create_dormitories(self):
-        """Create dormitories"""
-        self.stdout.write("\n[11/17] Creating dormitories...")
-
-        dorm_data = [
-            ('Boys Dormitory A', 80, 'Male'),
-            ('Boys Dormitory B', 80, 'Male'),
-            ('Girls Dormitory A', 70, 'Female'),
-            ('Girls Dormitory B', 70, 'Female'),
-        ]
-
-        for dorm_name, capacity, gender in dorm_data:
-            captains = [s for s in self.students if s.gender == gender]
-            captain = random.choice(captains) if captains else None
-
-            Dormitory.objects.get_or_create(
-                name=dorm_name,
+            user, _ = CustomUser.objects.get_or_create(
+                email=email,
                 defaults={
-                    'capacity': capacity,
-                    'occupied_beds': 0,
-                    'captain': captain
+                    'phone_number': phone,
+                    'first_name': fname,
+                    'last_name': lname,
+                    'is_active': True,
+                    'is_student': True,
                 }
             )
+            user.first_name = fname
+            user.last_name = lname
+            if not user.phone_number:
+                user.phone_number = phone
+            user.set_password('password')
+            user.save()
+            
+            student, _ = Student.objects.get_or_create(
+                user=user,
+                defaults={
+                    'first_name': fname,
+                    'last_name': lname,
+                    'gender': gender,
+                    'class_level': classroom.name,
+                    'class_of_year': class_year,
+                    'parent_guardian': parent,
+                    'parent_contact': parent.phone_number,
+                    'phone_number': user.phone_number,
+                    'admission_date': admission_date,
+                }
+            )
+            student.first_name = fname
+            student.last_name = lname
+            student.gender = gender
+            student.parent_guardian = parent
+            if not student.image:
+                try:
+                    student.image.save(f"student_{user.id}.png", self.get_avatar_file("student"), save=False)
+                except Exception:
+                    pass
+            student.save()
 
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(dorm_data)} dormitories"))
+            StudentClassEnrollment.objects.get_or_create(student=student, classroom=classroom, academic_year=self.academic_year)
+            self.students.append(student)
+            
+            # Allocate subjects per classroom evenly across all teachers
+        t_assign_idx = 0
+        for cr in self.classrooms:
+            for sub in self.subjects:
+                assigned_teacher = self.teachers[t_assign_idx % len(self.teachers)]
+                t_assign_idx += 1
+                alloc, created = AllocatedSubject.objects.get_or_create(
+                    class_room=cr, 
+                    subject=sub, 
+                    academic_year=self.academic_year, 
+                    defaults={'teacher_name': assigned_teacher, 'weekly_periods': 3, 'term': None}
+                )
+                if not created:
+                    alloc.teacher_name = assigned_teacher
+                    alloc.save(update_fields=['teacher_name'])
 
     def create_fee_structures(self):
-        """Create fee structures and assign to students"""
-        self.stdout.write("\n[12/17] Creating fee structures and assignments...")
-
-        # Get Nigerian grade levels (JSS and SS)
-        jss = GradeLevel.objects.filter(section='JSS')
-        sss = GradeLevel.objects.filter(section='SSS')
-
-        fee_structures_data = [
-            ('JSS Tuition Fee', 'Tuition', Decimal('150000'), jss, True),
-            ('SSS Tuition Fee', 'Tuition', Decimal('200000'), sss, True),
-            ('Transport Fee', 'Transport', Decimal('50000'), None, False),
-            ('Meals Fee', 'Meals', Decimal('75000'), None, True),
-            ('Books and Stationery', 'Books', Decimal('30000'), None, True),
-            ('School Uniform', 'Uniform', Decimal('45000'), None, False),
+        self.stdout.write("9. Creating Fees (Mostly Paid)...")
+        fees_data = [
+            ('Tuition Fee', 'Tuition', Decimal('150000'), True),
+            ('Transport', 'Transport', Decimal('50000'), False),
+            ('ICT Levy', 'Others', Decimal('15000'), True),
         ]
+        
+        for term in self.terms:
+            structures = []
+            for name, fee_type, amount, is_mandatory in fees_data:
+                fs, _ = FeeStructure.objects.get_or_create(
+                    name=f"{name} ({term.name})",
+                    academic_year=self.academic_year,
+                    term=term,
+                    defaults={'fee_type': fee_type, 'amount': amount, 'is_mandatory': is_mandatory, 'due_date': term.end_date}
+                )
+                structures.append(fs)
+                # Auto-assign if mandatory
+                if is_mandatory:
+                    fs.auto_assign_to_students(term=term)
+                else:
+                    # Manually assign to ~30% of students
+                    for student in self.students:
+                        if random.random() < 0.3:
+                            StudentFeeAssignment.objects.get_or_create(
+                                student=student, fee_structure=fs, term=term,
+                                defaults={'amount_owed': fs.amount, 'amount_paid': Decimal('0')}
+                            )
 
-        fee_structures = []
-        for name, fee_type, amount, grade_levels_qs, mandatory in fee_structures_data:
-            fs, _ = FeeStructure.objects.get_or_create(
+    def create_receipts_and_payments(self):
+        # Pay fees (mostly paid)
+        for term in self.terms:
+            assignments = StudentFeeAssignment.objects.filter(term=term)
+            for assignment in assignments:
+                # 92% fully paid, 5% partial, 3% unpaid
+                r = random.random()
+                if r < 0.92:
+                    payment = assignment.amount_owed
+                elif r < 0.97:
+                    payment = assignment.amount_owed * Decimal('0.5')
+                else:
+                    payment = Decimal('0')
+                
+                if payment > 0:
+                    assignment.amount_paid = payment
+                    assignment.save()
+                    
+                    # Create receipt
+                    pg = assignment.student.parent_guardian
+                    if pg:
+                        payer_name = f"{pg.first_name or ''} {pg.last_name or ''}".strip() or "Parent"
+                    else:
+                        payer_name = "Parent"
+                    methods = ['Bank Transfer', 'Cash', 'Online', 'Mobile Money']
+                    
+                    Receipt.objects.create(
+                        date=timezone.now().date(),
+                        student=assignment.student,
+                        amount=payment,
+                        payer=payer_name,
+                        paid_through=random.choice(methods),
+                        term=term,
+                        status='Completed'
+                    )
+
+    def create_attendance(self):
+        self.stdout.write("10. Creating Attendance...")
+        present, _ = AttendanceStatus.objects.get_or_create(name='Present', defaults={'code': 'P'})
+        absent, _ = AttendanceStatus.objects.get_or_create(name='Absent', defaults={'code': 'A'})
+        late, _ = AttendanceStatus.objects.get_or_create(name='Late', defaults={'code': 'L'})
+        
+        # Generate attendance for 30 weekdays (~6 full school weeks) of current term
+        today = date.today()
+        raw_dates = [today - timedelta(days=i) for i in range(45)]
+        dates = [d for d in raw_dates if d.weekday() < 5][:30] # 30 weekdays
+        
+        for d in dates:
+            for student in self.students:
+                r = random.random()
+                if r < 0.9:
+                    status = present
+                elif r < 0.95:
+                    status = late
+                else:
+                    status = absent
+                    
+                StudentAttendance.objects.get_or_create(
+                    student=student,
+                    date=d,
+                    term=self.current_term,
+                    defaults={'status': status}
+                )
+
+    def create_examinations_and_scores(self):
+        self.stdout.write("11. Creating Examinations & Scores (Term-end Nightmare Demo)...")
+        for term in self.terms[:2]:
+            session, _ = AssessmentSession.objects.get_or_create(
+                name=f"{term.name} Examination {self.academic_year.name}",
+                defaults={
+                    'assessment_type': 'EXAM',
+                    'start_date': term.start_date,
+                    'ends_date': term.end_date,
+                    'out_of': 100,
+                    'created_by': self.teachers[0] if self.teachers else None
+                }
+            )
+            session.classrooms.set(self.classrooms)
+            self._fill_scores(session)
+            
+        # For Term 3 (current), create active session, partially fill
+        session, _ = AssessmentSession.objects.get_or_create(
+            name=f"{self.current_term.name} Examination {self.academic_year.name}",
+            defaults={
+                'assessment_type': 'EXAM',
+                'start_date': self.current_term.start_date,
+                'ends_date': self.current_term.end_date,
+                'out_of': 100,
+                'created_by': self.teachers[0] if self.teachers else None
+            }
+        )
+        session.classrooms.set(self.classrooms)
+        self._fill_scores(session, partial=True)
+        
+    def _fill_scores(self, session, partial=False):
+        for classroom in self.classrooms:
+            gl = classroom.name.grade_level
+            scheme = GradingScheme.objects.filter(grade_level=gl, academic_year=self.academic_year).first()
+            if not scheme:
+                continue
+            comps = AssessmentComponent.objects.filter(scheme=scheme)
+            enrollments = StudentClassEnrollment.objects.filter(classroom=classroom, academic_year=self.academic_year)
+            teacher_obj = classroom.class_teacher or (self.teachers[0] if self.teachers else None)
+            
+            for enrollment in enrollments:
+                for subject in self.subjects:
+                    for comp in comps:
+                        # If partial, maybe skip exams
+                        if partial and comp.name == 'Examination' and random.random() < 0.8:
+                            continue
+                        
+                        max_score = float(comp.max_score)
+                        score = random.randint(int(max_score * 0.4), int(max_score))
+                        AssessmentEntry.objects.get_or_create(
+                            student=enrollment,
+                            subject=subject,
+                            component=comp,
+                            defaults={'score': Decimal(str(score)), 'entered_by': teacher_obj}
+                        )
+
+    def create_timetable(self):
+        self.stdout.write("12. Creating Timetable (Smart Clash-free)...")
+        
+        times = [
+            ("08:00:00", "08:40:00"),
+            ("08:40:00", "09:20:00"),
+            ("09:20:00", "10:00:00"),
+            ("10:00:00", "10:40:00"),
+            ("11:00:00", "11:40:00"),
+            ("11:40:00", "12:20:00"),
+            ("12:20:00", "13:00:00"),
+            ("13:00:00", "13:40:00"),
+        ]
+        slots = []
+        for d in PeriodSlot.DAYS_OF_WEEK[:5]:
+            for i, (start, end) in enumerate(times, 1):
+                slot, _ = PeriodSlot.objects.get_or_create(
+                    term=self.current_term,
+                    day_of_week=d[0],
+                    period_number=i,
+                    defaults={'start_time': start, 'end_time': end, 'label': f'Period {i}'}
+                )
+                slots.append(slot)
+                
+        for classroom in self.classrooms[:3]:
+            allocations = AllocatedSubject.objects.filter(class_room=classroom, academic_year=self.academic_year)
+            if not allocations.exists():
+                continue
+            
+            pool = []
+            for alloc in allocations:
+                subject_name = alloc.subject.name.lower()
+                if 'english' in subject_name or 'math' in subject_name:
+                    pool.extend([alloc] * 5)
+                else:
+                    pool.extend([alloc] * 2)
+            
+            random.shuffle(pool)
+            while len(pool) < len(slots):
+                pool.extend(pool)
+            
+            for i, slot in enumerate(slots):
+                allocated = pool[i]
+                teacher = allocated.teacher_name
+                TimetableEntry.objects.get_or_create(
+                    term=self.current_term,
+                    slot=slot,
+                    classroom=classroom,
+                    defaults={
+                        'subject': allocated,
+                        'teacher': teacher
+                    }
+                )
+
+    def create_school_events(self):
+        self.stdout.write("13. Creating School Events and Holidays...")
+        today = date.today()
+        friday_last_week = date(2026, 7, 24)
+        sept_resumption = date(2026, 9, 7)
+        events_data = [
+            ("End-of-Session Long Vacation", "holiday", friday_last_week, sept_resumption, "School closed for long vacation. Resumption for 2026/2027 Academic Session on Sept 7, 2026"),
+            ("2026/2027 First Term Resumption & Orientation", "other", sept_resumption, sept_resumption + timedelta(days=1), "Resumption of all students for the new 2026/2027 academic session"),
+            ("1st Term Parent-Teacher Alignment Forum", "other", date(2026, 9, 18), date(2026, 9, 18), "First term parent-teacher meeting for 2026/2027 academic session"),
+            ("1st Term Continuous Assessment (CA 1)", "exam", date(2026, 10, 19), date(2026, 10, 23), "First assessment test for 2026/2027 1st Term"),
+        ]
+        for name, etype, sdate, edate, desc in events_data:
+            SchoolEvent.objects.get_or_create(
                 name=name,
                 academic_year=self.academic_year,
                 term=self.current_term,
                 defaults={
-                    'fee_type': fee_type,
-                    'amount': amount,
-                    'is_mandatory': mandatory,
-                    'due_date': self.current_term.end_date - timedelta(days=30)
+                    'event_type': etype,
+                    'start_date': sdate,
+                    'end_date': edate,
+                    'description': desc
                 }
             )
-            if grade_levels_qs:
-                fs.grade_levels.add(*grade_levels_qs)
-            fee_structures.append(fs)
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(fee_structures)} fee structures"))
-
-        assignment_count = 0
-        for student in self.students:
-            applicable_fees = [fs for fs in fee_structures if fs.applies_to_student(student)]
-
-            for fee_structure in applicable_fees:
-                amount_owed = fee_structure.amount
-
-                # Create fee assignment without payment (payment will be added via allocations)
-                StudentFeeAssignment.objects.get_or_create(
-                    student=student,
-                    fee_structure=fee_structure,
-                    term=self.current_term,
-                    defaults={
-                        'amount_owed': amount_owed,
-                        'amount_paid': Decimal('0')
-                    }
-                )
-                assignment_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {assignment_count} fee assignments to students"))
-
-    def create_receipts_and_payments(self):
-        """Create receipts and payment allocations"""
-        self.stdout.write("\n[13/17] Creating receipts and payments...")
-
-        receipt_count = 0
-        allocation_count = 0
-
-        # Create receipts for a random sample of students
-        for student in random.sample(self.students, min(100, len(self.students))):
-            # Get unpaid or partially paid fee assignments
-            all_assignments = StudentFeeAssignment.objects.filter(
-                student=student,
-                term=self.current_term,
-                is_waived=False
-            )
-
-            # Filter out fully paid assignments (balance > 0)
-            fee_assignments = [fa for fa in all_assignments if fa.balance > 0]
-
-            if not fee_assignments:
-                continue
-
-            # Randomly decide payment status: full (50%), partial (30%), or skip (20%)
-            payment_status = random.choices(
-                ['full', 'partial', 'skip'],
-                weights=[50, 30, 20]
-            )[0]
-
-            if payment_status == 'skip':
-                continue
-
-            # Calculate payment amount
-            total_owed = sum(fa.balance for fa in fee_assignments)
-
-            if payment_status == 'full':
-                payment_amount = total_owed
-            else:  # partial
-                payment_amount = total_owed * Decimal(random.uniform(0.3, 0.9))
-
-            # Round payment amount to 2 decimal places
-            payment_amount = Decimal(str(round(float(payment_amount), 2)))
-
-            # Create receipt
-            receipt = Receipt.objects.create(
-                date=timezone.now().date() - timedelta(days=random.randint(1, 60)),
-                payer=f"{student.parent_guardian.first_name} {student.parent_guardian.last_name}",
-                student=student,
-                amount=payment_amount,
-                paid_through=random.choice(['Cash', 'Bank Transfer', 'Mobile Money']),
-                term=self.current_term,
-                payment_date=timezone.now().date() - timedelta(days=random.randint(1, 60)),
-                status='Completed',
-                received_by=random.choice(self.accountants) if self.accountants else None
-            )
-            receipt_count += 1
-
-            # Allocate payment to fee assignments
-            remaining = payment_amount
-            for fee_assignment in fee_assignments:
-                if remaining <= 0:
-                    break
-
-                # Allocate up to the balance or remaining amount
-                # Round to 2 decimal places to avoid precision issues
-                allocation_amount = min(fee_assignment.balance, remaining)
-                allocation_amount = Decimal(str(round(float(allocation_amount), 2)))
-
-                FeePaymentAllocation.objects.create(
-                    receipt=receipt,
-                    fee_assignment=fee_assignment,
-                    amount=allocation_amount
-                )
-                allocation_count += 1
-                remaining -= allocation_amount
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {receipt_count} receipts with {allocation_count} allocations"))
-
-
-
-    def create_attendance_statuses(self):
-        """Create attendance status types"""
-        self.stdout.write("\n[14/17] Creating attendance statuses...")
-
-        statuses = [
-            ('Present', 'P', False, False, False, False),
-            ('Absent', 'A', False, True, False, False),
-            ('Sick', 'S', True, True, False, False),
-            ('Late', 'L', False, False, True, False),
-            ('Holiday', 'H', True, False, False, False),
-            ('Half Day', 'HD', True, False, False, True),
-        ]
-
-        for name, code, excused, absent, late, half in statuses:
-            AttendanceStatus.objects.get_or_create(
-                code=code,
-                defaults={
-                    'name': name,
-                    'excused': excused,
-                    'absent': absent,
-                    'late': late,
-                    'half': half
-                }
-            )
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(statuses)} attendance status types"))
-
-    def create_attendance_records(self):
-        """Create sample attendance records"""
-        self.stdout.write("\n[15/17] Creating attendance records...")
-
-        present = AttendanceStatus.objects.get(code='P')
-        absent = AttendanceStatus.objects.get(code='A')
-        sick = AttendanceStatus.objects.get(code='S')
-        late = AttendanceStatus.objects.get(code='L')
-
-        student_attendance_count = 0
-        for days_ago in range(1, 31):
-            attendance_date = timezone.now().date() - timedelta(days=days_ago)
-
-            if attendance_date.weekday() >= 5:
-                continue
-
-            # Every student gets a record every school day now, including Present
-            for student in self.students:
-                enrollment = student.student_classes.first()
-                if not enrollment:
-                    continue
-
-                status = random.choices(
-                    [present, absent, sick, late],
-                    weights=[90, 5, 3, 2]
-                )[0]
-
-                StudentAttendance.objects.get_or_create(
-                    student=student,
-                    date=attendance_date,
-                    defaults={
-                        'status': status,
-                        'ClassRoom': enrollment.classroom
-                    }
-                )
-                student_attendance_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {student_attendance_count} student attendance records"))
-
-        teacher_attendance_count = 0
-        for days_ago in range(1, 31):
-            attendance_date = timezone.now().date() - timedelta(days=days_ago)
-
-            if attendance_date.weekday() >= 5:
-                continue
-
-            for teacher in random.sample(self.teachers, min(15, len(self.teachers))):
-                status = random.choices(
-                    [present, absent, sick],
-                    weights=[95, 3, 2]
-                )[0]
-
-                time_in = timezone.now().replace(
-                    hour=random.randint(7, 8),
-                    minute=random.randint(0, 59)
-                ).time()
-                time_out = timezone.now().replace(
-                    hour=random.randint(16, 18),
-                    minute=random.randint(0, 59)
-                ).time()
-
-                TeachersAttendance.objects.get_or_create(
-                    teacher=teacher,
-                    date=attendance_date,
-                    status=status,
-                    defaults={
-                        'time_in': time_in,
-                        'time_out': time_out
-                    }
-                )
-                teacher_attendance_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {teacher_attendance_count} teacher attendance records"))
-
-    def create_grade_scale(self):
-        """Create grading scale system"""
-        self.stdout.write("\n[16/17] Creating grade scale...")
-
-        scale, _ = GradeScale.objects.get_or_create(name='Standard Grade Scale')
-
-        rules = [
-            (90, 100, 'A', Decimal('4.0')),
-            (80, 89, 'B', Decimal('3.5')),
-            (70, 79, 'C', Decimal('3.0')),
-            (60, 69, 'D', Decimal('2.5')),
-            (50, 59, 'E', Decimal('2.0')),
-            (0, 49, 'F', Decimal('1.0')),
-        ]
-
-        for min_g, max_g, letter, numeric in rules:
-            GradeScaleRule.objects.get_or_create(
-                grade_scale=scale,
-                min_grade=min_g,
-                max_grade=max_g,
-                defaults={
-                    'letter_grade': letter,
-                    'numeric_scale': numeric
-                }
-            )
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created grade scale with {len(rules)} rules"))
-
-    def create_examinations(self):
-        """Create examinations and marks"""
-        self.stdout.write("\n[17/17] Creating examinations and marks...")
-
-        exams_data = [
-            ('Mid-Term Test', -45, 5, 50),
-            ('End of Term Exam', -14, 7, 100),
-        ]
-
-        exams = []
-        for exam_name, start_offset, duration, out_of in exams_data:
-            start_date = self.current_term.end_date + timedelta(days=start_offset)
-
-            exam, _ = ExaminationListHandler.objects.get_or_create(
-                name=f"{exam_name} - Term {self.current_term.name}",
-                defaults={
-                    'start_date': start_date,
-                    'ends_date': start_date + timedelta(days=duration),
-                    'out_of': out_of,
-                    'created_by': random.choice(self.teachers),
-                    'created_on': timezone.now()
-                }
-            )
-
-            exam.classrooms.set(random.sample(self.classrooms, min(5, len(self.classrooms))))
-            exams.append(exam)
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(exams)} examinations"))
-
-        marks_count = 0
-        for exam in exams:
-            for classroom in exam.classrooms.all():
-                enrollments = StudentClassEnrollment.objects.filter(
-                    classroom=classroom,
-                    academic_year=self.academic_year
-                )
-
-                exam_subjects = random.sample(self.subjects, k=random.randint(3, 5))
-
-                for enrollment in enrollments[:20]:
-                    for subject in exam_subjects:
-                        mean_score = exam.out_of * 0.65
-                        std_dev = exam.out_of * 0.15
-                        score = max(0, min(exam.out_of, random.gauss(mean_score, std_dev)))
-
-                        MarksManagement.objects.get_or_create(
-                            exam_name=exam,
-                            student=enrollment,
-                            subject=subject,
-                            defaults={
-                                'points_scored': round(score, 2),
-                                'created_by': random.choice(self.teachers),
-                                'date_time': timezone.now()
-                            }
-                        )
-                        marks_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {marks_count} exam marks"))
-
-    def create_allocated_subjects(self):
-        """Allocate subjects to teachers and classrooms"""
-        self.stdout.write("\n[Bonus] Creating subject allocations...")
-
-        allocation_count = 0
-
-        for classroom in self.classrooms:
-            classroom_subjects = random.sample(self.subjects, k=random.randint(6, 8))
-
-            for subject in classroom_subjects:
-                suitable_teachers = [
-                    t for t in self.teachers
-                    if subject in t.subject_specialization.all()
-                ]
-
-                if not suitable_teachers:
-                    suitable_teachers = self.teachers
-
-                teacher = random.choice(suitable_teachers)
-
-                # Note: term is OneToOneField, so we can't use it in get_or_create
-                # We'll create allocations per classroom/subject/teacher/academic_year
-                AllocatedSubject.objects.get_or_create(
-                    teacher_name=teacher,
-                    subject=subject,
-                    class_room=classroom,
-                    academic_year=self.academic_year,
-                    defaults={
-                        'weekly_periods': random.randint(3, 6),
-                        'max_daily_periods': random.randint(1, 2)
-                    }
-                )
-                allocation_count += 1
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {allocation_count} subject allocations"))
-
-    def create_articles(self):
-        """Create sample articles/news"""
-        self.stdout.write("\n[Bonus] Creating articles...")
-
-        articles_data = [
-            {
-                'title': 'Welcome to the New Academic Year',
-                'content': 'We are pleased to welcome all students and parents to the new academic year. This year promises to be exciting with new programs and activities planned.',
-            },
-            {
-                'title': 'Outstanding Performance in National Exams',
-                'content': 'Our students have once again excelled in the national examinations with a 95% pass rate. We congratulate all students and teachers for their hard work.',
-            },
-            {
-                'title': 'Sports Day Highlights',
-                'content': 'The annual sports day was a great success with students participating in various athletic events. Thank you to all parents who attended.',
-            },
-        ]
-
-        admin_user = CustomUser.objects.filter(is_staff=True).first()
-        if not admin_user and self.teachers:
-            admin_user = self.teachers[0].user
-
-        for article_data in articles_data:
-            Article.objects.get_or_create(
-                title=article_data['title'],
-                defaults={
-                    'content': article_data['content'],
-                    'created_by': admin_user,
-                    'created_at': timezone.now() - timedelta(days=random.randint(1, 60))
-                }
-            )
-
-        self.stdout.write(self.style.SUCCESS(f"  ✓ Created {len(articles_data)} articles"))
-
-    def print_summary(self):
-        """Print summary of generated data"""
-        self.stdout.write("\n📊 DATA SUMMARY:")
-        self.stdout.write(f"   • School: {School.objects.filter(active=True).first().name}")
-        self.stdout.write(f"   • Academic Year: {self.academic_year.name}")
-        self.stdout.write(f"   • Current Term: {self.current_term.name}")
-        self.stdout.write(f"   • Departments: {Department.objects.count()}")
-        self.stdout.write(f"   • Subjects: {Subject.objects.count()}")
-        self.stdout.write(f"   • Classrooms: {ClassRoom.objects.count()}")
-        self.stdout.write(f"   • Teachers: {Teacher.objects.count()}")
-        self.stdout.write(f"   • Accountants: {CustomUser.objects.filter(is_accountant=True).count()}")
-        self.stdout.write(f"   • Parents: {Parent.objects.count()}")
-        self.stdout.write(f"   • Students: {Student.objects.count()}")
-        self.stdout.write(f"   • Fee Structures: {FeeStructure.objects.count()}")
-        self.stdout.write(f"   • Receipts: {Receipt.objects.count()}")
-        self.stdout.write(f"   • Examinations: {ExaminationListHandler.objects.count()}")
-        self.stdout.write(f"   • Exam Marks: {MarksManagement.objects.count()}")
-        self.stdout.write(f"   • Subject Allocations: {AllocatedSubject.objects.count()}")
-        self.stdout.write(f"   • Timetable Periods: {Period.objects.count()}")
-
-        self.stdout.write(self.style.SUCCESS("\n🔑 SAMPLE LOGIN CREDENTIALS:"))
-        self.stdout.write(f"   Teachers: teacher001@{self.school_domain}.edu.ng (password: password)")
-        self.stdout.write(f"   Accountants: sarah.nakato@{self.school_domain}.edu.ng (password: password)")
-        self.stdout.write("   Parents: Use phone number as username (password: password)")
-
-        self.stdout.write(self.style.SUCCESS("\n💡 NEXT STEPS:"))
-        self.stdout.write("   1. Create a superuser: python manage.py createsuperuser")
-        self.stdout.write("   2. Run development server: python manage.py runserver")
-        self.stdout.write("   3. Access admin: http://localhost:8000/admin/")
-        self.stdout.write("   4. Generate timetable: python manage.py generate_timetable")

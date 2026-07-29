@@ -33,6 +33,7 @@ class Notification(models.Model):
         ('promotion', 'Promotion Decision'),
         ('report_card', 'Report Card Available'),
         ('assignment', 'Assignment Notification'),  # Phase 1.6: Assignment support
+        ('direct_message', 'Direct Message'),
         ('general', 'General Announcement'),
     ]
 
@@ -147,7 +148,7 @@ class Notification(models.Model):
         verbose_name_plural = "Notifications"
 
     def __str__(self):
-        return f"{self.get_notification_type_display()} for {self.recipient.username} - {self.title}"
+        return f"{self.get_notification_type_display()} for {self.recipient.email} - {self.title}"
 
     def mark_as_read(self):
         """Mark notification as read"""
@@ -268,7 +269,7 @@ class NotificationPreference(models.Model):
         verbose_name_plural = "Notification Preferences"
 
     def __str__(self):
-        return f"Notification preferences for {self.user.username}"
+        return f"Notification preferences for {self.user.email}"
 
     def should_send_email(self, notification_type: str, priority: str = 'normal') -> bool:
         """
@@ -343,6 +344,7 @@ class NotificationTemplate(models.Model):
         ('promotion', 'Promotion Decision'),
         ('report_card', 'Report Card Available'),
         ('assignment', 'Assignment Notification'),  # Phase 1.6
+        ('direct_message', 'Direct Message'),
         ('general', 'General Announcement'),
     ]
 
@@ -387,3 +389,71 @@ class NotificationTemplate(models.Model):
 
     def __str__(self):
         return f"{self.get_template_type_display()} Template"
+
+class DirectMessage(models.Model):
+    """
+    Messages sent directly between teachers and parents.
+    Acts as a lightweight internal messaging/notification system.
+    """
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="sent_messages"
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="received_messages"
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="related_messages",
+        help_text="Optional context: the student this message relates to"
+    )
+    subject = models.CharField(max_length=255, blank=True)
+    body = models.TextField()
+    parent_message = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="replies",
+        help_text="For message threading"
+    )
+    
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Direct Message"
+        verbose_name_plural = "Direct Messages"
+        indexes = [
+            models.Index(fields=['recipient', 'is_read']),
+            models.Index(fields=['sender', 'recipient']),
+        ]
+
+    def __str__(self):
+        return f"From {self.sender} to {self.recipient} on {self.created_at.strftime('%Y-%m-%d')}"
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        if is_new:
+            # Create a notification for the recipient
+            from django.contrib.contenttypes.models import ContentType
+            from .models import Notification
+            
+            Notification.objects.create(
+                recipient=self.recipient,
+                notification_type='direct_message',
+                priority='normal',
+                title=f"New Message from {self.sender.get_full_name() or self.sender.email}",
+                message=self.body[:100] + ('...' if len(self.body) > 100 else ''),
+                content_type=ContentType.objects.get_for_model(self),
+                object_id=self.pk,
+            )

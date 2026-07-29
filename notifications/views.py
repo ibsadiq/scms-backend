@@ -15,13 +15,15 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 
-from .models import Notification, NotificationPreference, NotificationTemplate
+from .models import Notification, NotificationPreference, NotificationTemplate, DirectMessage
 from .serializers import (
     NotificationSerializer,
     NotificationCreateSerializer,
     BulkNotificationSerializer,
     NotificationPreferenceSerializer,
-    NotificationTemplateSerializer
+    NotificationTemplateSerializer,
+    DirectMessageSerializer,
+    DirectMessageCreateSerializer
 )
 from .services import NotificationService
 from users.models import CustomUser
@@ -333,3 +335,38 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
 
         return queryset.order_by('template_type')
+
+class DirectMessageViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for direct messaging between teachers and parents.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return DirectMessageCreateSerializer
+        return DirectMessageSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        return DirectMessage.objects.filter(
+            Q(sender=user) | Q(recipient=user)
+        ).select_related('sender', 'recipient', 'student').order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(sender=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        message = self.get_object()
+        if message.recipient != request.user:
+            return Response({'error': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        message.is_read = True
+        message.save(update_fields=['is_read'])
+        return Response({'status': 'Message marked as read'})
+
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        count = DirectMessage.objects.filter(recipient=request.user, is_read=False).count()
+        return Response({'unread_count': count})

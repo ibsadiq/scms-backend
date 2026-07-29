@@ -312,3 +312,48 @@ class MessageToStudentViewSet(viewsets.ModelViewSet):
     queryset = MessageToStudent.objects.all()
     serializer_class = MessageToStudentSerializer
 """
+
+from academic.models import StudentsMedicalHistory, StudentsPreviousAcademicHistory
+from rest_framework import serializers
+
+class StudentsMedicalHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentsMedicalHistory
+        fields = '__all__'
+
+class StudentsPreviousAcademicHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentsPreviousAcademicHistory
+        fields = '__all__'
+
+class StudentMedicalHistoryView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        records = StudentsMedicalHistory.objects.filter(student_id=pk)
+        return Response(StudentsMedicalHistorySerializer(records, many=True).data)
+
+    def post(self, request, pk):
+        data = request.data.copy()
+        data['student'] = pk
+        serializer = StudentsMedicalHistorySerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class StudentAcademicHistoryView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        records = StudentsPreviousAcademicHistory.objects.filter(student_id=pk)
+        return Response(StudentsPreviousAcademicHistorySerializer(records, many=True).data)
+
+    def post(self, request, pk):
+        data = request.data.copy()
+        data['student'] = pk
+        serializer = StudentsPreviousAcademicHistorySerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -116,14 +116,26 @@ def notify_result_published(sender, instance, created, **kwargs):
 
     Notifies parents when their child's results are ready.
     """
-    if not created:
+    # Only notify when results are actually published
+    if not instance.is_published:
         return
 
+    # If updating an existing result, only notify if it was not already published
+    if not created:
+        try:
+            old_instance = TermResult.objects.get(pk=instance.pk)
+            if old_instance.is_published:
+                return  # Already published, do not resend
+        except TermResult.DoesNotExist:
+            pass
+
     student = instance.student
-    if not student.parent_guardian:
+    if not student or not student.parent_guardian:
         return
 
     parent_user = student.parent_guardian.user
+    if not parent_user:
+        return
 
     # Calculate performance indicator
     avg = float(instance.average_percentage or 0)
@@ -137,7 +149,7 @@ def notify_result_published(sender, instance, created, **kwargs):
             recipient=parent_user,
             notification_type='result',
             title=f"Results Published: {student.full_name}",
-            message=f"{student.full_name}'s {instance.term} results are now available. "
+            message=f"{student.full_name}'s {instance.term.name if instance.term else 'term'} results are now available. "
                     f"Average: {avg:.1f}%. "
                     f"Performance: {performance}. "
                     f"Log in to view detailed results.",

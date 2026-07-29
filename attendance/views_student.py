@@ -7,12 +7,16 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+
 
 from django.db.models import Count, Q
-from datetime import datetime
+from datetime import datetime,date
 
-from .models import StudentAttendance
-from .serializers import StudentAttendanceSerializer
+from .models import StudentAttendance, AttendanceStatus
+from .serializers import StudentAttendanceSerializer, StudentAttendanceListSerializer
+from academic.models import ClassRoom, Teacher, AcademicYear, AllocatedSubject, Term
 from academic.models import Student
 
 
@@ -20,32 +24,37 @@ from academic.models import Student
 class StudentAttendanceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for student attendance records.
-    
-    Endpoints:
-    - GET /api/attendance/student-attendance/ - List all attendance records
-    - GET /api/attendance/student-attendance/?student={id} - Filter by student
-    - GET /api/attendance/student-attendance/summary/ - Get attendance summary
-    - POST /api/attendance/student-attendance/ - Create attendance record
     """
     serializer_class = StudentAttendanceSerializer
     permission_classes = [IsAuthenticated]
-    queryset = StudentAttendance.objects.all().select_related('student', 'ClassRoom', 'status')
+    queryset = StudentAttendance.objects.all().select_related('student', 'ClassRoom', 'status', 'term', 'marked_by')
+    
+    def get_serializer_class(self):
+        """Use lightweight serializer for list endpoint"""
+        if self.action == 'list':
+            return StudentAttendanceListSerializer
+        return self.serializer_class
     
     def get_queryset(self):
         """Filter attendance based on query parameters"""
         queryset = super().get_queryset()
         
-        # Filter by student
+        # ── Filter by student ──
         student_id = self.request.query_params.get('student')
         if student_id:
             queryset = queryset.filter(student_id=student_id)
         
-        # Filter by classroom
+        # ── Filter by classroom ──
         classroom_id = self.request.query_params.get('classroom')
         if classroom_id:
             queryset = queryset.filter(ClassRoom_id=classroom_id)
         
-        # Filter by date range
+        # ── CRITICAL FIX: Filter by specific date ──
+        date_param = self.request.query_params.get('date')
+        if date_param:
+            queryset = queryset.filter(date=date_param)
+        
+        # ── Filter by date range ──
         start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
         
@@ -54,7 +63,7 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
         if end_date:
             queryset = queryset.filter(date__lte=end_date)
         
-        return queryset.order_by('-date')
+        return queryset.order_by('date', 'student__admission_number')
     
     @action(detail=False, methods=['get'])
     def summary(self, request):
@@ -228,6 +237,172 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
             'months': monthly_data
         }, status=status.HTTP_200_OK)
 
+    
+    @action(detail=False, methods=['get'])
+    def marked_dates(self, request):
+        """
+        GET /api/attendance/student-attendance/marked_dates/?classroom=X&start_date=Y&end_date=Z
+        """
+        classroom_id = request.query_params.get('classroom')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        if not classroom_id:
+            return Response(
+                {'error': 'classroom parameter is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        queryset = StudentAttendance.objects.filter(ClassRoom_id=classroom_id)
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+
+        dates = list(queryset.values_list('date', flat=True).distinct().order_by('date'))
+        return Response({'dates': [d.isoformat() for d in dates]})
+
+
+class BulkMarkAttendanceView(APIView):
+    """
+    POST /api/attendance/student-attendance/bulk-mark/
+    Mark or update attendance for multiple students at once.
+    Same-day edits allowed. Past dates are read-only (403).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Get the teacher
+        try:
+            teacher = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": "Teacher profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        classroom_id = request.data.get('classroom')
+        date_str = request.data.get('date')
+        records = request.data.get('records', [])
+
+        if not classroom_id or not date_str or not records:
+            return Response(
+                {"error": "Missing required fields: classroom, date, or records"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Parse date
+        try:
+            attendance_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Use YYYY-MM-DD"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ── BACKEND ENFORCEMENT: Only today is editable ──
+        today = date.today()
+        if attendance_date != today:
+            return Response(
+                {"error": "Attendance can only be marked or edited for today's date"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        classroom = get_object_or_404(ClassRoom, id=classroom_id)
+
+        # Verify teacher has access
+        is_class_teacher = classroom.class_teacher == teacher
+
+        try:
+            current_academic_year = AcademicYear.objects.get(active_year=True)
+        except AcademicYear.DoesNotExist:
+            return Response(
+                {"error": "No active academic year found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        has_subject_allocation = AllocatedSubject.objects.filter(
+            teacher_name=teacher,
+            class_room=classroom,
+            academic_year=current_academic_year
+        ).exists()
+
+        if not is_class_teacher and not has_subject_allocation:
+            return Response(
+                {"error": "You do not have permission to mark attendance for this classroom"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get current term
+        term = Term.objects.filter(
+            start_date__lte=attendance_date,
+            end_date__gte=attendance_date
+        ).first()
+        
+        if not term:
+            term = Term.objects.order_by('-start_date').first()
+
+        created_count = 0
+        updated_count = 0
+        errors = []
+
+        with transaction.atomic():
+            for record in records:
+                student_id = record.get('student')
+                status_name = record.get('status', 'Present')
+                remarks = record.get('remarks', '')
+
+                if not student_id:
+                    errors.append({"error": "Missing student ID in record"})
+                    continue
+
+                try:
+                    student = Student.objects.get(id=student_id, classroom=classroom)
+                except Student.DoesNotExist:
+                    errors.append({
+                        "student_id": student_id,
+                        "error": "Student not found in this classroom"
+                    })
+                    continue
+
+                # Get or create attendance status
+                attendance_status, _ = AttendanceStatus.objects.get_or_create(
+                    name=status_name,
+                    defaults={
+                        'code': status_name[:2].upper(),
+                        'absent': status_name == 'Absent',
+                        'late': status_name == 'Late',
+                        'excused': status_name == 'Excused'
+                    }
+                )
+
+                # ── FIX: Store "Present" like any other status (no more deletion) ──
+                attendance, created = StudentAttendance.objects.update_or_create(
+                    student=student,
+                    date=attendance_date,
+                    defaults={
+                        'ClassRoom': classroom,
+                        'status': attendance_status,
+                        'notes': remarks,
+                        'term': term,
+                        'marked_by': teacher.user  # Track who last edited
+                    }
+                )
+
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+
+        response_data = {
+            'success': True,
+            'message': f'Attendance processed for {len(records)} students',
+            'created': created_count,
+            'updated': updated_count,
+            'errors': errors if errors else None
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class ClassAttendanceSummaryView(APIView):

@@ -388,14 +388,16 @@
         </div>
 
         <!-- Subject Results -->
+        <!-- Subject Results -->
         <div class="results-section">
             <div class="section-title">SUBJECT PERFORMANCE</div>
             <table>
                 <thead>
                     <tr>
                         <th>Subject</th>
-                        <th class="text-right">CA (40)</th>
-                        <th class="text-right">Exam (60)</th>
+                        {% for component in components %}
+                        <th class="text-right">{{ component.name }} ({{ component.max_score|floatformat:0 }})</th>
+                        {% endfor %}
                         <th class="text-right">Total (100)</th>
                         <th class="text-center">Grade</th>
                         <th class="text-center">GPA</th>
@@ -405,21 +407,35 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for result in subject_results %}
+                    {% for row in subject_rows %}
                     <tr>
-                        <td>{{ result.subject.name }}</td>
-                        <td class="text-right">{{ result.ca_score }}</td>
-                        <td class="text-right">{{ result.exam_score }}</td>
-                        <td class="text-right"><strong>{{ result.total_score }}</strong></td>
-                        <td class="text-center grade-{{ result.grade|lower }}">{{ result.grade }}</td>
-                        <td class="text-center">{{ result.grade_point }}</td>
-                        <td class="text-center">{{ result.position_in_subject }}/{{ result.total_students }}</td>
-                        <td class="text-right">{{ result.class_average }}</td>
-                        <td>{{ result.teacher_name|default:"N/A" }}</td>
+                        <td>{{ row.result.subject.name }}</td>
+                        {% for score in row.component_scores %}
+                        <td class="text-right">{{ score }}</td>
+                        {% endfor %}
+                        <td class="text-right"><strong>{{ row.result.total_score }}</strong></td>
+                        <td class="text-center grade-{{ row.result.grade|lower }}">{{ row.result.grade }}</td>
+                        <td class="text-center">{{ row.result.grade_point }}</td>
+                        <td class="text-center">{{ row.result.position_in_subject }}/{{ row.result.total_students }}</td>
+                        <td class="text-right">{{ row.result.class_average }}</td>
+                        <td>{{ row.result.teacher|default:"N/A" }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+
+        <!-- Remarks -->
+        <div class="remarks-section">
+            <div class="section-title">REMARKS</div>
+            <div class="remark-box">
+                <div class="remark-title">Class Teacher — Remark:</div>
+                <div class="remark-text">{{ class_teacher_remark }}</div>
+            </div>
+            <div class="remark-box">
+                <div class="remark-title">Remark:</div>
+                <div class="remark-text">{{ admin_remark }}</div>
+            </div>
         </div>
 
         <!-- Attendance (if available) -->

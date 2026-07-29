@@ -15,8 +15,10 @@ from .models import (
     Receipt,
     FeePaymentAllocation,
     Payment,
-    PaymentCategory
+    PaymentCategory,
+    ReminderSetting
 )
+from .filters import StudentFeeAssignmentFilter
 from .serializers import (
     FeeStructureSerializer,
     StudentFeeAssignmentSerializer,
@@ -25,7 +27,8 @@ from .serializers import (
     FeePaymentAllocationSerializer,
     PaymentSerializer,
     PaymentCategorySerializer,
-    StudentFeeBalanceSerializer
+    StudentFeeBalanceSerializer,
+    ReminderSettingSerializer
 )
 from academic.models import Student
 from administration.models import Term
@@ -177,7 +180,7 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentFeeAssignmentSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type']
+    filterset_class = StudentFeeAssignmentFilter
     search_fields = ['student__first_name', 'student__last_name', 'student__admission_number', 'fee_structure__name']
     ordering_fields = ['assigned_date', 'amount_owed', 'balance']
     ordering = ['-assigned_date']
@@ -383,6 +386,170 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """
+        Generate and download a PDF receipt.
+        GET /api/finance/receipts/{id}/download/
+        """
+        from django.http import HttpResponse
+        from weasyprint import HTML
+        from django.utils import timezone as tz
+
+        receipt = self.get_object()
+
+        # Get school name from current tenant
+        try:
+            from django.db import connection
+            from tenants.models import Client
+            school_name = Client.objects.get(schema_name=connection.schema_name).name
+        except Exception:
+            school_name = "School"
+
+        allocations = receipt.fee_allocations.select_related(
+            'fee_assignment__fee_structure'
+        ).all()
+
+        student = receipt.student
+        student_name = f"{student.first_name} {student.last_name}" if student else receipt.payer
+        admission_no = student.admission_number if student else "—"
+        classroom = str(student.classroom) if student and student.classroom else "—"
+
+        # Build fee breakdown rows
+        fee_rows = ""
+        for alloc in allocations:
+            fee_name = alloc.fee_assignment.fee_structure.name if alloc.fee_assignment else "Fee"
+            fee_rows += f"""
+            <tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">{fee_name}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">
+                    &#8358;{alloc.amount:,.2f}
+                </td>
+            </tr>"""
+
+        if not fee_rows:
+            fee_rows = f"""
+            <tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">School Fees</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">
+                    &#8358;{receipt.amount:,.2f}
+                </td>
+            </tr>"""
+
+        term_name = str(receipt.term) if receipt.term else "—"
+        payment_date = receipt.payment_date.strftime("%d %B %Y") if receipt.payment_date else "—"
+        generated_at = tz.now().strftime("%d %B %Y, %H:%M")
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8"/>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+            * {{ margin:0; padding:0; box-sizing:border-box; }}
+            body {{ font-family: Inter, Arial, sans-serif; background:#f9fafb; color:#111827; font-size:14px; }}
+            .page {{ max-width:680px; margin:40px auto; background:#fff; border-radius:12px;
+                     box-shadow:0 1px 3px rgba(0,0,0,.12); padding:40px; }}
+            .header {{ display:flex; justify-content:space-between; align-items:flex-start;
+                       border-bottom:2px solid #059669; padding-bottom:24px; margin-bottom:28px; }}
+            .school-name {{ font-size:22px; font-weight:700; color:#059669; }}
+            .school-sub {{ font-size:12px; color:#6b7280; margin-top:4px; }}
+            .receipt-badge {{ background:#059669; color:#fff; padding:6px 18px;
+                              border-radius:20px; font-size:12px; font-weight:600; }}
+            .receipt-no {{ font-size:24px; font-weight:700; color:#111827; text-align:right; margin-top:6px; }}
+            .section-label {{ font-size:11px; font-weight:600; color:#6b7280;
+                               text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px; }}
+            .info-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:28px; }}
+            .info-block p {{ font-size:14px; font-weight:600; color:#111827; }}
+            table {{ width:100%; border-collapse:collapse; margin-bottom:20px; }}
+            thead th {{ background:#f3f4f6; padding:10px 12px; text-align:left; font-size:12px;
+                        font-weight:600; color:#374151; text-transform:uppercase; letter-spacing:.04em; }}
+            thead th:last-child {{ text-align:right; }}
+            .total-row td {{ padding:12px; font-weight:700; font-size:15px;
+                             background:#f0fdf4; color:#065f46; }}
+            .total-row td:last-child {{ text-align:right; }}
+            .status-badge {{ display:inline-block; background:#d1fae5; color:#065f46;
+                              border-radius:12px; padding:3px 12px; font-size:12px; font-weight:600; }}
+            .footer {{ margin-top:32px; padding-top:20px; border-top:1px solid #e5e7eb;
+                       text-align:center; font-size:11px; color:#9ca3af; }}
+          </style>
+        </head>
+        <body>
+          <div class="page">
+            <div class="header">
+              <div>
+                <div class="school-name">{school_name}</div>
+                <div class="school-sub">Official Payment Receipt</div>
+              </div>
+              <div style="text-align:right;">
+                <span class="receipt-badge">RECEIPT</span>
+                <div class="receipt-no">#{receipt.receipt_number}</div>
+              </div>
+            </div>
+
+            <div class="info-grid">
+              <div class="info-block">
+                <div class="section-label">Student</div>
+                <p>{student_name}</p>
+                <div style="color:#6b7280;font-size:12px;margin-top:2px;">
+                  Adm: {admission_no} &nbsp;|&nbsp; {classroom}
+                </div>
+              </div>
+              <div class="info-block">
+                <div class="section-label">Payment Details</div>
+                <p>{payment_date}</p>
+                <div style="color:#6b7280;font-size:12px;margin-top:2px;">
+                  Via: {receipt.paid_through} &nbsp;|&nbsp; Term: {term_name}
+                </div>
+              </div>
+              <div class="info-block">
+                <div class="section-label">Received From</div>
+                <p>{receipt.payer}</p>
+              </div>
+              <div class="info-block">
+                <div class="section-label">Status</div>
+                <span class="status-badge">{receipt.status}</span>
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th style="text-align:right;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fee_rows}
+              </tbody>
+              <tfoot>
+                <tr class="total-row">
+                  <td>Total Paid</td>
+                  <td>&#8358;{receipt.amount:,.2f}</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            {"<p style='font-size:12px;color:#6b7280;margin-bottom:16px;'><strong>Remarks:</strong> " + receipt.remarks + "</p>" if receipt.remarks else ""}
+            {"<p style='font-size:12px;color:#6b7280;'><strong>Reference:</strong> " + receipt.reference_number + "</p>" if receipt.reference_number else ""}
+
+            <div class="footer">
+              <p>This is a computer-generated receipt. No signature required.</p>
+              <p style="margin-top:4px;">Generated on {generated_at} &nbsp;|&nbsp; {school_name} Finance System</p>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
+
+        pdf = HTML(string=html_content).write_pdf()
+        filename = f"receipt_{receipt.receipt_number}.pdf"
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        response['Content-Length'] = len(pdf)
+        return response
+
 
 class PaymentCategoryViewSet(viewsets.ModelViewSet):
     """
@@ -453,10 +620,11 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         """
         student = get_object_or_404(Student, id=pk)
         term_id = request.query_params.get('term_id')
+        academic_year_id = request.query_params.get('academic_year_id')
 
-        return self._get_student_balance(student, term_id)
+        return self._get_student_balance(student, term_id, academic_year_id)
 
-    def _get_student_balance(self, student, term_id=None):
+    def _get_student_balance(self, student, term_id=None, academic_year_id=None):
         """Helper method to get student balance data"""
 
         # Get all fee assignments for this student
@@ -465,6 +633,9 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         if term_id:
             assignments = assignments.filter(term_id=term_id)
             term = get_object_or_404(Term, id=term_id)
+        elif academic_year_id:
+            assignments = assignments.filter(term__academic_year_id=academic_year_id)
+            term = None
         else:
             # Get current term
             term = Term.objects.filter(
@@ -496,16 +667,32 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         # Fee breakdown
         fee_breakdown = []
         for assignment in assignments:
+            term_name = assignment.term.name if assignment.term else 'Yearly'
+            term_start = assignment.term.start_date.isoformat() if (assignment.term and hasattr(assignment.term, 'start_date') and assignment.term.start_date) else '1900-01-01'
+            
+            last_allocation = assignment.payment_allocations.order_by('-receipt__payment_date').first()
+            payment_date = last_allocation.receipt.payment_date.isoformat() if (last_allocation and last_allocation.receipt.payment_date) else None
+            
             fee_breakdown.append({
                 'id': assignment.id,
+                'payment_date': payment_date,
                 'fee_name': assignment.fee_structure.name,
                 'fee_type': assignment.fee_structure.fee_type,
+                'term_name': term_name,
+                'term_start': term_start,
                 'amount_owed': assignment.amount_owed,
                 'amount_paid': assignment.amount_paid,
                 'balance': assignment.balance,
                 'status': assignment.payment_status,
                 'is_waived': assignment.is_waived,
             })
+            
+        fee_breakdown.sort(key=lambda x: x['term_start'])
+        
+        student_image_url = None
+        if student.image:
+            student_image_url = self.request.build_absolute_uri(student.image.url) if hasattr(self, 'request') and self.request else student.image.url
+
 
         # Get last payment date
         last_payment = None
@@ -519,7 +706,11 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             'id': student.id,  # Add id field
             'student': student.id,
             'student_name': student.full_name,
+            'student_image': student_image_url,
             'student_admission_number': student.admission_number,
+            'class_level_name': str(student.classroom) if student.classroom else (str(student.class_level) if student.class_level else 'N/A'),
+            'parent_name': f"{student.parent_guardian.first_name or ''} {student.parent_guardian.last_name or ''}".strip() if student.parent_guardian else "N/A",
+            'parent_contact': student.parent_guardian.phone_number if student.parent_guardian else "N/A",
             'term': term.id if term else None,
             'term_name': term.name if term else None,
             'academic_year': term.academic_year.name if term else None,
@@ -533,8 +724,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             'fee_breakdown': fee_breakdown,
         }
 
-        serializer = StudentFeeBalanceSerializer(data)
-        return Response(serializer.data)
+        return Response(data)
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
@@ -544,8 +734,14 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         """
         term_id = request.query_params.get('term_id')
         academic_year_id = request.query_params.get('academic_year_id')
+        status_param = request.query_params.get('status')
+        classroom_id = request.query_params.get('classroom_id')
+        fee_type = request.query_params.get('fee_type')
 
         students = Student.objects.filter(is_active=True)
+        if classroom_id:
+            students = students.filter(classroom_id=classroom_id)
+
         summaries = []
 
         for student in students:
@@ -555,6 +751,9 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 assignments = assignments.filter(term_id=term_id)
             elif academic_year_id:
                 assignments = assignments.filter(term__academic_year_id=academic_year_id)
+
+            if fee_type:
+                assignments = assignments.filter(fee_structure__fee_type=fee_type)
 
             total_fees = assignments.aggregate(
                 total=Sum('amount_owed')
@@ -573,16 +772,136 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             else:
                 payment_status = 'Unpaid'
 
+            if status_param and payment_status != status_param:
+                continue
+
             summaries.append({
                 'id': student.id,
                 'student': student.id,
                 'student_name': student.full_name,
                 'student_admission_number': student.admission_number,
-                'class_level_name': student.class_level.name if student.class_level else 'N/A',
+                'class_level_name': str(student.classroom) if student.classroom else (str(student.class_level) if student.class_level else 'N/A'),
                 'total_fees': total_fees,
                 'total_paid': total_paid,
                 'balance': balance,
                 'status': payment_status,
             })
 
-        return Response(summaries)
+        # Calculate mathematically sound method breakdown based on fee allocations
+        from finance.models import FeePaymentAllocation
+
+        allocations = FeePaymentAllocation.objects.filter(fee_assignment__student__in=students)
+        if term_id:
+            allocations = allocations.filter(fee_assignment__term_id=term_id)
+        elif academic_year_id:
+            allocations = allocations.filter(fee_assignment__term__academic_year_id=academic_year_id)
+            
+        if fee_type:
+            allocations = allocations.filter(fee_assignment__fee_structure__fee_type=fee_type)
+
+        # Aggregate allocations by receipt payment method
+        method_breakdown_map = {}
+        # Avoid N+1 queries by selecting related receipt
+        for alloc in allocations.select_related('receipt'):
+            method = alloc.receipt.paid_through or 'Unknown'
+            method_breakdown_map[method] = method_breakdown_map.get(method, Decimal('0.00')) + alloc.amount
+            
+        method_list = [{'method': m, 'total': t} for m, t in method_breakdown_map.items()]
+        method_list.sort(key=lambda x: x['total'], reverse=True)
+
+        return Response({
+            'results': summaries,
+            'method_breakdown': method_list
+        })
+
+from rest_framework.views import APIView
+from academic.models import Parent
+
+class ParentFeesView(APIView):
+    """
+    Dedicated Parent Fees API
+    GET /api/finance/parent/fees/
+    Returns: Detailed fee breakdown and receipt history for all children
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            parent = Parent.objects.get(user=request.user)
+        except Parent.DoesNotExist:
+            return Response(
+                {"error": "Parent profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        children_fees = []
+
+        for student in parent.children.all():
+            # Fee breakdown
+            fee_assignments = StudentFeeAssignment.objects.filter(student=student)
+            
+            fee_breakdown = []
+            total_fees = Decimal('0.00')
+            total_paid = Decimal('0.00')
+            total_balance = Decimal('0.00')
+
+            for assignment in fee_assignments:
+                owed = assignment.amount_owed
+                paid = assignment.amount_paid
+                balance = assignment.balance
+                total_fees += owed
+                total_paid += paid
+                total_balance += balance
+                
+                fee_breakdown.append({
+                    "fee_name": assignment.fee_structure.name,
+                    "fee_type": assignment.fee_structure.fee_type,
+                    "amount_owed": float(owed),
+                    "amount_paid": float(paid),
+                    "balance": float(balance),
+                    "status": assignment.payment_status
+                })
+            
+            fee_status = 'Paid' if total_balance == 0 else 'Partial' if total_paid > 0 else 'Unpaid'
+
+            # Receipts
+            receipts = Receipt.objects.filter(student=student).order_by('-payment_date', '-receipt_number')
+            receipts_list = []
+            for r in receipts:
+                receipts_list.append({
+                    "id": r.id,
+                    "receipt_number": f"RCP-{r.receipt_number:06d}" if r.receipt_number else str(r.id),
+                    "amount": float(r.amount),
+                    "payment_date": r.payment_date.strftime('%Y-%m-%d'),
+                    "paid_through": r.paid_through,
+                    "term_name": r.term.name if r.term else 'N/A'
+                })
+
+            children_fees.append({
+                "student_id": student.id,
+                "student_name": student.full_name,
+                "admission_number": student.admission_number,
+                "classroom_display": student.class_level.name if student.class_level else 'N/A',
+                "total_fees": float(total_fees),
+                "amount_paid": float(total_paid),
+                "balance": float(total_balance),
+                "status": fee_status,
+                "receipts": receipts_list,
+                "fee_breakdown": fee_breakdown
+            })
+
+        return Response({"children_fees": children_fees})
+
+class ReminderSettingViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing reminder settings.
+    """
+    queryset = ReminderSetting.objects.all()
+    serializer_class = ReminderSettingSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['fee_structure', 'is_active', 'days_before_due']
+    search_fields = ['name']
+    ordering_fields = ['days_before_due', 'created_at']
+    ordering = ['days_before_due']
+

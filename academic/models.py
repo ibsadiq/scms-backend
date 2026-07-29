@@ -32,7 +32,7 @@ class Department(models.Model):
 
 class Subject(models.Model):
     name = models.CharField(max_length=255, unique=True)
-    subject_code = models.CharField(max_length=10, blank=True, null=True, unique=True)
+    subject_code = models.CharField(max_length=10, unique=True)
     is_selectable = models.BooleanField(
         default=False, help_text="Select if subject is optional"
     )
@@ -51,10 +51,7 @@ class Subject(models.Model):
         verbose_name_plural = "Subjects"
 
     def save(self, *args, **kwargs):
-        # Generate description
-        self.name = self.name.lower()
-        self.description = f"{self.name.lower()} - {self.subject_code}"
-
+        self.description = f"{self.name} - {self.subject_code}"
         super().save(*args, **kwargs)
 
 
@@ -360,7 +357,7 @@ class Stream(models.Model):
 
 class ClassRoom(models.Model):
     name = models.ForeignKey(
-        ClassLevel, on_delete=models.CASCADE, blank=True, related_name="class_level"
+        ClassLevel, on_delete=models.CASCADE, related_name="class_level"
     )
     stream = models.ForeignKey(
         Stream, on_delete=models.CASCADE, blank=True, null=True, related_name="class_stream"
@@ -371,10 +368,12 @@ class ClassRoom(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["name"], name="unique_classroom")
+        models.UniqueConstraint(fields=["name", "stream"], name="unique_classroom_per_stream")
         ]
 
     def __str__(self):
+        if self.stream:
+            return f"{self.name} {self.stream}"
         return f"{self.name}"
 
     @property
@@ -422,7 +421,7 @@ class AllocatedSubject(models.Model):
         Subject, on_delete=models.CASCADE, related_name="allocated_subjects"
     )
     academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE)
-    term = models.OneToOneField(Term, on_delete=models.SET_NULL, blank=True, null=True)
+    term = models.ForeignKey(Term, on_delete=models.SET_NULL, blank=True, null=True, related_name="allocated_subjects")
     class_room = models.ForeignKey(
         ClassRoom, on_delete=models.CASCADE, related_name="subjects"
     )
@@ -678,7 +677,8 @@ class Student(models.Model):
             defaults={
                 "first_name": self.middle_name or "Unknown",
                 "last_name": self.last_name or "Unknown",
-                "email": f"parent_of_{self.first_name}_{self.last_name}@hayatul.com",
+                # Use phone number in email to guarantee uniqueness
+                "email": f"parent_{self.parent_contact}@hayatul.com",
                 "phone_number": self.parent_contact,
             },
         )

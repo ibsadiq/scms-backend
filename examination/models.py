@@ -3,7 +3,9 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
-from academic.models import Student, Teacher, ClassRoom, StudentClassEnrollment, Subject
+from django.utils.translation import gettext_lazy as _
+from academic.models import Student, Teacher, ClassRoom, StudentClassEnrollment, Subject, GradeLevel, SectionType
+from academic.models import AllocatedSubject
 from administration.models import AcademicYear, Term
 from django.conf import settings
 
@@ -16,97 +18,288 @@ def validate_file_size(value):
         raise ValidationError(f"The maximum file size that can be uploaded is {max_size_mb}MB")
     return value
 
-class GradeScale(models.Model):
-    """Translate a numeric grade to some other scale.
-    Example: Letter grade or 4.0 scale."""
-
-    name = models.CharField(max_length=255, unique=True)
-
-    def __str__(self):
-        return self.name
-
-    def get_rule(self, grade):
-        if grade is None:
-            return None
-        rule = self.gradescalerule_set.filter(
-            min_grade__lte=grade, max_grade__gte=grade
-        ).first()
-        if not rule:
-            # Optionally log or raise a warning
-            print(f"No rule found for grade: {grade}")
-        return rule
-
-    def to_letter(self, grade):
-        rule = self.get_rule(grade)
-        if rule:
-            return rule.letter_grade
-        return None  # Return None if no rule found
-
-    def to_numeric(self, grade):
-        rule = self.get_rule(grade)
-        if rule:
-            return rule.numeric_scale
-        return None  # Return None if no rule found
 
 
-class GradeScaleRule(models.Model):
-    """One rule for a grade scale."""
+class GradingScheme(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(
+        blank=True
+    )
 
-    min_grade = models.DecimalField(max_digits=5, decimal_places=2)
-    max_grade = models.DecimalField(max_digits=5, decimal_places=2)
-    letter_grade = models.CharField(max_length=50, blank=True, null=True)
-    numeric_scale = models.DecimalField(max_digits=5, decimal_places=2, blank=True)
-    grade_scale = models.ForeignKey(GradeScale, on_delete=models.CASCADE)
+    section = models.CharField(
+        max_length=20,
+        choices=SectionType.choices,
+        null=True,
+        blank=True
+    )
+
+    grade_level = models.ForeignKey(
+        GradeLevel,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="grading_schemes"
+    )
+
+    classroom = models.ForeignKey(
+        ClassRoom,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="grading_schemes"
+    )
+
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE
+    )
+
+    is_active = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = ("min_grade", "max_grade", "grade_scale")
-        indexes = [
-            models.Index(fields=["min_grade", "max_grade", "grade_scale"]),
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "academic_year",
+                    "section",
+                    "grade_level",
+                    "classroom"
+                ],
+                condition=models.Q(is_active=True),
+                name="unique_active_grading_scheme"
+            )
         ]
 
     def __str__(self):
-        return f"{self.min_grade}-{self.max_grade} {self.letter_grade} {self.numeric_scale}"
+        return self.name
+    
+    def clean(self):
+
+        count = sum([
+            bool(self.section),
+            bool(self.grade_level),
+            bool(self.classroom)
+        ])
+
+        if count == 0:
+            raise ValidationError(
+                "Scheme must apply to a section, grade level or classroom."
+            )
+
+        if count > 1:
+            raise ValidationError(
+                "Scheme should apply to only one level."
+            )
+
+        if self.classroom:
+            if (
+                self.grade_level and
+                self.classroom.name.grade_level != self.grade_level
+            ):
+                raise ValidationError(
+                    "Classroom grade level mismatch."
+                )
+
+class AssessmentComponent(models.Model):
+    scheme = models.ForeignKey(
+        GradingScheme,
+        related_name="components",
+        on_delete=models.CASCADE
+    )
+
+    name = models.CharField(max_length=100)
+
+    max_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2
+    )
+
+    weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2
+    )
+
+    order = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ["order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["scheme", "order"],
+                name="unique_component_order_per_scheme"
+            )
+        ]
 
     def clean(self):
-        """Ensure consistency between letter grade and numeric scale."""
-        if not self.letter_grade and not self.numeric_scale:
+
+        if self.max_score <= 0:
             raise ValidationError(
-                "Either a letter grade or numeric scale must be provided."
-            )
-        if self.letter_grade and self.numeric_scale is None:
-            raise ValidationError(
-                "If a letter grade is provided, numeric scale must also be provided."
-            )
-        if self.numeric_scale and self.letter_grade is None:
-            raise ValidationError(
-                "If a numeric scale is provided, a letter grade must also be provided."
+                "Maximum score must be greater than zero."
             )
 
-    def save(self, *args, **kwargs):
-        if self.min_grade >= self.max_grade:
-            raise ValidationError("min_grade must be less than max_grade.")
-        super().save(*args, **kwargs)
+        if self.weight <= 0:
+            raise ValidationError(
+                "Weight must be greater than zero."
+            )
+
+        total = (
+            AssessmentComponent.objects
+            .filter(scheme=self.scheme)
+            .exclude(pk=self.pk)
+            .aggregate(
+                total=models.Sum("weight")
+            )["total"]
+            or Decimal("0")
+        )
+
+        if total + self.weight > 100:
+            raise ValidationError(
+                "Total component weights cannot exceed 100."
+            )
 
 
-class Result(models.Model):
-    student = models.ForeignKey(Student, on_delete=models.CASCADE)
-    gpa = models.FloatField(null=True)
-    cat_gpa = models.FloatField(null=True)
-    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE)
-    term = models.OneToOneField(Term, on_delete=models.SET_NULL, blank=True, null=True)
+class GradeRule(models.Model):
 
-    def __str__(self):
-        return str(self.student)
+    scheme = models.ForeignKey(
+        GradingScheme,
+        related_name="grade_rules",
+        on_delete=models.CASCADE
+    )
+
+    min_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2
+    )
+
+    max_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2
+    )
+
+    grade = models.CharField(
+        max_length=20
+    )
+
+    remark = models.CharField(
+        max_length=100
+    )
+
+    grade_point = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0
+    )
+
+    class Meta:
+        ordering = ["-min_score"]
+
+        unique_together = (
+            "scheme",
+            "grade"
+        )
+        indexes = [
+            models.Index(
+                fields=[
+                    "scheme",
+                    "min_score",
+                    "max_score"
+                ]
+            )
+        ]
 
     def clean(self):
-        """Validate that GPA is within a valid range (0.0 - 4.0)."""
-        if self.gpa is not None and (self.gpa < 0.0 or self.gpa > 4.0):
-            raise ValidationError("GPA must be between 0.0 and 4.0.")
-        if self.cat_gpa is not None and (self.cat_gpa < 0.0 or self.cat_gpa > 4.0):
-            raise ValidationError("CAT GPA must be between 0.0 and 4.0.")
+
+        if self.min_score > self.max_score:
+            raise ValidationError(
+                "Minimum score cannot exceed maximum score."
+            )
+
+        overlap = GradeRule.objects.filter(
+            scheme=self.scheme
+        ).exclude(
+            pk=self.pk
+        ).filter(
+            min_score__lte=self.max_score,
+            max_score__gte=self.min_score
+        )
+
+        if overlap.exists():
+            raise ValidationError(
+                "Grade ranges overlap."
+            )
+
+class PromotionRule(models.Model):
+
+    class AnnualComputationMethod(models.TextChoices):
+        AVERAGE_ALL_TERMS = "AVERAGE_ALL_TERMS", "Average of all three terms"
+        FINAL_TERM_ONLY = "FINAL_TERM_ONLY", "Third term result is the annual result"
+
+    scheme = models.OneToOneField(
+        GradingScheme,
+        related_name="promotion_rule",
+        on_delete=models.CASCADE
+    )
+
+    annual_computation_method = models.CharField(
+        max_length=30,
+        choices=AnnualComputationMethod.choices,
+        default=AnnualComputationMethod.AVERAGE_ALL_TERMS
+    )
+
+    minimum_average = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=40
+    )
+
+    minimum_subject_pass = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=40
+    )
+
+    required_pass_subjects = models.ManyToManyField(
+        Subject,
+        blank=True,
+        related_name="promotion_rules_requiring_pass",
+        help_text="Subjects a student must pass regardless of overall average"
+    )
+
+    max_failed_subjects = models.PositiveIntegerField(
+        default=99
+    )
+
+    auto_promote = models.BooleanField(
+        default=True
+    )
+
+    def clean(self):
+
+        if self.minimum_average > 100:
+            raise ValidationError(
+                "Average cannot exceed 100."
+            )
+
+        if self.minimum_subject_pass > 100:
+            raise ValidationError(
+                "Subject pass cannot exceed 100."
+            )
 
 
-class ExaminationListHandler(models.Model):
+class AssessmentType(models.TextChoices):
+    ASSIGNMENT = "ASSIGNMENT"
+    TEST = "TEST"
+    PROJECT = "PROJECT"
+    PRACTICAL = "PRACTICAL"
+    EXAMINATION = "EXAMINATION"
+
+
+class AssessmentSession(models.Model):
+    assessment_type = models.CharField(
+        max_length=30,
+        choices=AssessmentType.choices
+    )
     name = models.CharField(max_length=100)
     start_date = models.DateField()
     ends_date = models.DateField()
@@ -134,63 +327,141 @@ class ExaminationListHandler(models.Model):
         """Ensure the start date is not later than the end date."""
         if self.start_date > self.ends_date:
             raise ValidationError("Start date cannot be later than end date.")
-        super(ExaminationListHandler, self).clean()
+        super(AssessmentSession, self).clean()
 
+class AssessmentEntry(models.Model):
+    component = models.ForeignKey(
+        AssessmentComponent,
+        on_delete=models.CASCADE,
+        related_name="entries"
+    )
 
-class MarksManagement(models.Model):
-    exam_name = models.ForeignKey(
-        ExaminationListHandler, on_delete=models.CASCADE, related_name="exam_marks"
-    )
-    points_scored = models.FloatField()
-    subject = models.ForeignKey(
-        Subject, on_delete=models.CASCADE, related_name="subject_marks"
-    )
     student = models.ForeignKey(
-        StudentClassEnrollment, on_delete=models.CASCADE, related_name="student_marks"
+        StudentClassEnrollment,
+        on_delete=models.CASCADE,
+        related_name="assessment_entries"
     )
-    created_by = models.ForeignKey(
-        Teacher, on_delete=models.CASCADE, related_name="marks_entered"
-    )
-    date_time = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return f"{self.exam_name} - {self.student} - {self.points_scored}"
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="assessment_entries"
+    )
+
+    score = models.DecimalField(
+        max_digits=6,
+        decimal_places=2
+    )
+
+    entered_by = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name="entered_assessments"
+    )
+
+    entered_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    remarks = models.TextField(
+        blank=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "student",
+                    "subject",
+                    "component"
+                ],
+                name="unique_student_component_score"
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "student",
+                    "subject"
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "component"
+                ]
+            )
+        ]
 
     def clean(self):
-        """
-        Validate points scored and teacher authorization.
-        Phase 1.3: Added teacher authorization check.
-        """
-        # Validate points scored range
-        if self.points_scored < 0 or self.points_scored > self.exam_name.out_of:
-            raise ValidationError(
-                f"Points scored must be between 0 and {self.exam_name.out_of}."
+
+        errors = {}
+
+        # score validation
+        if self.score < 0:
+            errors["score"] = (
+                "Score cannot be negative."
             )
 
-        # Phase 1.3: Check if teacher is authorized to enter marks for this subject/classroom
-        if self.created_by and self.subject and self.student:
-            from academic.models import AllocatedSubject
+        if (
+            self.component and
+            self.score >
+            self.component.max_score
+        ):
+            errors["score"] = (
+                f"Score cannot exceed "
+                f"{self.component.max_score}."
+            )
 
-            # Get student's classroom
-            student_classroom = self.student.class_room if hasattr(self.student, 'class_room') else None
+        # subject allocation validation
+        if (
+            self.entered_by and
+            self.subject and
+            self.student
+        ):
 
-            if student_classroom:
-                # Check if teacher is allocated to this subject and classroom
-                is_allocated = AllocatedSubject.objects.filter(
-                    teacher_name=self.created_by,
+            classroom = self.student.classroom
+
+            is_allocated = (
+                AllocatedSubject.objects.filter(
+                    teacher_name=self.entered_by,
                     subject=self.subject,
-                    class_room=student_classroom
+                    class_room=classroom
                 ).exists()
+            )
 
-                if not is_allocated:
-                    raise ValidationError(
-                        f"You are not authorized to enter marks for {self.subject.name} "
-                        f"in {student_classroom}. Please check your subject allocations."
-                    )
+            if not is_allocated:
+                errors["entered_by"] = (
+                    "Teacher is not allocated "
+                    "to this subject/class."
+                )
 
-        super(MarksManagement, self).clean()
+        # ensure component belongs to grading scheme
+        if (
+            self.component and
+            self.student
+        ):
 
+            scheme = (
+                self.student.classroom
+                .grading_schemes
+                .filter(is_active=True)
+                .first()
+            )
 
+            if (
+                scheme and
+                self.component.scheme_id != scheme.id
+            ):
+                errors["component"] = (
+                    "Assessment component does not "
+                    "belong to the active grading scheme."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+        super().clean()
 # ============================================================================
 # RESULT COMPUTATION MODELS (Phase 1.1)
 # ============================================================================
@@ -200,14 +471,13 @@ class TermResult(models.Model):
     Stores computed results for a student in a specific term.
     This is the master result record that aggregates all subject results.
     """
-    GRADE_CHOICES = [
-        ('A', 'Excellent (A)'),
-        ('B', 'Very Good (B)'),
-        ('C', 'Good (C)'),
-        ('D', 'Pass (D)'),
-        ('E', 'Poor (E)'),
-        ('F', 'Fail (F)'),
-    ]
+    grading_scheme = models.ForeignKey(
+        GradingScheme,
+        on_delete=models.PROTECT
+    )
+    scheme_name = models.CharField(
+        max_length=100
+    )
 
     student = models.ForeignKey(
         Student,
@@ -238,19 +508,13 @@ class TermResult(models.Model):
         decimal_places=2,
         help_text="Sum of all subject scores"
     )
-    total_possible = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        help_text="Total possible marks across all subjects"
-    )
     average_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         help_text="Average percentage across all subjects"
     )
     grade = models.CharField(
-        max_length=2,
-        choices=GRADE_CHOICES,
+        max_length=20,
         help_text="Overall grade for the term"
     )
     gpa = models.DecimalField(
@@ -268,6 +532,11 @@ class TermResult(models.Model):
     total_students = models.IntegerField(
         help_text="Total number of students in class",
         null=True,
+        blank=True
+    )
+
+    remark = models.CharField(
+        max_length=100,
         blank=True
     )
 
@@ -295,6 +564,33 @@ class TermResult(models.Model):
         blank=True,
         related_name='computed_results'
     )
+    homeroom_approved = models.BooleanField(default=False)
+    homeroom_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="homeroom_approved_results"
+    )
+    homeroom_approved_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_results"
+    )
+
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    is_approved = models.BooleanField(
+        default=False
+    )
     is_published = models.BooleanField(
         default=False,
         help_text="Whether result is visible to parents/students"
@@ -303,6 +599,45 @@ class TermResult(models.Model):
         null=True,
         blank=True,
         help_text="When the result was published"
+    )
+    is_pass = models.BooleanField(
+        default=True
+    )
+    is_locked = models.BooleanField(
+        default=False
+    )
+
+    locked_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    locked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="locked_results"
+    )
+    unlock_reason = models.TextField(
+        blank=True
+    )
+
+    unlocked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="unlocked_results"
+    )
+
+    unlocked_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+    result_release_date = models.DateTimeField(
+        null=True,
+        blank=True
     )
 
     class Meta:
@@ -321,16 +656,42 @@ class TermResult(models.Model):
 
     @property
     def status(self):
-        """Return pass/fail status"""
-        return "Pass" if self.grade in ['A', 'B', 'C', 'D'] else "Fail"
+        return (
+            "Pass"
+            if self.is_pass
+            else "Fail"
+        )
 
     @property
     def percentage_str(self):
         """Return formatted percentage"""
         return f"{self.average_percentage}%"
 
+    def approve(self, user):
+        self.is_approved = True
+        self.approved_by = user
+        self.approved_at = timezone.now()
+        self.save()
+
+    def lock(self, user):
+        self.is_locked = True
+        self.locked_by = user
+        self.locked_at = timezone.now()
+        self.save()
+
+
+    def unlock(self):
+        self.is_locked = False
+        self.locked_by = None
+        self.locked_at = None
+        self.save()
+
     def publish(self, published_by=None):
         """Publish result to make it visible to parents/students"""
+        if not self.is_approved:
+            raise ValidationError(
+                "Result must be approved first."
+            )
         self.is_published = True
         self.published_date = timezone.now()
         self.save()
@@ -341,21 +702,91 @@ class TermResult(models.Model):
         self.published_date = None
         self.save()
 
+    @property
+    def can_view(self):
+
+        if not self.is_published:
+            return False
+
+        if (
+            self.result_release_date and
+            timezone.now() <
+            self.result_release_date
+        ):
+            return False
+
+        return True
+    
+    def homeroom_approve(self, user):
+        if self.is_locked:
+            raise ValidationError("Result is locked.")
+        self.homeroom_approved = True
+        self.homeroom_approved_by = user
+        self.homeroom_approved_at = timezone.now()
+        self.save(update_fields=["homeroom_approved", "homeroom_approved_by", "homeroom_approved_at"])
+        self.audit_logs.create(action=ResultAuditLog.Action.HOMEROOM_APPROVED, performed_by=user)
+
+    def approve(self, user):
+        if not self.homeroom_approved:
+            raise ValidationError("Homeroom teacher must approve before admin approval.")
+        if self.is_locked:
+            raise ValidationError("Result is locked.")
+        self.is_approved = True
+        self.approved_by = user
+        self.approved_at = timezone.now()
+        self.save(update_fields=["is_approved", "approved_by", "approved_at"])
+        self.audit_logs.create(action=ResultAuditLog.Action.APPROVED, performed_by=user)
+
+    def lock(self, user):
+        self.is_locked = True
+        self.locked_by = user
+        self.locked_at = timezone.now()
+        self.save()
+        self.audit_logs.create(action=ResultAuditLog.Action.LOCKED, performed_by=user)
+
+    def unlock(self, user, reason=""):        
+        self.is_locked = False
+        self.locked_by = None
+        self.locked_at = None
+        self.unlock_reason = reason
+        self.unlocked_by = user
+        self.unlocked_at = timezone.now()
+        self.save()
+        self.audit_logs.create(action=ResultAuditLog.Action.UNLOCKED, performed_by=user, notes=reason)
+
+    def publish(self, published_by=None):
+        if not self.is_approved:
+            raise ValidationError("Result must be approved first.")
+        self.is_published = True
+        self.published_date = timezone.now()
+        self.save()
+        self.audit_logs.create(action=ResultAuditLog.Action.PUBLISHED, performed_by=published_by)
+
+    def unpublish(self, user=None):
+        self.is_published = False
+        self.published_date = None
+        self.save()
+        self.audit_logs.create(action=ResultAuditLog.Action.UNPUBLISHED, performed_by=user)
+
+
+
 
 class SubjectResult(models.Model):
     """
     Stores individual subject results for a term.
     Links to TermResult as the parent record.
     """
-    GRADE_CHOICES = [
-        ('A', 'Excellent (A)'),
-        ('B', 'Very Good (B)'),
-        ('C', 'Good (C)'),
-        ('D', 'Pass (D)'),
-        ('E', 'Poor (E)'),
-        ('F', 'Fail (F)'),
-    ]
 
+    grading_scheme_name = models.CharField(
+        max_length=100,
+        blank=True
+    )
+
+    grading_rule_snapshot = models.JSONField(
+        default=dict,
+        blank=True
+    )
+   
     term_result = models.ForeignKey(
         TermResult,
         on_delete=models.CASCADE,
@@ -373,53 +804,23 @@ class SubjectResult(models.Model):
         blank=True,
         help_text="Teacher who taught this subject"
     )
-
-    # Score breakdown (following Nigerian system: CA + Exam)
-    ca_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Continuous Assessment score (usually 40%)"
-    )
-    ca_max = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal('40.00'),
-        help_text="Maximum CA score possible"
-    )
-    exam_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        help_text="Examination score (usually 60%)"
-    )
-    exam_max = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal('60.00'),
-        help_text="Maximum exam score possible"
-    )
-
     # Computed totals
     total_score = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         help_text="CA + Exam score"
     )
-    total_possible = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal('100.00'),
-        help_text="Maximum possible score (usually 100)"
-    )
     percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         help_text="Percentage score"
     )
+    remark = models.CharField(
+        max_length=100,
+        blank=True
+    )
     grade = models.CharField(
-        max_length=2,
-        choices=GRADE_CHOICES,
+        max_length=20,
         help_text="Letter grade for this subject"
     )
     grade_point = models.DecimalField(
@@ -427,7 +828,9 @@ class SubjectResult(models.Model):
         decimal_places=2,
         help_text="Grade point (0.00 - 4.00)"
     )
-
+    teacher_comment = models.TextField(
+        blank=True
+    )
     # Ranking
     position_in_subject = models.IntegerField(
         null=True,
@@ -460,12 +863,8 @@ class SubjectResult(models.Model):
         blank=True,
         help_text="Class average for this subject"
     )
-
-    # Teacher remarks
-    teacher_remarks = models.TextField(
-        blank=True,
-        null=True,
-        help_text="Subject teacher's remarks"
+    is_pass = models.BooleanField(
+        default=True
     )
 
     class Meta:
@@ -481,28 +880,252 @@ class SubjectResult(models.Model):
     def __str__(self):
         return f"{self.term_result.student.full_name} - {self.subject.name} ({self.grade})"
 
+class AnnualResult(models.Model):
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="annual_results"
+    )
+
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        related_name="annual_results"
+    )
+
+    classroom = models.ForeignKey(
+        ClassRoom,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    grading_scheme = models.ForeignKey(
+        GradingScheme,
+        on_delete=models.PROTECT
+    )
+
+    total_marks = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0
+    )
+
+    average_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0
+    )
+
+    grade = models.CharField(
+        max_length=20,
+        blank=True
+    )
+
+    gpa = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=0
+    )
+
+    position_in_class = models.PositiveIntegerField(
+        null=True,
+        blank=True
+    )
+
+    total_students = models.PositiveIntegerField(
+        null=True,
+        blank=True
+    )
+
+    is_promoted = models.BooleanField(
+        default=True
+    )
+
+    promoted_to = models.ForeignKey(
+        GradeLevel,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="promoted_students"
+    )
+
+    promotion_reason = models.TextField(
+        blank=True
+    )
+
+    computed_at = models.DateTimeField(
+        default=timezone.now
+    )
+
+    computed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="computed_annual_results"
+    )
+
+    is_published = models.BooleanField(
+        default=False
+    )
+
+    published_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        unique_together = (
+            "student",
+            "academic_year"
+        )
+
+        ordering = [
+            "-academic_year__start_date",
+            "position_in_class"
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "student",
+                    "academic_year"
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "classroom"
+                ]
+            )
+        ]
+
     @property
-    def status(self):
-        """Return pass/fail status"""
-        return "Pass" if self.grade in ['A', 'B', 'C', 'D'] else "Fail"
+    def can_view(self):
+        if not self.is_published:
+            return False
+        if self.result_release_date and timezone.now() < self.result_release_date:
+            return False
+        return True
 
-    def save(self, *args, **kwargs):
-        """Auto-calculate totals before saving"""
-        # Calculate total score
-        self.total_score = self.ca_score + self.exam_score
+class AnnualSubjectResult(models.Model):
 
-        # Calculate percentage
-        if self.total_possible > 0:
-            self.percentage = (self.total_score / self.total_possible) * 100
-        else:
-            self.percentage = Decimal('0.00')
+    annual_result = models.ForeignKey(
+        AnnualResult,
+        on_delete=models.CASCADE,
+        related_name="subjects"
+    )
 
-        super().save(*args, **kwargs)
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE
+    )
+
+    first_term = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0
+    )
+
+    second_term = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0
+    )
+
+    third_term = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0
+    )
+
+    annual_average = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0
+    )
+
+    grade = models.CharField(
+        max_length=20
+    )
+
+    grade_point = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=0
+    )
+
+    is_pass = models.BooleanField(
+        default=True
+    )
+
+    class Meta:
+        unique_together = (
+            "annual_result",
+            "subject"
+        )
+    
+class AssessmentScore(models.Model):
+
+    subject_result = models.ForeignKey(
+        SubjectResult,
+        related_name="assessment_scores",
+        on_delete=models.CASCADE
+    )
+
+    component = models.ForeignKey(
+        AssessmentComponent,
+        on_delete=models.CASCADE
+    )
+
+    score = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=0
+    )
+
+    class Meta:
+        unique_together = (
+            "subject_result",
+            "component"
+        )
+        indexes = [
+            models.Index(
+                fields=[
+                    "subject_result"
+                ]
+            )
+        ]
+
+    def clean(self):
+
+        if self.score < 0:
+            raise ValidationError(
+                "Score cannot be negative."
+            )
+
+        if (
+            self.component and
+            self.score >
+            self.component.max_score
+        ):
+            raise ValidationError(
+                f"Score cannot exceed "
+                f"{self.component.max_score}"
+            )
+
 
 
 # ============================================================================
 # REPORT CARD MODEL (Phase 1.2)
 # ============================================================================
+class ReportCardStatus(models.TextChoices):
+    PENDING = "PENDING", "Pending"
+    GENERATING = "GENERATING", "Generating"
+    COMPLETED = "COMPLETED", "Completed"
+    FAILED = "FAILED", "Failed"
+
 
 class ReportCard(models.Model):
     """
@@ -541,6 +1164,17 @@ class ReportCard(models.Model):
         blank=True,
         help_text="Last download timestamp"
     )
+    status = models.CharField(
+        max_length=20,
+        choices=ReportCardStatus.choices,
+        default=ReportCardStatus.COMPLETED,
+        help_text="Generation status"
+    )
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Error message if generation failed"
+    )
 
     class Meta:
         ordering = ['-generated_date']
@@ -571,7 +1205,7 @@ class MarkedScript(models.Model):
     Allows teachers to upload scanned or digital copies of graded assessments.
     """
     exam = models.ForeignKey(
-        ExaminationListHandler,
+        AssessmentSession,
         on_delete=models.CASCADE,
         related_name='marked_scripts',
         help_text="Associated examination/assessment"
@@ -588,8 +1222,8 @@ class MarkedScript(models.Model):
         related_name='marked_scripts',
         help_text="Subject of the assessment"
     )
-    marks_entry = models.ForeignKey(
-        MarksManagement,
+    assessment_entry = models.ForeignKey(
+        AssessmentEntry,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -622,7 +1256,9 @@ class MarkedScript(models.Model):
         Teacher,
         on_delete=models.CASCADE,
         related_name='uploaded_marked_scripts',
-        help_text="Teacher who uploaded the script"
+        help_text="Teacher who uploaded the script",
+        null=True,
+        blank=True
     )
     uploaded_at = models.DateTimeField(
         auto_now_add=True,
@@ -680,7 +1316,7 @@ class MarkedScript(models.Model):
                 ).order_by('-academic_year__start_date').first()
 
                 if enrollment:
-                    student_classroom = enrollment.class_room
+                    student_classroom = enrollment.classroom
 
                     # Check if teacher is allocated to this subject and classroom
                     is_allocated = AllocatedSubject.objects.filter(
@@ -698,3 +1334,45 @@ class MarkedScript(models.Model):
                 pass
 
         super().clean()
+
+class ResultAuditLog(models.Model):
+
+    class Action(models.TextChoices):
+        COMPUTED = "COMPUTED", "Computed"
+        RECOMPUTED = "RECOMPUTED", "Recomputed"
+        HOMEROOM_APPROVED = "HOMEROOM_APPROVED", "Homeroom Approved"
+        APPROVED = "APPROVED", "Approved"
+        PUBLISHED = "PUBLISHED", "Published"
+        UNPUBLISHED = "UNPUBLISHED", "Unpublished"
+        LOCKED = "LOCKED", "Locked"
+        UNLOCKED = "UNLOCKED", "Unlocked"
+
+    term_result = models.ForeignKey(
+        TermResult,
+        on_delete=models.CASCADE,
+        related_name="audit_logs"
+    )
+    action = models.CharField(
+        max_length=30,
+        choices=Action.choices
+    )
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+    timestamp = models.DateTimeField(
+        auto_now_add=True
+    )
+    notes = models.TextField(
+        blank=True
+    )
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["term_result", "-timestamp"]),
+        ]
+
+    def __str__(self):
+        return f"{self.term_result} - {self.action} @ {self.timestamp:%Y-%m-%d %H:%M}"

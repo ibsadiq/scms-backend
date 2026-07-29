@@ -1,6 +1,8 @@
 """
 Tenant API Views - Refactored with ViewSets
 """
+from urllib.parse import urlparse
+
 from rest_framework import status, viewsets, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -48,15 +50,12 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Super admins creating tenants directly → auto-activate immediately.
-            # Public self-registrations → always pending approval.
             is_super_admin = (
                 request.user.is_authenticated
                 and request.user.is_superuser
             )
             auto_activate = is_super_admin
 
-            # Capture admin_phone so we can notify after creation
             admin_phone = serializer.validated_data.get('admin_phone') or None
 
             result = TenantService.create_tenant(
@@ -73,18 +72,18 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
             )
 
             # Send acknowledgement / notification emails only after tenant
-            # creation completes successfully. Failures in email sending
-            # should not prevent the API from returning success.
+            # record creation completes successfully.
             try:
                 if auto_activate:
-                    TenantService._send_welcome_email(
-                        email=serializer.validated_data['admin_email'],
-                        first_name=serializer.validated_data['admin_first_name'],
-                        school_name=result['tenant'].name,
-                        domain=result['domain'].domain,
-                        username=serializer.validated_data['admin_email'],
-                        reset_url=result.get('reset_url'),
-                        has_mobile=serializer.validated_data.get('enable_mobile', False),
+                    # Super admin direct creation: schema is created at approval time too,
+                    # but since auto_activate=True, we immediately approve below.
+                    # For now, send a simple notification. The welcome email with
+                    # reset link will be sent after the approval flow runs.
+                    TenantService._notify_super_admin_new_registration(
+                        tenant=result['tenant'],
+                        admin_email=serializer.validated_data['admin_email'],
+                        admin_phone=admin_phone,
+                        admin_name=f"{serializer.validated_data.get('admin_first_name','')} {serializer.validated_data.get('admin_last_name','')}",
                     )
                 else:
                     TenantService._send_pending_approval_email(
@@ -103,13 +102,77 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                 logger.warning('Failed to send registration emails for %s: %s', serializer.validated_data['admin_email'], e)
 
             if auto_activate:
+                # Auto-approve immediately for super admin direct creation
+                # This triggers schema creation, migrations, admin user setup
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                request.user = User.objects.filter(pk=request.user.pk).first() or request.user
+                
+                # Call approve logic directly
+                tenant = result['tenant']
+                
+                # Replicate approval logic inline since we can't call the action
+                with connection.cursor() as cursor:
+                    cursor.execute(f'CREATE SCHEMA IF NOT EXISTS "{tenant.schema_name}"')
+                    with schema_context(tenant.schema_name):
+                        from django.core.management import call_command
+                        call_command('migrate', run_syncdb=True, interactive=False)
+                        
+                        admin_user = User.objects.create_user(
+                            email=tenant.pending_admin_email,
+                            password=User.objects.make_random_password(length=20),
+                            first_name=tenant.pending_admin_first_name,
+                            last_name=tenant.pending_admin_last_name,
+                            is_admin=True,
+                            is_active=True,
+                        )
+                        
+                        TenantService._initialize_school_data(tenant.schema_name)
+                        
+                        from django.utils.http import urlsafe_base64_encode
+                        from django.utils.encoding import force_bytes
+                        from django.contrib.auth.tokens import PasswordResetTokenGenerator
+                        
+                        uid = urlsafe_base64_encode(force_bytes(admin_user.pk))
+                        token = PasswordResetTokenGenerator().make_token(admin_user)
+                    
+                    domain = tenant.domains.filter(is_primary=True).first()
+                    _frontend = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+                    _parsed = urlparse(_frontend)
+                    _port = f':{_parsed.port}' if _parsed.port else ''
+                    _subdomain = domain.domain.split('.')[0]
+                    
+                    reset_url = (
+                        f"{_parsed.scheme}://{_subdomain}.{_parsed.hostname}{_port}"
+                        f"/reset-password?uid={uid}&token={token}"
+                    )
+                    
+                    from django.utils import timezone
+                    tenant.status = TenantStatus.ACTIVE
+                    tenant.approved_at = timezone.now()
+                    tenant.approved_by = request.user
+                    tenant.save()
+                
+                try:
+                    TenantService._send_welcome_email(
+                        email=tenant.pending_admin_email,
+                        first_name=tenant.pending_admin_first_name,
+                        school_name=tenant.name,
+                        domain=domain.domain,
+                        username=tenant.pending_admin_email,
+                        reset_url=reset_url,
+                        has_mobile=tenant.has_mobile_access,
+                    )
+                except Exception:
+                    pass
+
                 return Response({
                     'success': True,
                     'message': f"School '{result['tenant'].name}' created and activated.",
                     'data': {
                         'school_name': result['tenant'].name,
-                        'status':      'active',
-                        'domain':      result['domain'].domain,
+                        'status': 'active',
+                        'domain': result['domain'].domain,
                     }
                 }, status=status.HTTP_201_CREATED)
 
@@ -117,10 +180,10 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                 'success': True,
                 'message': 'Registration received! You will receive login credentials within 24 hours after approval.',
                 'data': {
-                    'school_name':        result['tenant'].name,
-                    'status':             'pending_approval',
+                    'school_name': result['tenant'].name,
+                    'status': 'pending_approval',
                     'estimated_approval': '24 hours',
-                    'contact_email':      'support@ssync.online'
+                    'contact_email': 'support@ssync.online'
                 }
             }, status=status.HTTP_201_CREATED)
 
@@ -131,7 +194,6 @@ class PublicTenantViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
                 {'error': f'An unexpected error occurred: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
     @action(detail=False, methods=['get'], url_path='check-subdomain')
     def check_subdomain(self, request):
         subdomain = request.query_params.get('subdomain')
@@ -274,7 +336,7 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """POST /api/admin/tenants/{id}/approve/"""
-        error_response = self._check_public_schema()   # ← was missing
+        error_response = self._check_public_schema()
         if error_response:
             return error_response
 
@@ -288,167 +350,43 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-                with schema_context(tenant.schema_name):
-                    from django.contrib.auth import get_user_model
-                    User   = get_user_model()
-                    admin  = User.objects.filter(is_admin=True).first()
-
-                    if not admin:
-                        raise ValueError('No admin user found in tenant schema')
-
-                    domain = tenant.domains.filter(is_primary=True).first()
-                    if not domain:
-                        raise ValueError('No primary domain found for tenant')
-
-                    # Generate password reset token instead of temp_password
-                    from django.utils.http import urlsafe_base64_encode
-                    from django.utils.encoding import force_bytes
-                    from django.contrib.auth.tokens import default_token_generator
-                    
-                    uid = urlsafe_base64_encode(force_bytes(admin.pk))
-                    token = default_token_generator.make_token(admin)
-                    
-                    protocol = getattr(settings, 'PROTOCOL', 'https')
-                    reset_url = f"{protocol}://{domain.domain}/reset-password?uid={uid}&token={token}"
-
-                # Only update status after everything inside the schema succeeded
-                tenant.status = TenantStatus.ACTIVE
+                # Update status to PROVISIONING
+                tenant.status = TenantStatus.PROVISIONING
                 tenant.save()
+                
+            # Dispatch Celery task outside atomic block
+            from .tasks import provision_tenant_task
+            provision_tenant_task.delay(tenant.id, request.user.id)
 
-                # Email is outside the atomic block — a failed email shouldn't
-                # roll back the approval. Log the failure instead.
-                from core.email_utils import send_tenant_welcome_email
-                try:
-                    email_sent = send_tenant_welcome_email(
-                        admin_email=admin.email,
-                        admin_first_name=admin.first_name,
-                        school_name=tenant.name,
-                        domain=domain.domain,
-                        username=admin.email,
-                        reset_url=reset_url,
-                        has_mobile_access=tenant.has_mobile_access
-                    )
-                except Exception:
-                    email_sent = False  # log this properly in production
-
-                return Response({
-                    'success': True,
-                    'message': f"School '{tenant.name}' has been approved and activated",
-                    'data': {
-                        'school_name':      tenant.name,
-                        'status':           tenant.status,
-                        'admin_email':      admin.email,
-                        'domain':           domain.domain,
-                        'email_sent':       email_sent,
-                        'plan':             tenant.get_plan_name()
-                    }
-                })
+            domain = tenant.domains.filter(is_primary=True).first()
+            return Response({
+                'success': True,
+                'message': f"Provisioning started for '{tenant.name}'. This may take a minute.",
+                'data': {
+                    'school_name':      tenant.name,
+                    'status':           tenant.status,
+                    'admin_email':      tenant.pending_admin_email,
+                    'domain':           domain.domain if domain else None,
+                    'plan':             tenant.get_plan_name()
+                }
+            }, status=status.HTTP_202_ACCEPTED)
 
         except Client.DoesNotExist:
-            return Response({'error': 'School not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {'error': 'School not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
+            logger.exception("Tenant approval failed for pk=%s", pk)
             return Response(
                 {'error': f'Approval failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        """
-        POST /api/admin/tenants/{id}/reject/
-        Body: { "reason": "...", "delete_tenant": true }
-        """
-        error_response = self._check_public_schema()
-        if error_response:
-            return error_response
-
-        tenant = self.get_object()
-
-        if tenant.status == TenantStatus.ACTIVE:
-            return Response(
-                {'error': 'Cannot reject an active school. Suspend it first.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        reason        = request.data.get('reason', 'Your registration did not meet our requirements.')
-        delete_tenant = request.data.get('delete_tenant', False)
-
-        try:
-            with schema_context(tenant.schema_name):
-                from django.contrib.auth import get_user_model
-                User             = get_user_model()
-                admin            = User.objects.filter(is_admin=True).first()
-                admin_email      = admin.email      if admin else None
-                admin_first_name = admin.first_name if admin else 'there'
-
-            from core.email_utils import send_tenant_rejection_email
-            if admin_email:
-                send_tenant_rejection_email(
-                    admin_email=admin_email,
-                    admin_first_name=admin_first_name,
-                    school_name=tenant.name,
-                    reason=reason
-                )
-
-            if delete_tenant:
-                schema_name = tenant.schema_name
-                tenant_name = tenant.name
-                tenant.delete()
-                with connection.cursor() as cursor:
-                    cursor.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
-                return Response({
-                    'success': True,
-                    'message': f"Registration rejected and tenant '{tenant_name}' deleted",
-                    'deleted': True
-                })
-
-            # ← Mark as rejected when not deleting
-            tenant.status            = TenantStatus.REJECTED
-            tenant.rejection_reason  = reason
-            tenant.save()
-
-            return Response({
-                'success': True,
-                'message': f"Registration for '{tenant.name}' has been rejected",
-                'deleted': False
-            })
-
-        except Exception as e:
-            return Response(
-                {'error': f'Rejection failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=True, methods=['post'])
-    def suspend(self, request, pk=None):
-        """POST /api/admin/tenants/{id}/suspend/"""
-        error_response = self._check_public_schema()
-        if error_response:
-            return error_response
-
-        tenant = self.get_object()
-
-        if tenant.status != TenantStatus.ACTIVE:
-            return Response(
-                {'error': 'Only active schools can be suspended'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        reason = request.data.get('reason', 'Account suspended by administrator')
-
-        try:
-            TenantService.suspend_tenant(tenant.schema_name, reason=reason)
-            tenant.refresh_from_db()   # ← get the status TenantService just wrote
-
-            return Response({
-                'success': True,
-                'message': f"School '{tenant.name}' has been suspended",
-                'status':  tenant.status
-            })
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -603,92 +541,71 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        error_response = self._check_public_schema()
+        if error_response:
+            return error_response
 
-class PasswordResetConfirmView(APIView):
-    """
-    POST /api/tenants/password-reset/confirm/
+        tenant = self.get_object()
 
-    Public endpoint used by the frontend /reset-password page.
-    Validates the uid + token (produced by resend-credentials) and
-    sets the user's new password inside the correct tenant schema.
-
-    Body: { uid, token, tenant_schema, new_password }
-    """
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        from django.contrib.auth.tokens import default_token_generator
-        from django.utils.http import urlsafe_base64_decode
-        from django.utils.encoding import force_str
-
-        uid          = request.data.get('uid', '')
-        token        = request.data.get('token', '')
-        tenant_slug  = request.data.get('tenant', '')
-        new_password = request.data.get('new_password', '')
-
-        if not all([uid, token, tenant_slug, new_password]):
+        if tenant.status == TenantStatus.ACTIVE:
             return Response(
-                {'error': 'uid, token, tenant and new_password are all required.'},
-                status=status.HTTP_400_BAD_REQUEST,
+                {'error': 'Cannot reject an active school. Suspend it first.'},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        if len(new_password) < 8:
-            return Response(
-                {'error': 'Password must be at least 8 characters.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Resolve schema_name from the subdomain (tenant slug)
-        domain_obj = Domain.objects.filter(domain__startswith=tenant_slug + '.').first()
-        if not domain_obj:
-            return Response(
-                {'error': 'School not found.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        tenant_schema = domain_obj.tenant.schema_name
+        reason = request.data.get('reason', 'Your registration did not meet our requirements.')
+        delete_tenant = request.data.get('delete_tenant', False)
 
         try:
-            with schema_context(tenant_schema):
-                from django.contrib.auth import get_user_model
-                User = get_user_model()
+            # Get admin details before any deletion
+            admin_email = tenant.pending_admin_email
+            admin_first_name = tenant.pending_admin_first_name or 'there'
 
-                try:
-                    pk   = force_str(urlsafe_base64_decode(uid))
-                    user = User.objects.get(pk=pk)
-                except (ValueError, TypeError, OverflowError, User.DoesNotExist):
-                    return Response(
-                        {'error': 'Invalid or expired reset link.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            from core.email_utils import send_tenant_rejection_email
+            if admin_email:
+                send_tenant_rejection_email(
+                    admin_email=admin_email,
+                    admin_first_name=admin_first_name,
+                    school_name=tenant.name,
+                    reason=reason
+                )
 
-                if not default_token_generator.check_token(user, token):
-                    return Response(
-                        {'error': 'This reset link has expired or was already used. Ask your administrator to send a new one.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            if delete_tenant:
+                schema_name = tenant.schema_name
+                tenant_name = tenant.name
+                tenant.delete()
+                # Use IF EXISTS since schema may not have been created yet
+                with connection.cursor() as cursor:
+                    cursor.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')                
+                    return Response({
+                    'success': True,
+                    'message': f"Registration rejected and tenant '{tenant_name}' deleted",
+                    'deleted': True
+                })
 
-                user.set_password(new_password)
-                user.is_active = True
-                user.save()
+            tenant.status = TenantStatus.REJECTED
+            tenant.rejection_reason = reason
+            from django.utils import timezone
+            tenant.rejected_at = timezone.now()
+            tenant.save()
 
-            return Response({'success': True, 'message': 'Password set successfully. You can now log in.'})
+            return Response({
+                'success': True,
+                'message': f"Registration for '{tenant.name}' has been rejected",
+                'deleted': False
+            })
 
         except Exception as e:
             return Response(
-                {'error': f'Password reset failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {'error': f'Rejection failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 
-class TenantBrandingView(APIView):
-    """
-    GET /api/tenant/branding/
 
-    Returns public branding info for the current tenant schema.
-    Called by the school login page before authentication to load
-    the school name, logo and primary colour.
-    No authentication required.
-    """
+class TenantBrandingView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -698,14 +615,15 @@ class TenantBrandingView(APIView):
                 'name':                 tenant.name,
                 'logo_url':             tenant.get_logo_url(),
                 'primary_color':        tenant.primary_color,
+                'motto':                tenant.motto,
                 'onboarding_completed': tenant.onboarding_completed,
             })
         except Client.DoesNotExist:
-            # Called from public schema — return safe defaults
             return Response({
                 'name':                 'SSync',
                 'logo_url':             None,
                 'primary_color':        '#047857',
+                'motto':                None,
                 'onboarding_completed': True,
             })
 
@@ -736,8 +654,6 @@ class SchoolSettingsView(APIView):
         }
 
     def get(self, request):
-        if not request.user.is_admin:
-            return Response({'error': 'School admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         tenant = self._get_client()
         return Response(self._serialize(tenant, request))
 

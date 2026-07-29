@@ -12,6 +12,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 from weasyprint import HTML, CSS
 from weasyprint.text.fonts import FontConfiguration
+from examination.models import ReportCard
 
 
 class ReportCardGenerator:
@@ -32,16 +33,21 @@ class ReportCardGenerator:
         self.generated_by = generated_by
         self.font_config = FontConfiguration()
 
-    def generate_pdf(self, regenerate=False) -> 'ReportCard':
+    def generate_pdf(self, regenerate=False, allow_unpublished=False) -> 'ReportCard':
         """
         Generate PDF report card and save to database.
 
         Args:
             regenerate: If True, regenerate even if PDF already exists
+            allow_unpublished: If True, generate even if result is not published yet
 
         Returns:
             ReportCard instance with generated PDF
         """
+        if not allow_unpublished and not getattr(self.term_result, 'is_published', False):
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Cannot generate report card for unpublished result.")
+
         from examination.models import ReportCard
 
         # Check if report card already exists
@@ -100,98 +106,78 @@ class ReportCardGenerator:
         return pdf
 
     def _prepare_context(self) -> dict:
-        """
-        Prepare template context with all necessary data.
+        from django.db import connection
+        tenant = connection.tenant
 
-        Returns:
-            Dictionary containing all report card data
-        """
         term_result = self.term_result
         student = term_result.student
 
-        # Get subject results ordered by subject name
         subject_results = term_result.subject_results.select_related(
             'subject', 'teacher'
         ).order_by('subject__name')
 
-        # Get grade scale rules for legend
-        grade_scale = None
-        if subject_results.exists():
-            from examination.services import GradingEngine
-            engine = GradingEngine()
-            grade_scale = engine.grade_scale
+        scheme = term_result.grading_scheme
+        components = list(scheme.components.order_by('order')) if scheme else []
 
-        # Prepare grade scale legend
-        grade_legend = []
-        if grade_scale:
-            rules = grade_scale.gradescalerule_set.all().order_by('-min_grade')
-            for rule in rules:
-                grade_legend.append({
-                    'letter': rule.letter_grade,
-                    'range': f"{rule.min_grade}-{rule.max_grade}",
-                    'gpa': rule.numeric_scale
-                })
+        subject_rows = []
+        for sr in subject_results:
+            scores_by_component = {
+                s.component_id: s.score for s in sr.assessment_scores.select_related('component')
+            }
+            subject_rows.append({
+                'result': sr,
+                'component_scores': [scores_by_component.get(c.id, '-') for c in components],
+            })
 
-        # Get school info from settings (you can customize this)
         school_info = {
-            'name': getattr(settings, 'SCHOOL_NAME', 'School Name'),
-            'address': getattr(settings, 'SCHOOL_ADDRESS', 'School Address'),
-            'phone': getattr(settings, 'SCHOOL_PHONE', ''),
-            'email': getattr(settings, 'SCHOOL_EMAIL', ''),
-            'logo': getattr(settings, 'SCHOOL_LOGO_PATH', None),
-            'motto': getattr(settings, 'SCHOOL_MOTTO', '')
+            'name': tenant.name,
+            'address': tenant.address or '',
+            'phone': tenant.contact_phone or '',
+            'email': tenant.contact_email or '',
+            'logo': tenant.get_logo_url(),
+            'motto': tenant.motto or '',
         }
 
-        # Get attendance if available
+        grade_legend = []
+        if scheme:
+            for rule in scheme.grade_rules.all().order_by('-min_score'):
+                grade_legend.append({
+                    'letter': rule.grade,
+                    'range': f"{rule.min_score}-{rule.max_score}",
+                    'gpa': rule.grade_point,
+                })
+
         attendance_stats = self._get_attendance_stats()
 
         context = {
-            # School info
             'school': school_info,
-
-            # Student info
             'student': student,
             'admission_number': student.admission_number,
             'student_name': student.full_name,
             'date_of_birth': student.date_of_birth,
             'gender': student.gender,
-
-            # Term info
             'term': term_result.term,
             'term_name': term_result.term.name,
             'academic_year': term_result.academic_year,
             'classroom': term_result.classroom,
             'classroom_name': str(term_result.classroom) if term_result.classroom else 'N/A',
-
-            # Overall results
             'total_marks': term_result.total_marks,
-            'total_possible': term_result.total_possible,
+            'total_possible': subject_results.count() * 100,
             'average_percentage': term_result.average_percentage,
             'grade': term_result.grade,
             'gpa': term_result.gpa,
             'position': term_result.position_in_class,
             'total_students': term_result.total_students,
-
-            # Subject results
-            'subject_results': subject_results,
+            'components': components,
+            'subject_rows': subject_rows,
             'subject_count': subject_results.count(),
-
-            # Remarks
-            'class_teacher_remarks': term_result.class_teacher_remarks or 'No remarks provided',
-            'principal_remarks': term_result.principal_remarks or 'No remarks provided',
-
-            # Grade legend
+            'class_teacher_remark': term_result.class_teacher_remarks or 'No remarks provided',
+            'admin_remark': term_result.principal_remarks or 'No remarks provided',
             'grade_legend': grade_legend,
-
-            # Attendance
             'attendance': attendance_stats,
-
-            # Metadata
             'computed_date': term_result.computed_date,
             'published_date': term_result.published_date,
             'generated_date': timezone.now(),
-
-            # Term dates
             'term_start': term_result.term.start_date if hasattr(term_result.term, 'start_date') else None,
             'term_end': term_result.term.end_date if hasattr(term_result.term, 'end_date') else None,
         }

@@ -60,7 +60,7 @@ class TeachersAttendance(models.Model):
 
     def save(self, *args, **kwargs):
         """Update for those who are late"""
-        present, created = AttendanceStatus.objects.get_or_create(name="Present")
+        present, created = AttendanceStatus.objects.get_or_create(name="Present", defaults={'code': 'P'})
 
         # Check if the teacher is marked as "Present" and if they are late
         if (

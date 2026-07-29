@@ -8,6 +8,8 @@ from finance.views import (
     PaymentViewSet,
     PaymentCategoryViewSet,
     StudentFeeBalanceViewSet,
+    ParentFeesView,
+    ReminderSettingViewSet,
 )
 
 # Create router and register viewsets
@@ -19,8 +21,10 @@ router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'payment-categories', PaymentCategoryViewSet, basename='payment-category')
 router.register(r'student-balance', StudentFeeBalanceViewSet, basename='student-balance')
 router.register(r'fee-balance', StudentFeeBalanceViewSet, basename='fee-balance')
+router.register(r'reminder-settings', ReminderSettingViewSet, basename='reminder-setting')
 
 urlpatterns = [
+    path('parent/fees/', ParentFeesView.as_view(), name='parent-fees'),
     path('', include(router.urls)),
 ]
 

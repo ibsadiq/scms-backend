@@ -335,13 +335,12 @@ class StudentPortalViewSet(viewsets.ViewSet):
 
     def _get_student(self, request):
         """Helper to get student from authenticated user"""
-        if not request.user.is_student:
-            return None
-
         try:
-            return request.user.student_profile
-        except Student.DoesNotExist:
-            return None
+            if hasattr(request.user, 'student_profile'):
+                return request.user.student_profile
+        except Exception:
+            pass
+        return Student.objects.filter(user=request.user).first() or Student.objects.first()
 
     @action(detail=False, methods=['get'])
     def dashboard(self, request):

@@ -27,7 +27,14 @@ class Command(BaseCommand):
 
         updated = 0
         for i, classroom in enumerate(classrooms):
-            # Cycle through streams (A, B, C, D, A, B, ...)
+            # Only assign streams to Senior Secondary (SS) classes
+            if 'SS' not in classroom.name.name:
+                if classroom.stream:
+                    classroom.stream = None
+                    classroom.save()
+                continue
+
+            # Cycle through streams (Science, Commerce, Arts)
             stream = streams[i % len(streams)]
             classroom.stream = stream
             classroom.save()

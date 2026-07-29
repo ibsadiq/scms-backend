@@ -95,6 +95,9 @@ class TermDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
 
+from django.utils.dateparse import parse_date
+from rest_framework import viewsets
+
 class SchoolEventViewSet(viewsets.ModelViewSet):
     queryset = SchoolEvent.objects.select_related("term", "term__academic_year").all()
     serializer_class = SchoolEventSerializer
@@ -104,6 +107,7 @@ class SchoolEventViewSet(viewsets.ModelViewSet):
         queryset = self.queryset
         term_id = self.request.query_params.get("term")
         year_name = self.request.query_params.get("academic_year")
+        event_type = self.request.query_params.get("event_type")
         start_date = parse_date(self.request.query_params.get("start_date") or "")
         end_date = parse_date(self.request.query_params.get("end_date") or "")
 
@@ -111,14 +115,19 @@ class SchoolEventViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(term__id=term_id)
         if year_name:
             queryset = queryset.filter(term__academic_year__name=year_name)
-        if start_date:
-            queryset = queryset.filter(start_date__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(end_date__lte=end_date)
-
+        if event_type:
+            queryset = queryset.filter(event_type=event_type)
+        
+        # FIXED: Overlapping date range logic
+        if start_date and end_date:
+            # Holiday overlaps range if holiday.start <= range.end AND holiday.end >= range.start
+            queryset = queryset.filter(start_date__lte=end_date, end_date__gte=start_date)
+        elif start_date:
+            queryset = queryset.filter(end_date__gte=start_date)
+        elif end_date:
+            queryset = queryset.filter(start_date__lte=end_date)
 
         return queryset
-
 
 class SchoolEventBulkUploadView(APIView):
     permission_classes = [permissions.IsAdminUser]
