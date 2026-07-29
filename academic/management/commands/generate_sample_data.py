@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.files import File
 from django.core.files.base import ContentFile
+from django.core.exceptions import ValidationError
 try:
     from django_tenants.utils import schema_context
 except ImportError:
@@ -763,6 +764,9 @@ class Command(BaseCommand):
                 )
                 slots.append(slot)
                 
+        # Track which (teacher_id, slot_id) pairs are already used
+        busy_teacher_slots = set()
+                
         for classroom in self.classrooms[:3]:
             allocations = AllocatedSubject.objects.filter(class_room=classroom, academic_year=self.academic_year)
             if not allocations.exists():
@@ -783,16 +787,25 @@ class Command(BaseCommand):
             for i, slot in enumerate(slots):
                 allocated = pool[i]
                 teacher = allocated.teacher_name
-                TimetableEntry.objects.get_or_create(
-                    term=self.current_term,
-                    slot=slot,
-                    classroom=classroom,
-                    defaults={
-                        'subject': allocated,
-                        'teacher': teacher
-                    }
-                )
-
+                
+                # Skip if this teacher is already teaching another class during this slot
+                if (teacher.id, slot.id) in busy_teacher_slots:
+                    continue
+                    
+                try:
+                    TimetableEntry.objects.get_or_create(
+                        term=self.current_term,
+                        slot=slot,
+                        classroom=classroom,
+                        defaults={
+                            'subject': allocated,
+                            'teacher': teacher
+                        }
+                    )
+                    busy_teacher_slots.add((teacher.id, slot.id))
+                except ValidationError:
+                    # Teacher conflict slipped through — skip this slot for this classroom
+                    pass
     def create_school_events(self):
         self.stdout.write("13. Creating School Events and Holidays...")
         today = date.today()
