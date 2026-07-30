@@ -59,8 +59,8 @@ class TermResultSerializer(serializers.ModelSerializer):
             "grade", "gpa", "position_in_class", "total_students", "remark",
             "class_teacher_remarks", "principal_remarks",
             "computed_date", "computed_by",
-            "homeroom_approved", "homeroom_approved_by", "homeroom_approved_at",
-            "is_approved", "approved_by", "approved_at",
+            "homeroom_approved", "homeroom_approved_by", "homeroom_approved_at", "homeroom_approval_delegated",
+            "admin_approved", "admin_approved_by", "admin_approved_at",
             "is_published", "published_date",
             "is_pass", "is_locked", "locked_at", "locked_by",
             "unlock_reason", "unlocked_by", "unlocked_at", "result_release_date",
@@ -70,8 +70,8 @@ class TermResultSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "scheme_name", "total_marks", "average_percentage", "grade", "gpa",
             "position_in_class", "total_students", "computed_date", "computed_by",
-            "homeroom_approved", "homeroom_approved_by", "homeroom_approved_at",
-            "is_approved", "approved_by", "approved_at",
+            "homeroom_approved", "homeroom_approved_by", "homeroom_approved_at", "homeroom_approval_delegated",
+            "admin_approved", "admin_approved_by", "admin_approved_at",
             "is_published", "published_date", "is_pass",
             "is_locked", "locked_at", "locked_by", "unlocked_by", "unlocked_at",
             "last_audit_log",  # <-- ADDED

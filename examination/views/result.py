@@ -62,7 +62,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
         action_permissions = {
             "compute": [CanComputeResults],
             "compute_class": [CanComputeResults],
-            "homeroom_approve": [CanHomeroomApprove, IsAdmin],
+            "homeroom_approve": [CanHomeroomApprove],
             "approve": [CanApproveResults],
             "publish": [CanPublishResults],
             "bulk_publish": [CanPublishResults],
@@ -156,6 +156,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         result = self.get_object()
+        self.check_object_permissions(request, result)
         try:
             result.approve(request.user)
         except DjangoValidationError as e:
@@ -165,6 +166,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         result = self.get_object()
+        self.check_object_permissions(request, result)
         try:
             result.publish(published_by=request.user)
         except DjangoValidationError as e:
@@ -174,12 +176,14 @@ class TermResultViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def unpublish(self, request, pk=None):
         result = self.get_object()
+        self.check_object_permissions(request, result)
         result.unpublish(user=request.user)
         return Response(TermResultSerializer(result).data)
 
     @action(detail=True, methods=["post"])
     def lock(self, request, pk=None):
         result = self.get_object()
+        self.check_object_permissions(request, result)
         result.lock(request.user)
         return Response(TermResultSerializer(result).data)
 
@@ -257,9 +261,9 @@ class TermResultViewSet(viewsets.ModelViewSet):
             classroom_id=classroom_id,
             academic_year_id=academic_year_id,
             homeroom_approved=True,
-            is_approved=True,
+            admin_approved=True,
             is_published=False,
-            is_locked=False
+            is_locked=True, 
         )
 
         count = 0

@@ -10,7 +10,11 @@ class IsAdmin(BasePermission):
 class IsTeacher(BasePermission):
     """Base check — user has a linked Teacher profile."""
     def has_permission(self, request, view):
-        return bool(request.user and hasattr(request.user, "teacher"))
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and hasattr(request.user, "teacher")
+        )
 
 
 class CanComputeResults(BasePermission):
@@ -51,19 +55,41 @@ class IsHomeroomTeacherOfClass(BasePermission):
 
 class CanAddHomeroomRemarks(BasePermission):
     def has_permission(self, request, view):
-        return hasattr(request.user, "teacher")
-
+        return (
+            request.user.is_authenticated
+            and (
+                hasattr(request.user, "teacher")
+                or request.user.is_admin
+            )
+        )
     def has_object_permission(self, request, view, obj):
         return IsHomeroomTeacherOfClass().has_object_permission(request, view, obj)
 
 
 class CanHomeroomApprove(BasePermission):
-    """Only the homeroom teacher of that specific class — admin does not bypass this step."""
+    """
+    Homeroom teacher may approve their own class.
+    Admin may also approve on behalf of the homeroom teacher.
+    """
+
     def has_permission(self, request, view):
-        return hasattr(request.user, "teacher")
+        return (
+            request.user.is_authenticated
+            and (
+                request.user.is_admin
+                or hasattr(request.user, "teacher")
+            )
+        )
 
     def has_object_permission(self, request, view, obj):
-        return IsHomeroomTeacherOfClass().has_object_permission(request, view, obj)
+        if request.user.is_admin:
+            return True
+
+        teacher = getattr(request.user, "teacher", None)
+        return (
+            teacher
+            and obj.classroom.class_teacher_id == teacher.id
+        )
 
 
 class CanApproveResults(IsAdmin):
@@ -95,7 +121,13 @@ class CanManageGradingScheme(BasePermission):
 
 class CanUploadMarkedScript(BasePermission):
     def has_permission(self, request, view):
-        return hasattr(request.user, "teacher") or request.user.is_admin
+        return (
+            request.user.is_authenticated
+            and (
+                hasattr(request.user, "teacher")
+                or request.user.is_admin
+            )
+        )
 
     def has_object_permission(self, request, view, obj):
         if request.user.is_admin:
@@ -139,6 +171,9 @@ class CanViewOwnStudentResult(BasePermission):
 class CanViewMarkedScript(BasePermission):
     def has_object_permission(self, request, view, obj):
         user = request.user
+
+        if not user or not user.is_authenticated:
+            return False
 
         if user.is_student and user.active_role == "student":
             profile = getattr(user, "student_profile", None)

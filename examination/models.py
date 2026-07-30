@@ -575,7 +575,8 @@ class TermResult(models.Model):
         null=True,
         blank=True
     )
-    approved_by = models.ForeignKey(
+    homeroom_approval_delegated = models.BooleanField(default=False)
+    admin_approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
@@ -583,14 +584,12 @@ class TermResult(models.Model):
         related_name="approved_results"
     )
 
-    approved_at = models.DateTimeField(
+    admin_approved_at = models.DateTimeField(
         null=True,
         blank=True
     )
 
-    is_approved = models.BooleanField(
-        default=False
-    )
+    admin_approved = models.BooleanField(default=False)
     is_published = models.BooleanField(
         default=False,
         help_text="Whether result is visible to parents/students"
@@ -599,6 +598,13 @@ class TermResult(models.Model):
         null=True,
         blank=True,
         help_text="When the result was published"
+    )
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="published_results",
     )
     is_pass = models.BooleanField(
         default=True
@@ -667,41 +673,6 @@ class TermResult(models.Model):
         """Return formatted percentage"""
         return f"{self.average_percentage}%"
 
-    def approve(self, user):
-        self.is_approved = True
-        self.approved_by = user
-        self.approved_at = timezone.now()
-        self.save()
-
-    def lock(self, user):
-        self.is_locked = True
-        self.locked_by = user
-        self.locked_at = timezone.now()
-        self.save()
-
-
-    def unlock(self):
-        self.is_locked = False
-        self.locked_by = None
-        self.locked_at = None
-        self.save()
-
-    def publish(self, published_by=None):
-        """Publish result to make it visible to parents/students"""
-        if not self.is_approved:
-            raise ValidationError(
-                "Result must be approved first."
-            )
-        self.is_published = True
-        self.published_date = timezone.now()
-        self.save()
-
-    def unpublish(self):
-        """Unpublish result"""
-        self.is_published = False
-        self.published_date = None
-        self.save()
-
     @property
     def can_view(self):
 
@@ -717,55 +688,109 @@ class TermResult(models.Model):
 
         return True
     
-    def homeroom_approve(self, user):
+    def homeroom_approve(self, user, delegated=False):
         if self.is_locked:
             raise ValidationError("Result is locked.")
+
+        if self.homeroom_approved:
+            raise ValidationError(
+                "Result has already been approved by the class teacher."
+            )
+
         self.homeroom_approved = True
         self.homeroom_approved_by = user
         self.homeroom_approved_at = timezone.now()
-        self.save(update_fields=["homeroom_approved", "homeroom_approved_by", "homeroom_approved_at"])
-        self.audit_logs.create(action=ResultAuditLog.Action.HOMEROOM_APPROVED, performed_by=user)
+        self.homeroom_approval_delegated = delegated
+
+        self.save(update_fields=[
+            "homeroom_approved",
+            "homeroom_approved_by",
+            "homeroom_approved_at",
+            "homeroom_approval_delegated",
+        ])
+        self.audit_logs.create(
+            action=ResultAuditLog.Action.HOMEROOM_APPROVED,
+            performed_by=user,
+            notes="Delegated by administrator" if delegated else "",
+        )
 
     def approve(self, user):
+        if self.admin_approved:
+            raise ValidationError(
+                "Result has already been approved by the administrator."
+            )
         if not self.homeroom_approved:
             raise ValidationError("Homeroom teacher must approve before admin approval.")
         if self.is_locked:
             raise ValidationError("Result is locked.")
-        self.is_approved = True
-        self.approved_by = user
-        self.approved_at = timezone.now()
-        self.save(update_fields=["is_approved", "approved_by", "approved_at"])
-        self.audit_logs.create(action=ResultAuditLog.Action.APPROVED, performed_by=user)
+        
+        self.admin_approved = True
+        self.admin_approved_by = user
+        self.admin_approved_at = timezone.now()
+        self.save(update_fields=["admin_approved", "admin_approved_by", "admin_approved_at"])
+        self.audit_logs.create(action=ResultAuditLog.Action.ADMIN_APPROVED, performed_by=user)
 
     def lock(self, user):
+        if self.is_locked:
+            raise ValidationError("Result is already locked.")
         self.is_locked = True
         self.locked_by = user
         self.locked_at = timezone.now()
-        self.save()
+        self.save(update_fields=[
+            "is_locked",
+            "locked_by",
+            "locked_at",
+        ])
         self.audit_logs.create(action=ResultAuditLog.Action.LOCKED, performed_by=user)
 
-    def unlock(self, user, reason=""):        
+    def unlock(self, user, reason=""): 
+        if not self.is_locked:
+            raise ValidationError("Result is not locked.")       
         self.is_locked = False
         self.locked_by = None
         self.locked_at = None
         self.unlock_reason = reason
         self.unlocked_by = user
         self.unlocked_at = timezone.now()
-        self.save()
+        self.save(update_fields=[
+            "is_locked",
+            "locked_by",
+            "locked_at",
+            "unlock_reason",
+            "unlocked_by",
+            "unlocked_at",
+        ])
         self.audit_logs.create(action=ResultAuditLog.Action.UNLOCKED, performed_by=user, notes=reason)
 
     def publish(self, published_by=None):
-        if not self.is_approved:
+        if self.is_published:
+            raise ValidationError("Result has already been published.")
+        if not self.admin_approved:
             raise ValidationError("Result must be approved first.")
+
+        if not self.is_locked:
+            raise ValidationError(
+                "Lock the result before publishing."
+            )
         self.is_published = True
         self.published_date = timezone.now()
-        self.save()
+        self.published_by = published_by
+        self.save(update_fields=[
+            "is_published",
+            "published_date",
+            "published_by",
+        ])
         self.audit_logs.create(action=ResultAuditLog.Action.PUBLISHED, performed_by=published_by)
 
     def unpublish(self, user=None):
         self.is_published = False
         self.published_date = None
-        self.save()
+        self.published_by = None
+        self.save(update_fields=[
+            "is_published",
+            "published_date",
+            "published_by"
+        ])
         self.audit_logs.create(action=ResultAuditLog.Action.UNPUBLISHED, performed_by=user)
 
 
@@ -1340,12 +1365,15 @@ class ResultAuditLog(models.Model):
     class Action(models.TextChoices):
         COMPUTED = "COMPUTED", "Computed"
         RECOMPUTED = "RECOMPUTED", "Recomputed"
+
         HOMEROOM_APPROVED = "HOMEROOM_APPROVED", "Homeroom Approved"
-        APPROVED = "APPROVED", "Approved"
-        PUBLISHED = "PUBLISHED", "Published"
-        UNPUBLISHED = "UNPUBLISHED", "Unpublished"
+        ADMIN_APPROVED = "ADMIN_APPROVED", "Admin Approved"
+
         LOCKED = "LOCKED", "Locked"
         UNLOCKED = "UNLOCKED", "Unlocked"
+
+        PUBLISHED = "PUBLISHED", "Published"
+        UNPUBLISHED = "UNPUBLISHED", "Unpublished"
 
     term_result = models.ForeignKey(
         TermResult,
@@ -1353,13 +1381,14 @@ class ResultAuditLog(models.Model):
         related_name="audit_logs"
     )
     action = models.CharField(
-        max_length=30,
+        max_length=50,
         choices=Action.choices
     )
     performed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        null=True
+        null=True,
+        related_name="result_audit_logs",
     )
     timestamp = models.DateTimeField(
         auto_now_add=True
