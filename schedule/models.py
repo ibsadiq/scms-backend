@@ -102,7 +102,7 @@ class TimetableEntry(models.Model):
     free) during this slot, optionally with a teacher and room.
     """
     term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='timetable_entries')
-    slot = models.ForeignKey(PeriodSlot, on_delete=models.PROTECT, related_name='timetable_entries')
+    slot = models.ForeignKey(PeriodSlot, on_delete=models.PROTECT, null=True, blank=True, related_name='timetable_entries')
     classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name='timetable_entries')
 
     subject = models.ForeignKey(

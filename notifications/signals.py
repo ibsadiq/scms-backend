@@ -18,7 +18,7 @@ from datetime import timedelta
 
 from attendance.models import StudentAttendance
 # from finance.models import DebtRecord  # TODO: Update when debt tracking is implemented
-from examination.models import TermResult, ReportCard
+from examination.models import TermResult, ReportCard, ReportCardStatus
 from academic.models import StudentPromotion
 from administration.models import SchoolEvent
 
@@ -167,25 +167,42 @@ def notify_result_published(sender, instance, created, **kwargs):
 @receiver(post_save, sender=ReportCard)
 def notify_report_card_available(sender, instance, created, **kwargs):
     """
-    Send notification when report card is generated.
+    Send notification when report card is generated and completed.
 
     Notifies parents that report card is ready for download.
     """
+    if instance.status != ReportCardStatus.COMPLETED:
+        return
+
     if not created:
+        try:
+            old_instance = ReportCard.objects.get(pk=instance.pk)
+            if old_instance.status == ReportCardStatus.COMPLETED:
+                return  # Already completed and notified
+        except ReportCard.DoesNotExist:
+            pass
+
+    term_result = getattr(instance, 'term_result', None)
+    if not term_result:
         return
 
-    student = instance.student
-    if not student.parent_guardian:
+    student = getattr(term_result, 'student', None)
+    if not student or not student.parent_guardian:
         return
 
-    parent_user = student.parent_guardian.user
+    parent_user = getattr(student.parent_guardian, 'user', None)
+    if not parent_user:
+        return
+
+    term_name = term_result.term.name if term_result.term else "term"
+    year_name = f" ({term_result.academic_year.name})" if term_result.academic_year else ""
 
     try:
         notification_service.create_notification(
             recipient=parent_user,
             notification_type='report_card',
             title=f"Report Card Available: {student.full_name}",
-            message=f"{student.full_name}'s report card for {instance.term} ({instance.academic_year}) "
+            message=f"{student.full_name}'s report card for {term_name}{year_name} "
                     f"is now available. Log in to view and download the report card.",
             priority='normal',
             related_student=student,

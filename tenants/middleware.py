@@ -98,6 +98,7 @@ class TenantHeaderMiddleware:
                 return False
 
             connection.set_tenant(tenant)
+            request.tenant = tenant
             logger.debug(f"Tenant schema activated: {tenant.schema_name}")
             return True
 

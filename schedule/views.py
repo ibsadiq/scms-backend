@@ -35,12 +35,14 @@ class RoomViewSet(viewsets.ModelViewSet):
     queryset = Room.objects.filter(is_active=True)
     serializer_class = RoomSerializer
     permission_classes = [IsAdminOrReadOnly]
+    pagination_class = None
 
 
 class PeriodSlotViewSet(viewsets.ModelViewSet):
     queryset = PeriodSlot.objects.all()
     serializer_class = PeriodSlotSerializer
     permission_classes = [IsAdminOrReadOnly]
+    pagination_class = None
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -54,6 +56,7 @@ class TeacherAvailabilityViewSet(viewsets.ModelViewSet):
     queryset = TeacherAvailability.objects.all()
     serializer_class = TeacherAvailabilitySerializer
     permission_classes = [IsAdminOrReadOnly]
+    pagination_class = None
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -67,6 +70,7 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         "slot", "classroom", "subject", "subject__subject", "teacher", "room"
     ).order_by("slot__day_of_week", "slot__period_number")
     permission_classes = [IsAdminOrReadOnly]
+    pagination_class = None
 
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:

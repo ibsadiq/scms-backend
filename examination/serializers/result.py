@@ -159,7 +159,7 @@ class ReportCardSerializer(serializers.ModelSerializer):
     def get_pdf_url(self, obj):
         request = self.context.get("request")
         if obj.pdf_file and request:
-            return request.build_absolute_uri(obj.pdf_file.url)
+            return request.build_absolute_uri(f"/api/examination/report-cards/{obj.id}/download/")
         return None
     
 

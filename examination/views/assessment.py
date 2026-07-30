@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import FileResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -74,24 +75,124 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
     queryset = MarkedScript.objects.select_related("student", "subject", "exam", "uploaded_by")
 
     def get_permissions(self):
-        if self.action in ("create", "update", "partial_update", "destroy"):
+        if self.action in ("create", "update", "partial_update", "destroy", "bulk_upload", "toggle_visibility"):
             return [CanUploadMarkedScript()]
-        return super().get_permissions()  # list/retrieve rely on get_queryset() scoping above
+        return super().get_permissions()
 
     def get_queryset(self):
         user = self.request.user
         qs = super().get_queryset()
 
-        if user.is_admin:
-            return qs
-        if hasattr(user, "teacher"):
-            return qs.filter(uploaded_by=user.teacher)
-        if user.is_student and user.active_role == "student" and hasattr(user, "student_profile"):
-            return qs.filter(student=user.student_profile, visible_to_student=True)
-        if user.is_parent and user.active_role == "parent" and hasattr(user, "parent"):
-            return qs.filter(student__parent_guardian=user.parent, visible_to_parent=True)
-        return qs.none()
+        if hasattr(user, "teacher") and not getattr(user, "is_admin", False):
+            qs = qs.filter(uploaded_by=user.teacher)
+        elif user.is_student and user.active_role == "student" and hasattr(user, "student_profile"):
+            qs = qs.filter(student=user.student_profile, visible_to_student=True)
+        elif user.is_parent and user.active_role == "parent" and hasattr(user, "parent"):
+            qs = qs.filter(student__parent_guardian=user.parent, visible_to_parent=True)
+        elif not user.is_authenticated:
+            return qs.none()
+
+        # Query param filtering
+        params = self.request.query_params
+        exam_id = params.get("exam") or params.get("exam_id")
+        student_id = params.get("student") or params.get("student_id")
+        subject_id = params.get("subject") or params.get("subject_id")
+        classroom_id = params.get("classroom") or params.get("classroom_id")
+
+        if exam_id:
+            qs = qs.filter(exam_id=exam_id)
+        if student_id:
+            qs = qs.filter(student_id=student_id)
+        if subject_id:
+            qs = qs.filter(subject_id=subject_id)
+        if classroom_id:
+            qs = qs.filter(student__class_enrollments__classroom_id=classroom_id)
+
+        return qs
 
     def perform_create(self, serializer):
         teacher = getattr(self.request.user, "teacher", None)
         serializer.save(uploaded_by=teacher)
+
+    @action(detail=True, methods=["post", "patch"], url_path="toggle_visibility")
+    def toggle_visibility(self, request, pk=None):
+        script = self.get_object()
+        if "visible_to_student" in request.data:
+            val = str(request.data["visible_to_student"]).lower() in ("true", "1")
+            script.visible_to_student = val
+        if "visible_to_parent" in request.data:
+            val = str(request.data["visible_to_parent"]).lower() in ("true", "1")
+            script.visible_to_parent = val
+        script.save()
+        return Response(self.get_serializer(script).data)
+
+    @action(detail=False, methods=["post"], url_path="bulk_upload")
+    def bulk_upload(self, request):
+        files = request.FILES.getlist("files")
+        student_ids = request.data.getlist("student_ids")
+        exam_id = request.data.get("exam_id") or request.data.get("exam")
+        subject_id = request.data.get("subject_id") or request.data.get("subject")
+        visible_to_student = str(request.data.get("visible_to_student", "false")).lower() in ("true", "1")
+        visible_to_parent = str(request.data.get("visible_to_parent", "false")).lower() in ("true", "1")
+        notes = request.data.get("notes", "")
+
+        if not files or not student_ids:
+            return Response({"detail": "No files or student_ids provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not exam_id or not subject_id:
+            return Response({"detail": "exam_id and subject_id are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_scripts = []
+        errors = []
+        teacher = getattr(request.user, "teacher", None)
+
+        for idx, (file_obj, student_id) in enumerate(zip(files, student_ids)):
+            try:
+                from academic.models import Student, Subject
+                from examination.models import AssessmentSession
+
+                exam = AssessmentSession.objects.get(id=exam_id)
+                subject = Subject.objects.get(id=subject_id)
+                student = Student.objects.get(id=student_id)
+
+                script = MarkedScript.objects.filter(exam=exam, student=student, subject=subject).first()
+                if not script:
+                    script = MarkedScript(exam=exam, student=student, subject=subject)
+
+                script.script_file = file_obj
+                script.uploaded_by = teacher
+                script.notes = notes
+                script.visible_to_student = visible_to_student
+                script.visible_to_parent = visible_to_parent
+                script.save()
+
+                created_scripts.append({
+                    "id": script.id,
+                    "student_id": student.id,
+                    "student_name": student.full_name,
+                    "file_name": script.file_name,
+                })
+            except Exception as e:
+                errors.append({"file_index": idx, "student_id": student_id, "error": str(e)})
+
+        response_data = {
+            "message": f"Uploaded {len(created_scripts)} of {len(files)} files successfully",
+            "created": len(created_scripts),
+            "scripts": created_scripts,
+            "errors": errors,
+        }
+        return Response(response_data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"], url_path="download")
+    def download(self, request, pk=None):
+        script = self.get_object()
+        if not script.script_file:
+            return Response({"detail": "No file associated with this marked script."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            filename = script.file_name or f"marked_script_{script.id}.pdf"
+            response = FileResponse(script.script_file.open("rb"))
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+            return response
+        except Exception as e:
+            return Response({"detail": f"Could not read script file: {str(e)}"}, status=status.HTTP_404_NOT_FOUND)

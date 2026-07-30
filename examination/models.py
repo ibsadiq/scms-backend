@@ -10,10 +10,13 @@ from administration.models import AcademicYear, Term
 from django.conf import settings
 
 from django.core.validators import FileExtensionValidator
+from django.core.files.storage import FileSystemStorage
+
+local_pdf_storage = FileSystemStorage()
 
 def validate_file_size(value):
-    """Validate that the uploaded file size is no larger than 1MB."""
-    max_size_mb = 1
+    """Validate that the uploaded file size is no larger than 10MB."""
+    max_size_mb = 10
     if value.size > max_size_mb * 1024 * 1024:
         raise ValidationError(f"The maximum file size that can be uploaded is {max_size_mb}MB")
     return value
@@ -1165,6 +1168,7 @@ class ReportCard(models.Model):
     )
     pdf_file = models.FileField(
         upload_to='report_cards/%Y/%m/',
+        storage=local_pdf_storage,
         null=True,
         blank=True,
         help_text="Generated PDF file"
@@ -1259,11 +1263,12 @@ class MarkedScript(models.Model):
     # File upload
     script_file = models.FileField(
         upload_to='examination/marked_scripts/%Y/%m/',
+        storage=local_pdf_storage,
         validators=[
             FileExtensionValidator(allowed_extensions=['pdf', 'jpg', 'jpeg', 'png', 'webp']),
             validate_file_size
         ],
-        help_text="Marked exam script file (PDF, images, etc.) - Max 1MB"
+        help_text="Marked exam script file (PDF, images, etc.) - Max 10MB"
     )
     file_name = models.CharField(
         max_length=255,
@@ -1343,18 +1348,20 @@ class MarkedScript(models.Model):
                 if enrollment:
                     student_classroom = enrollment.classroom
 
-                    # Check if teacher is allocated to this subject and classroom
                     is_allocated = AllocatedSubject.objects.filter(
                         teacher_name=self.uploaded_by,
                         subject=self.subject,
                         class_room=student_classroom
                     ).exists()
 
-                    if not is_allocated:
+                    is_admin_user = getattr(self.uploaded_by.user, 'is_admin', False) if hasattr(self.uploaded_by, 'user') else False
+                    if not is_allocated and not is_admin_user:
                         raise ValidationError(
                             f"You are not authorized to upload marked scripts for {self.subject.name} "
                             f"in {student_classroom}. Please check your subject allocations."
                         )
+            except ValidationError:
+                raise
             except Exception:
                 pass
 

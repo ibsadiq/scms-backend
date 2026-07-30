@@ -46,11 +46,36 @@ class AssessmentEntrySerializer(serializers.ModelSerializer):
 
 
 class MarkedScriptSerializer(serializers.ModelSerializer):
+    exam_name = serializers.CharField(source="exam.name", read_only=True)
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    student_admission_number = serializers.CharField(source="student.admission_number", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    uploaded_by_name = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = MarkedScript
         fields = [
-            "id", "exam", "student", "subject", "assessment_entry",
-            "script_file", "file_name", "file_size", "uploaded_by", "uploaded_at",
+            "id", "exam", "exam_name", "student", "student_name", "student_admission_number",
+            "subject", "subject_name", "assessment_entry",
+            "script_file", "file_name", "file_size", "uploaded_by", "uploaded_by_name", "uploaded_at",
             "notes", "visible_to_student", "visible_to_parent",
         ]
         read_only_fields = ["file_name", "file_size", "uploaded_by", "uploaded_at"]
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by:
+            return obj.uploaded_by.full_name
+        return "System Admin"
+
+    def create(self, validated_data):
+        exam = validated_data.get("exam")
+        student = validated_data.get("student")
+        subject = validated_data.get("subject")
+
+        existing = MarkedScript.objects.filter(exam=exam, student=student, subject=subject).first()
+        if existing:
+            for attr, val in validated_data.items():
+                setattr(existing, attr, val)
+            existing.save()
+            return existing
+        return super().create(validated_data)

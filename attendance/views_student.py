@@ -272,10 +272,10 @@ class BulkMarkAttendanceView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # Get the teacher
-        try:
-            teacher = Teacher.objects.get(user=request.user)
-        except Teacher.DoesNotExist:
+        is_admin = getattr(request.user, "is_admin", False) or getattr(request.user, "is_superuser", False)
+        teacher = getattr(request.user, "teacher", None)
+
+        if not teacher and not is_admin:
             return Response(
                 {"error": "Teacher profile not found for this user"},
                 status=status.HTTP_404_NOT_FOUND
@@ -300,38 +300,32 @@ class BulkMarkAttendanceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # ── BACKEND ENFORCEMENT: Only today is editable ──
         today = date.today()
-        if attendance_date != today:
+        if attendance_date > today and not is_admin:
             return Response(
-                {"error": "Attendance can only be marked or edited for today's date"},
+                {"error": "Attendance cannot be marked for future dates."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
 
-        # Verify teacher has access
-        is_class_teacher = classroom.class_teacher == teacher
+        if not is_admin:
+            is_class_teacher = classroom.class_teacher == teacher
+            current_academic_year = AcademicYear.objects.filter(active_year=True).first()
 
-        try:
-            current_academic_year = AcademicYear.objects.get(active_year=True)
-        except AcademicYear.DoesNotExist:
-            return Response(
-                {"error": "No active academic year found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            has_subject_allocation = False
+            if teacher and current_academic_year:
+                has_subject_allocation = AllocatedSubject.objects.filter(
+                    teacher_name=teacher,
+                    class_room=classroom,
+                    academic_year=current_academic_year
+                ).exists()
 
-        has_subject_allocation = AllocatedSubject.objects.filter(
-            teacher_name=teacher,
-            class_room=classroom,
-            academic_year=current_academic_year
-        ).exists()
-
-        if not is_class_teacher and not has_subject_allocation:
-            return Response(
-                {"error": "You do not have permission to mark attendance for this classroom"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            if not is_class_teacher and not has_subject_allocation:
+                return Response(
+                    {"error": "You do not have permission to mark attendance for this classroom"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
         # Get current term
         term = Term.objects.filter(
@@ -357,7 +351,7 @@ class BulkMarkAttendanceView(APIView):
                     continue
 
                 try:
-                    student = Student.objects.get(id=student_id, classroom=classroom)
+                    student = Student.objects.get(id=student_id)
                 except Student.DoesNotExist:
                     errors.append({
                         "student_id": student_id,
@@ -385,7 +379,7 @@ class BulkMarkAttendanceView(APIView):
                         'status': attendance_status,
                         'notes': remarks,
                         'term': term,
-                        'marked_by': teacher.user  # Track who last edited
+                        'marked_by': request.user  # Track who last edited
                     }
                 )
 

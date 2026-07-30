@@ -12,7 +12,46 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 from weasyprint import HTML, CSS
 from weasyprint.text.fonts import FontConfiguration
+import base64
+import mimetypes
+import requests
 from examination.models import ReportCard
+
+
+def _to_base64_uri(field_or_url):
+    if not field_or_url:
+        return None
+    try:
+        if hasattr(field_or_url, 'open'):
+            f = field_or_url.open('rb')
+            data = f.read()
+            mime, _ = mimetypes.guess_type(getattr(field_or_url, 'name', 'file.jpg'))
+            mime = mime or 'image/jpeg'
+            encoded = base64.b64encode(data).decode('utf-8')
+            return f"data:{mime};base64,{encoded}"
+    except Exception:
+        pass
+
+    if isinstance(field_or_url, str) and (field_or_url.startswith('http://') or field_or_url.startswith('https://')):
+        try:
+            res = requests.get(field_or_url, timeout=5)
+            if res.status_code == 200:
+                mime = res.headers.get('Content-Type', 'image/jpeg')
+                encoded = base64.b64encode(res.content).decode('utf-8')
+                return f"data:{mime};base64,{encoded}"
+        except Exception:
+            pass
+    elif isinstance(field_or_url, str) and os.path.exists(field_or_url):
+        try:
+            with open(field_or_url, 'rb') as f:
+                data = f.read()
+                mime, _ = mimetypes.guess_type(field_or_url)
+                mime = mime or 'image/jpeg'
+                encoded = base64.b64encode(data).decode('utf-8')
+                return f"data:{mime};base64,{encoded}"
+        except Exception:
+            pass
+    return field_or_url
 
 
 class ReportCardGenerator:
@@ -107,7 +146,13 @@ class ReportCardGenerator:
 
     def _prepare_context(self) -> dict:
         from django.db import connection
-        tenant = connection.tenant
+        from tenants.models import Client
+        
+        schema_name = connection.schema_name
+        try:
+            client_tenant = Client.objects.get(schema_name=schema_name)
+        except Exception:
+            client_tenant = None
 
         term_result = self.term_result
         student = term_result.student
@@ -129,13 +174,23 @@ class ReportCardGenerator:
                 'component_scores': [scores_by_component.get(c.id, '-') for c in components],
             })
 
+        logo_uri = None
+        if client_tenant and getattr(client_tenant, 'logo', None) and client_tenant.logo:
+            logo_uri = _to_base64_uri(client_tenant.logo)
+        elif client_tenant and hasattr(client_tenant, 'get_logo_url'):
+            logo_uri = _to_base64_uri(client_tenant.get_logo_url())
+
+        student_photo_uri = None
+        if hasattr(student, 'image') and student.image:
+            student_photo_uri = _to_base64_uri(student.image)
+
         school_info = {
-            'name': tenant.name,
-            'address': tenant.address or '',
-            'phone': tenant.contact_phone or '',
-            'email': tenant.contact_email or '',
-            'logo': tenant.get_logo_url(),
-            'motto': tenant.motto or '',
+            'name': getattr(client_tenant, 'name', 'SCHOOL NAME') if client_tenant else 'SCHOOL NAME',
+            'address': getattr(client_tenant, 'address', '') or '' if client_tenant else '',
+            'phone': getattr(client_tenant, 'contact_phone', '') or '' if client_tenant else '',
+            'email': getattr(client_tenant, 'contact_email', '') or '' if client_tenant else '',
+            'logo': logo_uri,
+            'motto': getattr(client_tenant, 'motto', '') or '' if client_tenant else '',
         }
 
         grade_legend = []
@@ -143,8 +198,8 @@ class ReportCardGenerator:
             for rule in scheme.grade_rules.all().order_by('-min_score'):
                 grade_legend.append({
                     'letter': rule.grade,
-                    'range': f"{rule.min_score}-{rule.max_score}",
-                    'gpa': rule.grade_point,
+                    'range': f"{int(rule.min_score)}-{int(rule.max_score)}",
+                    'remark': rule.remark or '',
                 })
 
         attendance_stats = self._get_attendance_stats()
@@ -152,6 +207,7 @@ class ReportCardGenerator:
         context = {
             'school': school_info,
             'student': student,
+            'student_photo': student_photo_uri,
             'admission_number': student.admission_number,
             'student_name': student.full_name,
             'date_of_birth': student.date_of_birth,

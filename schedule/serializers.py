@@ -20,6 +20,7 @@ class PeriodSlotSerializer(serializers.ModelSerializer):
             "label", "start_time", "end_time", "is_break",
         ]
         read_only_fields = ["id"]
+        validators = []  # Allows create() to handle upsert gracefully
 
     def validate(self, data):
         start = data.get("start_time")
@@ -27,6 +28,25 @@ class PeriodSlotSerializer(serializers.ModelSerializer):
         if start and end and end <= start:
             raise serializers.ValidationError({"end_time": "End time must be after start time."})
         return data
+
+    def create(self, validated_data):
+        term = validated_data.get("term")
+        day_of_week = validated_data.get("day_of_week")
+        period_number = validated_data.get("period_number")
+
+        instance = PeriodSlot.objects.filter(
+            term=term,
+            day_of_week=day_of_week,
+            period_number=period_number
+        ).first()
+
+        if instance:
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+            return instance
+
+        return super().create(validated_data)
 
 
 class TeacherAvailabilitySerializer(serializers.ModelSerializer):
@@ -64,10 +84,27 @@ class TimetableEntryListSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def get_teacher_name(self, obj):
-        return f"{obj.teacher.first_name} {obj.teacher.last_name}" if obj.teacher else None
+        if not obj.teacher:
+            return None
+        user = getattr(obj.teacher, 'user', None)
+        if user:
+            name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            if name:
+                return name
+        first = getattr(obj.teacher, 'first_name', '') or ''
+        last = getattr(obj.teacher, 'last_name', '') or ''
+        name = f"{first} {last}".strip()
+        if name and name != "None None":
+            return name
+        return getattr(obj.teacher, 'teacher_id', None)
 
     def get_subject_name(self, obj):
-        return obj.subject.subject.name if obj.subject and obj.subject.subject_id else None
+        if obj.subject:
+            if hasattr(obj.subject, 'subject') and obj.subject.subject:
+                return obj.subject.subject.name
+            if hasattr(obj.subject, 'name') and obj.subject.name:
+                return obj.subject.name
+        return None
 
     def get_classroom_name(self, obj):
         return str(obj.classroom) if obj.classroom_id else None
@@ -90,6 +127,7 @@ class TimetableEntryWriteSerializer(serializers.ModelSerializer):
             "teacher", "room", "is_active", "notes",
         ]
         read_only_fields = ["id"]
+        validators = []  # Allow update() and create() to handle swaps and upserts gracefully
 
     def validate(self, data):
         subject = data.get("subject") or getattr(self.instance, "subject", None)
@@ -114,28 +152,30 @@ class TimetableEntryWriteSerializer(serializers.ModelSerializer):
         if slot and slot.is_break and (subject or teacher or activity_label):
             raise serializers.ValidationError({"slot": "Cannot assign a subject/activity/teacher to a break slot."})
 
-        # Weekly/daily caps — only meaningful when a real subject is set
+        # Weekly/daily caps — only meaningful when creating a new subject entry or changing subject
         if subject and slot:
-            classroom = data.get("classroom") or getattr(self.instance, "classroom", None)
-            term = data.get("term") or getattr(self.instance, "term", None)
-            if classroom and term:
-                existing = TimetableEntry.objects.filter(
-                    subject=subject, classroom=classroom, term=term, is_active=True
-                ).exclude(pk=getattr(self.instance, "pk", None))
+            is_new_or_changed = not self.instance or getattr(self.instance, 'subject_id', None) != subject.id
+            if is_new_or_changed:
+                classroom = data.get("classroom") or getattr(self.instance, "classroom", None)
+                term = data.get("term") or getattr(self.instance, "term", None)
+                if classroom and term:
+                    existing = TimetableEntry.objects.filter(
+                        subject=subject, classroom=classroom, term=term, is_active=True
+                    ).exclude(pk=getattr(self.instance, "pk", None))
 
-                weekly_count = existing.count() + 1
-                if weekly_count > subject.weekly_periods:
-                    raise serializers.ValidationError({
-                        "subject": f"{subject} already has {existing.count()} periods/week scheduled "
-                                   f"for {classroom} (max {subject.weekly_periods})."
-                    })
+                    weekly_count = existing.count() + 1
+                    if weekly_count > subject.weekly_periods:
+                        raise serializers.ValidationError({
+                            "subject": f"{subject} already has {existing.count()} periods/week scheduled "
+                                       f"for {classroom} (max {subject.weekly_periods})."
+                        })
 
-                daily_count = existing.filter(slot__day_of_week=slot.day_of_week).count() + 1
-                if daily_count > subject.max_daily_periods:
-                    raise serializers.ValidationError({
-                        "subject": f"{subject} already has {daily_count - 1} periods on "
-                                   f"{slot.day_of_week} for {classroom} (max {subject.max_daily_periods}/day)."
-                    })
+                    daily_count = existing.filter(slot__day_of_week=slot.day_of_week).count() + 1
+                    if daily_count > subject.max_daily_periods:
+                        raise serializers.ValidationError({
+                            "subject": f"{subject} already has {daily_count - 1} periods on "
+                                       f"{slot.day_of_week} for {classroom} (max {subject.max_daily_periods}/day)."
+                        })
 
         return data
 
@@ -148,14 +188,79 @@ class TimetableEntryWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"non_field_errors": e.messages if hasattr(e, "messages") else [str(e)]})
 
     def create(self, validated_data):
+        term = validated_data.get("term")
+        classroom = validated_data.get("classroom")
+        slot = validated_data.get("slot")
+
+        existing = TimetableEntry.objects.filter(
+            term=term,
+            classroom=classroom,
+            slot=slot
+        ).first()
+
+        if existing:
+            for attr, value in validated_data.items():
+                setattr(existing, attr, value)
+            self._run_model_validation(existing)
+            existing.save()
+            return existing
+
         instance = TimetableEntry(**validated_data)
         self._run_model_validation(instance)
         instance.save()
         return instance
 
     def update(self, instance, validated_data):
+        new_slot = validated_data.get("slot")
+        old_slot = instance.slot
+
+        if new_slot and new_slot != old_slot:
+            term = validated_data.get("term") or instance.term
+            classroom = validated_data.get("classroom") or instance.classroom
+
+            # Check if another entry exists at the target slot
+            target_entry = TimetableEntry.objects.filter(
+                term=term,
+                classroom=classroom,
+                slot=new_slot
+            ).exclude(pk=instance.pk).first()
+
+            if target_entry:
+                # Content Swap: swap content attributes between instance and target_entry
+                # so slot_id, term_id, and classroom_id remain unchanged (no DB constraint violation!)
+                old_subject = instance.subject
+                old_activity_label = instance.activity_label
+                old_is_free_period = instance.is_free_period
+                old_teacher = instance.teacher
+                old_room = instance.room
+                old_notes = instance.notes
+                old_is_active = instance.is_active
+
+                # Move target_entry's content into instance (which remains at old_slot)
+                instance.subject = target_entry.subject
+                instance.activity_label = target_entry.activity_label
+                instance.is_free_period = target_entry.is_free_period
+                instance.teacher = target_entry.teacher
+                instance.room = target_entry.room
+                instance.notes = target_entry.notes
+                instance.is_active = target_entry.is_active
+                instance.save()
+
+                # Put new content into target_entry (which is at new_slot)
+                target_entry.subject = validated_data.get("subject", old_subject)
+                target_entry.activity_label = validated_data.get("activity_label", old_activity_label)
+                target_entry.is_free_period = validated_data.get("is_free_period", old_is_free_period)
+                target_entry.teacher = validated_data.get("teacher", old_teacher)
+                target_entry.room = validated_data.get("room", old_room)
+                target_entry.notes = validated_data.get("notes", old_notes)
+                target_entry.is_active = validated_data.get("is_active", old_is_active)
+                target_entry.save()
+
+                return target_entry
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
         self._run_model_validation(instance)
         instance.save()
         return instance

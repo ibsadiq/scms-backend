@@ -20,6 +20,14 @@ from ..services.promotion_service import PromotionService
 from ..services.report_card_generator import ReportCardGenerator
 from ..tasks import generate_report_card_task, generate_bulk_report_cards_task, compute_class_results_task
 from ..models import ReportCardStatus
+from django.db import connection
+from django.http import HttpResponse
+
+
+def _get_schema_name(request):
+    if hasattr(request, "tenant") and request.tenant and request.tenant.schema_name != "public":
+        return request.tenant.schema_name
+    return connection.schema_name
 
 
 def _term_results_for_user(user):
@@ -56,6 +64,12 @@ class TermResultViewSet(viewsets.ModelViewSet):
             qs = qs.filter(classroom_id=p["classroom"])
         if p.get("academic_year"):
             qs = qs.filter(academic_year_id=p["academic_year"])
+        if p.get("admin_approved"):
+            is_approved = p["admin_approved"].lower() in ("true", "1")
+            qs = qs.filter(admin_approved=is_approved)
+        if p.get("homeroom_approved"):
+            is_hr_approved = p["homeroom_approved"].lower() in ("true", "1")
+            qs = qs.filter(homeroom_approved=is_hr_approved)
         return qs
 
     def get_permissions(self):
@@ -116,7 +130,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
         use_async = request.data.get("async", False) or request.data.get("use_celery", False)
         if use_async:
             task = compute_class_results_task.delay(
-                schema_name=request.tenant.schema_name,
+                schema_name=_get_schema_name(request),
                 classroom_id=classroom.id,
                 term_id=term.id,
                 academic_year_id=academic_year.id,
@@ -144,6 +158,10 @@ class TermResultViewSet(viewsets.ModelViewSet):
         result = self.get_object()
         self.check_object_permissions(request, result)
         try:
+            remarks = request.data.get("remarks") or request.data.get("class_teacher_remarks")
+            if remarks:
+                result.class_teacher_remarks = remarks
+                result.save(update_fields=["class_teacher_remarks"])
             result.homeroom_approve(request.user)
         except DjangoValidationError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -158,6 +176,10 @@ class TermResultViewSet(viewsets.ModelViewSet):
         result = self.get_object()
         self.check_object_permissions(request, result)
         try:
+            remarks = request.data.get("remarks") or request.data.get("principal_remarks") or request.data.get("admin_remarks")
+            if remarks:
+                result.principal_remarks = remarks
+                result.save(update_fields=["principal_remarks"])
             result.approve(request.user)
         except DjangoValidationError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -309,7 +331,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
             report_card.save(update_fields=['status'])
             
         generate_report_card_task.delay(
-            schema_name=request.tenant.schema_name,
+            schema_name=_get_schema_name(request),
             term_result_id=result.id,
             user_id=request.user.id,
             regenerate=regenerate,
@@ -327,7 +349,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
             return Response({"detail": "term and classroom are required."}, status=status.HTTP_400_BAD_REQUEST)
             
         generate_bulk_report_cards_task.delay(
-            schema_name=request.tenant.schema_name,
+            schema_name=_get_schema_name(request),
             term_id=term_id,
             classroom_id=classroom_id,
             user_id=request.user.id,
@@ -446,12 +468,38 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ReportCardSerializer
 
     def get_queryset(self):
-        return ReportCard.objects.filter(
+        qs = ReportCard.objects.filter(
             term_result__in=_term_results_for_user(self.request.user)
-        ).select_related("term_result__student", "term_result__term")
+        ).select_related("term_result__student", "term_result__term", "term_result__classroom", "generated_by")
+
+        p = self.request.query_params
+        if p.get("term"):
+            qs = qs.filter(term_result__term_id=p["term"])
+        if p.get("classroom"):
+            qs = qs.filter(term_result__classroom_id=p["classroom"])
+        if p.get("student"):
+            qs = qs.filter(term_result__student_id=p["student"])
+        if p.get("admin_approved"):
+            is_approved = p["admin_approved"].lower() in ("true", "1")
+            qs = qs.filter(term_result__admin_approved=is_approved)
+        return qs
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         report_card = self.get_object()
+        if not report_card.pdf_file:
+            return Response({"detail": "Report card PDF not available."}, status=status.HTTP_404_NOT_FOUND)
+        
         report_card.increment_download_count()
-        return Response(ReportCardSerializer(report_card, context={"request": request}).data)
+        
+        student_name = report_card.term_result.student.full_name if report_card.term_result and report_card.term_result.student else "Student"
+        term_name = report_card.term_result.term.name if report_card.term_result and report_card.term_result.term else "Term"
+        filename = f"Report_Card_{student_name}_{term_name}.pdf".replace(" ", "_")
+        
+        try:
+            pdf_file = report_card.pdf_file.open("rb")
+            response = HttpResponse(pdf_file.read(), content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
+        except Exception as e:
+            return Response({"detail": f"Failed to retrieve PDF file: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
