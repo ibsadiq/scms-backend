@@ -56,12 +56,18 @@ class TenantHeaderMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Extract tenant slug from header
-        tenant_slug = request.headers.get('X-Tenant-Slug', '').strip().lower()
+        # Extract tenant slug from header or query param (for window.open downloads)
+        tenant_slug = request.headers.get('X-Tenant-Slug')
+        if not tenant_slug:
+            tenant_slug = request.GET.get('tenant_slug') or request.GET.get('tenant')
+            
+        if tenant_slug:
+            tenant_slug = tenant_slug.strip().lower()
+            
         if tenant_slug in ('www', ''):
             tenant_slug = None  # public schema
 
-        # If no header, try to resolve from subdomain (django-tenants default behavior)
+        # If no header/param, try to resolve from subdomain (django-tenants default behavior)
         # This happens before this middleware, so connection.schema_name is already set
         if not tenant_slug:
             # Already handled by TenantMainMiddleware
