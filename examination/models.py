@@ -10,9 +10,7 @@ from administration.models import AcademicYear, Term
 from django.conf import settings
 
 from django.core.validators import FileExtensionValidator
-from django.core.files.storage import FileSystemStorage
 
-local_pdf_storage = FileSystemStorage()
 
 def validate_file_size(value):
     """Validate that the uploaded file size is no larger than 10MB."""
@@ -1168,7 +1166,6 @@ class ReportCard(models.Model):
     )
     pdf_file = models.FileField(
         upload_to='report_cards/%Y/%m/',
-        storage=local_pdf_storage,
         null=True,
         blank=True,
         help_text="Generated PDF file"
@@ -1263,7 +1260,6 @@ class MarkedScript(models.Model):
     # File upload
     script_file = models.FileField(
         upload_to='examination/marked_scripts/%Y/%m/',
-        storage=local_pdf_storage,
         validators=[
             FileExtensionValidator(allowed_extensions=['pdf', 'jpg', 'jpeg', 'png', 'webp']),
             validate_file_size
