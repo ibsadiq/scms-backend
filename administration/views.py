@@ -236,9 +236,7 @@ class DashboardStatsView(APIView):
         # ===== ATTENDANCE RATE (TODAY) =====
         today_attendance = StudentAttendance.objects.filter(date=today)
         total_expected = Student.objects.filter(is_active=True).count()
-        present_count = today_attendance.filter(
-            Q(status__name__iexact='PRESENT') | Q(status__name__iexact='present')
-        ).count()
+        present_count = today_attendance.filter(status__absent=False).count()
         attendance_rate = round(
             (present_count / total_expected * 100) if total_expected > 0 else 0,
             1
@@ -356,9 +354,7 @@ class DashboardStatsView(APIView):
         for i in range(5):  # Monday to Friday
             day = week_start + timedelta(days=i)
             day_attendance = StudentAttendance.objects.filter(date=day)
-            present = day_attendance.filter(
-                Q(status__name__iexact='PRESENT') | Q(status__name__iexact='present')
-            ).count()
+            present = day_attendance.filter(status__absent=False).count()
             total = Student.objects.filter(is_active=True).count()
             rate = round((present / total * 100) if total > 0 else 0, 1)
             

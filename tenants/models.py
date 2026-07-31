@@ -171,7 +171,8 @@ class Client(TenantMixin):
     def save(self, *args, **kwargs):
         if self.contact_email:
             self.contact_email = self.contact_email.lower()
-            
+        if self.motto:
+            self.motto = self.motto.strip().strip('"\'')
         super().save(*args, **kwargs)
 class Domain(DomainMixin):
     pass

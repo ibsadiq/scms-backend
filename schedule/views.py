@@ -85,6 +85,14 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         if term:
             qs = qs.filter(term_id=term)
 
+        classroom_id = self.request.query_params.get("classroom")
+        if classroom_id:
+            qs = qs.filter(classroom_id=classroom_id)
+
+        teacher_id = self.request.query_params.get("teacher")
+        if teacher_id:
+            qs = qs.filter(teacher_id=teacher_id)
+
         if not getattr(user, "is_admin", False):
             if getattr(user, "is_teacher", False):
                 qs = qs.filter(teacher__user=user)
@@ -125,6 +133,14 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
         return Response(TimetableEntryListSerializer(qs, many=True).data)
 
     @action(detail=False, methods=["get"])
+    def by_teacher(self, request):
+        teacher_id = request.query_params.get("teacher")
+        if not teacher_id:
+            return Response({"error": "teacher parameter is required"}, status=400)
+        qs = self.get_queryset().filter(teacher_id=teacher_id)
+        return Response(TimetableEntryListSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=["get"])
     def my_timetable(self, request):
         """
         Resolves from request.user by default — admins can pass ?teacher=id
@@ -142,6 +158,50 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
             return Response({"error": "No timetable available for this user."}, status=403)
 
         return Response(TimetableEntryListSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=["post"])
+    def swap(self, request):
+        """
+        Atomically swap content between two timetable entries without triggering unique constraint errors or null constraint violations.
+        """
+        entry_a_id = request.data.get("entry_a")
+        entry_b_id = request.data.get("entry_b")
+        if not entry_a_id or not entry_b_id:
+            return Response({"error": "entry_a and entry_b are required"}, status=400)
+
+        with transaction.atomic():
+            from django.shortcuts import get_object_or_404
+            entry_a = get_object_or_404(TimetableEntry, id=entry_a_id)
+            entry_b = get_object_or_404(TimetableEntry, id=entry_b_id)
+
+            # Swap content attributes between entry_a and entry_b
+            (
+                entry_a.subject, entry_b.subject,
+                entry_a.activity_label, entry_b.activity_label,
+                entry_a.is_free_period, entry_b.is_free_period,
+                entry_a.teacher, entry_b.teacher,
+                entry_a.room, entry_b.room,
+                entry_a.notes, entry_b.notes,
+                entry_a.is_active, entry_b.is_active,
+            ) = (
+                entry_b.subject, entry_a.subject,
+                entry_b.activity_label, entry_a.activity_label,
+                entry_b.is_free_period, entry_a.is_free_period,
+                entry_b.teacher, entry_a.teacher,
+                entry_b.room, entry_a.room,
+                entry_b.notes, entry_a.notes,
+                entry_b.is_active, entry_a.is_active,
+            )
+
+            entry_a.save()
+            entry_b.save()
+
+        return Response({
+            "status": "success",
+            "message": "Slots swapped successfully",
+            "entry_a": TimetableEntryListSerializer(entry_a).data,
+            "entry_b": TimetableEntryListSerializer(entry_b).data,
+        })
 
     @action(detail=False, methods=["post"])
     def bulk_copy(self, request):

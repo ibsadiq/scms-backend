@@ -20,6 +20,21 @@ logger = logging.getLogger(__name__)
 notification_service = NotificationService()
 
 
+from django.db.models.signals import pre_save, post_save
+
+@receiver(pre_save, sender=Assignment)
+def track_assignment_status_change(sender, instance, **kwargs):
+    """Capture old status before saving to detect draft -> published transitions"""
+    if instance.pk:
+        try:
+            old = Assignment.objects.get(pk=instance.pk)
+            instance._old_status = old.status
+        except Assignment.DoesNotExist:
+            instance._old_status = None
+    else:
+        instance._old_status = None
+
+
 @receiver(post_save, sender=Assignment)
 def notify_new_assignment(sender, instance, created, **kwargs):
     """
@@ -29,65 +44,59 @@ def notify_new_assignment(sender, instance, created, **kwargs):
     - Students in the classroom (if they have accounts)
     - Parents of all students in the classroom
     """
-    if not created:
-        # Only send on status change to published
-        if instance.status != 'published':
-            return
-        
-        # Check if this is a status change (not initial creation)
-        try:
-            old_instance = Assignment.objects.get(pk=instance.pk)
-            if old_instance.status == 'published':
-                return  # Already notified
-        except Assignment.DoesNotExist:
-            pass
-    
     if instance.status != 'published':
         return  # Only notify for published assignments
+
+    old_status = getattr(instance, '_old_status', None)
+    if not created and old_status == 'published':
+        return  # Already published and notified
     
-    # Get all students in the classroom
-    students = instance.classroom.students.filter(is_active=True)
-    
-    for student in students:
-        # Notify student if they have an account
-        if student.user and student.can_login:
-            try:
-                notification_service.create_notification(
-                    recipient=student.user,
-                    notification_type='assignment',
-                    title=f"New Assignment: {instance.title}",
-                    message=f"Your teacher has assigned {instance.title} for {instance.subject.name}. "
-                            f"Due: {instance.due_date.strftime('%B %d, %Y at %I:%M %p')}. "
-                            f"Type: {instance.get_assignment_type_display()}",
-                    priority='normal',
-                    related_student=student,
-                    related_object=instance,
-                    send_email=True,
-                    send_sms=False
-                )
-                logger.info(f"Assignment notification sent to student {student.id}")
-            except Exception as e:
-                logger.error(f"Failed to send assignment notification to student {student.id}: {str(e)}")
-        
-        # Notify parent
-        if student.parent_guardian and student.parent_guardian.user:
-            try:
-                notification_service.create_notification(
-                    recipient=student.parent_guardian.user,
-                    notification_type='assignment',
-                    title=f"New Assignment for {student.full_name}",
-                    message=f"{student.full_name} has a new assignment: {instance.title} ({instance.subject.name}). "
-                            f"Due: {instance.due_date.strftime('%B %d, %Y')}. "
-                            f"Type: {instance.get_assignment_type_display()}",
-                    priority='normal',
-                    related_student=student,
-                    related_object=instance,
-                    send_email=True,
-                    send_sms=False
-                )
-                logger.info(f"Assignment notification sent to parent of student {student.id}")
-            except Exception as e:
-                logger.error(f"Failed to send assignment notification to parent: {str(e)}")
+    from django.db import transaction
+
+    def send_notifications():
+        students = instance.classroom.students.filter(is_active=True)
+        for student in students:
+            # Notify student if they have an account
+            if student.user and student.can_login:
+                try:
+                    notification_service.create_notification(
+                        recipient=student.user,
+                        notification_type='assignment',
+                        title=f"New Assignment: {instance.title}",
+                        message=f"Your teacher has assigned {instance.title} for {instance.subject.name}. "
+                                f"Due: {instance.due_date.strftime('%B %d, %Y at %I:%M %p')}. "
+                                f"Type: {instance.get_assignment_type_display()}",
+                        priority='normal',
+                        related_student=student,
+                        related_object=instance,
+                        send_email=True,
+                        send_sms=False
+                    )
+                    logger.info(f"Assignment notification sent to student {student.id}")
+                except Exception as e:
+                    logger.error(f"Failed to send assignment notification to student {student.id}: {str(e)}")
+            
+            # Notify parent
+            if student.parent_guardian and student.parent_guardian.user:
+                try:
+                    notification_service.create_notification(
+                        recipient=student.parent_guardian.user,
+                        notification_type='assignment',
+                        title=f"New Assignment for {student.full_name}",
+                        message=f"{student.full_name} has a new assignment: {instance.title} ({instance.subject.name}). "
+                                f"Due: {instance.due_date.strftime('%B %d, %Y')}. "
+                                f"Type: {instance.get_assignment_type_display()}",
+                        priority='normal',
+                        related_student=student,
+                        related_object=instance,
+                        send_email=True,
+                        send_sms=False
+                    )
+                    logger.info(f"Assignment notification sent to parent of student {student.id}")
+                except Exception as e:
+                    logger.error(f"Failed to send assignment notification to parent: {str(e)}")
+
+    transaction.on_commit(send_notifications)
 
 
 @receiver(post_save, sender=AssignmentSubmission)

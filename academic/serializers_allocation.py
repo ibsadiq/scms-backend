@@ -67,6 +67,7 @@ class AllocatedSubjectSerializer(serializers.ModelSerializer):
             'class_room_name',
             'weekly_periods',
             'max_daily_periods',
+            'is_mandatory',
         ]
         read_only_fields = ['id']
 
@@ -147,6 +148,8 @@ class AllocatedSubjectListSerializer(serializers.ModelSerializer):
             'term_id',
             'term_name',
             'weekly_periods',
+            'max_daily_periods',
+            'is_mandatory',
         ]
 
     def get_teacher_id(self, obj):

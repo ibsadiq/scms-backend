@@ -430,6 +430,10 @@ class AllocatedSubject(models.Model):
         default=2,
         help_text="Maximum number of periods allowed per day for this subject.",
     )
+    is_mandatory = models.BooleanField(
+        default=True,
+        help_text="Indicates whether this subject is mandatory (core) or optional (elective) for the class.",
+    )
 
     def __str__(self):
         return f"{self.teacher_name} - {self.subject} ({self.academic_year})"

@@ -33,8 +33,6 @@ class PeriodSlot(models.Model):
         ("Wednesday", "Wednesday"),
         ("Thursday", "Thursday"),
         ("Friday", "Friday"),
-        ("Saturday", "Saturday"),
-        ("Sunday", "Sunday"),
     ]
 
     term = models.ForeignKey(
@@ -106,7 +104,7 @@ class TimetableEntry(models.Model):
     classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name='timetable_entries')
 
     subject = models.ForeignKey(
-        AllocatedSubject, on_delete=models.PROTECT, null=True, blank=True,
+        AllocatedSubject, on_delete=models.CASCADE, null=True, blank=True,
         related_name='timetable_entries',
         help_text="Leave blank for free periods or non-subject activities."
     )

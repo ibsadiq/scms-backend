@@ -59,18 +59,16 @@ class TeachersAttendance(models.Model):
         return f"Edit {self.teacher} - {self.date}"
 
     def save(self, *args, **kwargs):
-        """Update for those who are late"""
-        present, created = AttendanceStatus.objects.get_or_create(name="Present", defaults={'code': 'P'})
+        """Auto-assign Late status if teacher arrives at or after 7:00 AM"""
+        present, _ = AttendanceStatus.objects.get_or_create(name="Present", defaults={'code': 'P'})
+        late_status, _ = AttendanceStatus.objects.get_or_create(name="Late", defaults={'code': 'L', 'late': True})
 
-        # Check if the teacher is marked as "Present" and if they are late
         if (
-            self.status == present
+            (self.status == present or self.status is None)
             and self.time_in
             and self.time_in >= datetime.time(7, 0, 0)
         ):
-            self.status.late = True  # Mark status as late
-        elif self.status != present:
-            self.status.late = False  # Reset late if not present
+            self.status = late_status
 
         super(TeachersAttendance, self).save(*args, **kwargs)
 
@@ -108,7 +106,7 @@ class StudentAttendance(models.Model):
 
     @property
     def edit(self):
-        return f"Edit {self.student.fname} - {self.date}"
+        return f"Edit {self.student.first_name or self.student.full_name} - {self.date}"
 
     def save(self, *args, **kwargs):
         if self.date and not self.term_id:
@@ -136,8 +134,8 @@ class PeriodAttendance(models.Model):
         ordering = ("date", "student", "period")
 
     def __str__(self):
-        return f"{self.student.fname} - {self.date} Period {self.period} {self.status}"
+        return f"{self.student.first_name or self.student.full_name} - {self.date} Period {self.period} {self.status}"
 
     @property
     def edit(self):
-        return f"Edit {self.student.fname} - {self.date} Period {self.period}"
+        return f"Edit {self.student.first_name or self.student.full_name} - {self.date} Period {self.period}"

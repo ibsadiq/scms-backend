@@ -61,6 +61,13 @@ class AllocatedSubjectViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        from schedule.models import TimetableEntry
+        TimetableEntry.objects.filter(subject=instance).delete()
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def get_serializer_class(self):
         """Use list serializer for list actions"""
         if self.action == 'list':

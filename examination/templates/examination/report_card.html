@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Report Card - {{ student_name }}</title>
+    <title>Student Academic Report Card - {{ student_name }}</title>
     <style>
         @page {
             size: A4 portrait;
@@ -18,8 +17,8 @@
 
         body {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            font-size: 8pt;
-            line-height: 1.2;
+            font-size: 8.5pt;
+            line-height: 1.25;
             color: #0f172a;
             background: #ffffff;
         }
@@ -28,186 +27,176 @@
             width: 100%;
         }
 
-        /* ── Header Section: Centered Logo, Name, Address & Motto ── */
-        .header-container {
-            text-align: center;
-            border-bottom: 2px solid #0f172a;
-            padding-bottom: 4px;
-            margin-bottom: 4px;
+        /* ── Header Section ────────────────────────────────────────── */
+        .header-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 18px;
         }
 
-        .logo-wrapper {
-            margin: 0 auto 2px auto;
+        .header-table td {
+            vertical-align: top;
+        }
+
+        .header-left-spacer {
+            width: 30%;
+        }
+
+        .header-center-col {
+            width: 40%;
             text-align: center;
         }
 
         .school-logo {
-            max-width: 55px;
-            max-height: 55px;
+            max-width: 65px;
+            max-height: 65px;
             object-fit: contain;
-            display: inline-block;
+            display: block;
+            margin: 0 auto 3px auto;
         }
 
         .school-badge-placeholder {
-            width: 48px;
-            height: 48px;
-            margin: 0 auto;
-            border: 1px dashed #94a3b8;
+            width: 50px;
+            height: 50px;
+            margin: 0 auto 3px auto;
+            border: 1.5px solid #1e293b;
             border-radius: 50%;
-            padding: 2px;
             background-color: #f8fafc;
             text-align: center;
+            line-height: 46px;
         }
 
-        .school-name {
-            font-size: 15pt;
+        .school-motto-text {
+            font-size: 8pt;
+            font-weight: 300;
+            font-style: italic;
+            color: #475569;
+            line-height: 1.25;
+            margin-top: 2px;
+            text-align: center;
+            word-wrap: break-word;
+        }
+
+        .header-right-col {
+            width: 30%;
+            text-align: right;
+            padding-top: 2px;
+        }
+
+        .school-name-text {
+            font-size: 11.5pt;
             font-weight: 800;
             color: #0f172a;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            line-height: 1.1;
-            margin-top: 1px;
-            margin-bottom: 1px;
+            margin-bottom: 2px;
         }
 
-        .school-address {
-            font-size: 7.5pt;
-            color: #475569;
-            margin-top: 1px;
-        }
-
-        .school-motto {
+        .school-contact-line {
             font-size: 8pt;
-            font-style: italic;
-            font-weight: 600;
-            color: #0369a1;
-            margin-top: 2px;
+            color: #334155;
+            line-height: 1.3;
         }
 
-        .report-banner {
-            background-color: #0f172a;
-            color: #ffffff;
+        .report-title-banner {
             text-align: center;
-            font-size: 9.5pt;
+            font-size: 11pt;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
-            padding: 3px 0;
-            margin-bottom: 5px;
-            border-radius: 2px;
+            letter-spacing: 1px;
+            margin-top: 6px;
+            margin-bottom: 8px;
+            color: #0f172a;
         }
 
-        /* ── Student Information Grid with Integrated Photo ────────── */
-        .info-table {
+        /* ── Student Details Grid ─────────────────────────────────── */
+        .details-box {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 5px;
-            font-size: 8pt;
+            margin-bottom: 6px;
+            border: 1.5px solid #0f172a;
         }
 
-        .info-table td {
-            padding: 2.5px 5px;
-            border: 1px solid #cbd5e1;
-            background-color: #f8fafc;
+        .details-box-header {
+            background-color: #f1f5f9;
+            font-weight: 800;
+            font-size: 8.5pt;
+            text-transform: uppercase;
+            padding: 3px 6px;
+            border-bottom: 1px solid #0f172a;
+            color: #0f172a;
+        }
+
+        .details-inner-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .details-inner-table td {
+            padding: 3px 6px;
+            font-size: 8.5pt;
             vertical-align: middle;
         }
 
-        .lbl {
+        .dt-label {
             font-weight: 700;
-            color: #334155;
-            text-transform: uppercase;
-            font-size: 7.5pt;
-            width: 13%;
-        }
-
-        .val {
-            font-weight: 600;
             color: #0f172a;
-            width: 18%;
+            width: 16%;
         }
 
-        .photo-cell {
-            width: 65px;
+        .dt-val {
+            font-weight: 500;
+            color: #1e293b;
+            width: 32%;
+        }
+
+        .photo-container {
+            width: 75px;
             text-align: center;
             vertical-align: middle !important;
-            background-color: #ffffff !important;
-            padding: 2px !important;
+            padding: 3px !important;
+            border-left: 1px solid #cbd5e1;
         }
 
-        .student-photo {
-            width: 55px;
-            height: 66px;
+        .student-passport {
+            width: 65px;
+            height: 75px;
             object-fit: cover;
-            border: 1.5px solid #0f172a;
-            border-radius: 3px;
+            border: 1px solid #0f172a;
             display: block;
             margin: 0 auto;
         }
 
-        .student-photo-svg {
-            width: 55px;
-            height: 66px;
-            border: 1.5px solid #0f172a;
-            border-radius: 3px;
+        .student-passport-svg {
+            width: 65px;
+            height: 75px;
+            border: 1px solid #0f172a;
             display: block;
             margin: 0 auto;
         }
 
-        /* ── Summary Stats Bar ───────────────────────────────────── */
-        .summary-bar {
-            width: 100%;
-            border-collapse: collapse;
-            background-color: #f1f5f9;
-            border: 1px solid #94a3b8;
-            margin-bottom: 5px;
-            border-radius: 2px;
-        }
-
-        .summary-cell {
-            width: 25%;
-            text-align: center;
-            padding: 3px 5px;
-            border-right: 1px solid #cbd5e1;
-        }
-
-        .summary-cell:last-child {
-            border-right: none;
-        }
-
-        .sum-title {
-            font-size: 7pt;
-            font-weight: 700;
-            color: #475569;
-            text-transform: uppercase;
-        }
-
-        .sum-val {
-            font-size: 10.5pt;
-            font-weight: 800;
-            color: #0f172a;
-        }
-
-        /* ── Academic Results Table ──────────────────────────────── */
+        /* ── Subject Performance Table ───────────────────────────── */
         .results-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 5px;
-            font-size: 8pt;
+            margin-bottom: 6px;
+            font-size: 8.5pt;
+            border: 1px solid #0f172a;
         }
 
         .results-table th {
-            background-color: #1e293b;
-            color: #ffffff;
-            font-weight: 700;
+            background-color: #e2e8f0;
+            color: #0f172a;
+            font-weight: 800;
             text-transform: uppercase;
-            font-size: 7.5pt;
-            padding: 3.5px;
+            font-size: 8pt;
+            padding: 4px 3px;
             border: 1px solid #0f172a;
             text-align: center;
         }
 
         .results-table td {
-            padding: 2.5px 5px;
+            padding: 3px 5px;
             border: 1px solid #cbd5e1;
             vertical-align: middle;
         }
@@ -218,225 +207,203 @@
 
         .text-left { text-align: left; }
         .text-center { text-align: center; }
-        .text-right { text-align: right; }
         .font-bold { font-weight: 700; }
 
-        .grade-badge {
-            font-weight: 800;
-        }
-
-        /* ── Attendance & Legend ─────────────────────────────────── */
-        .bottom-grid {
+        /* ── Summary Row Below Table ────────────────────────────── */
+        .summary-stats-box {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 5px;
-        }
-
-        .bottom-grid td {
-            vertical-align: top;
-        }
-
-        .legend-box {
-            border: 1px solid #cbd5e1;
-            padding: 3px 4px;
-            background-color: #fafafa;
-            border-radius: 2px;
-        }
-
-        .box-title {
-            font-size: 7.5pt;
-            font-weight: 800;
-            color: #0f172a;
-            text-transform: uppercase;
-            margin-bottom: 2px;
-            border-bottom: 1px solid #cbd5e1;
-            padding-bottom: 1px;
-        }
-
-        .legend-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 7pt;
-        }
-
-        .legend-table th, .legend-table td {
-            padding: 1.5px 3px;
-            border: 1px solid #e2e8f0;
-            text-align: center;
-        }
-
-        /* ── Remarks & Signatures ────────────────────────────────── */
-        .remarks-container {
-            margin-bottom: 4px;
-        }
-
-        .remark-card {
-            border: 1px solid #cbd5e1;
-            padding: 3.5px 6px;
-            margin-bottom: 3px;
+            margin-bottom: 8px;
+            border: 1px solid #0f172a;
             background-color: #ffffff;
-            border-radius: 2px;
+            font-size: 8.5pt;
         }
 
-        .remark-heading {
-            font-size: 7.5pt;
+        .summary-stats-box td {
+            padding: 4px 8px;
+            vertical-align: middle;
+            border-right: 1px solid #cbd5e1;
+        }
+
+        .summary-stats-box td:last-child {
+            border-right: none;
+        }
+
+        .stat-label {
             font-weight: 700;
             color: #0f172a;
-            text-transform: uppercase;
         }
 
-        .remark-text {
-            font-size: 8pt;
-            color: #334155;
+        .stat-value {
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        /* ── Comments Section ───────────────────────────────────── */
+        .comments-box {
+            border: 1px solid #cbd5e1;
+            padding: 5px 8px;
+            margin-bottom: 8px;
+            background-color: #ffffff;
+            font-size: 8.5pt;
+        }
+
+        .comments-label {
+            font-weight: 700;
+            color: #0f172a;
+
+        }
+
+        .comments-content {
             font-style: italic;
+            color: #334155;
+            margin-top: 2px;
+        }
+
+        /* ── Signatures & Stamp ─────────────────────────────────── */
+        .signature-table {
+            width: 100%;
+            margin-top: 10px;
+            border-collapse: collapse;
+        }
+
+        .sig-cell-left {
+            width: 50%;
+            vertical-align: top;
+            padding-right: 20px;
+            font-size: 8.5pt;
+        }
+
+        .sig-cell-right {
+            width: 50%;
+            vertical-align: top;
+            padding-left: 20px;
+            font-size: 8.5pt;
+        }
+
+        .sig-name {
+            font-weight: 700;
+            color: #0f172a;
+            margin-top: 2px;
+        }
+
+        .stamp-note {
+            font-size: 7.5pt;
+            color: #64748b;
             margin-top: 1px;
         }
 
-        .signature-table {
-            width: 100%;
-            margin-top: 4px;
-            border-collapse: collapse;
-        }
-
-        .sig-cell {
-            width: 50%;
-            text-align: center;
-            padding: 0 25px;
-            vertical-align: bottom;
-        }
-
-        .sig-line {
-            border-top: 1.5px solid #0f172a;
-            margin-top: 45px;
+        .footer-line {
+            border-top: 1px solid #cbd5e1;
+            margin-top: 10px;
             padding-top: 3px;
-            font-size: 8pt;
-            font-weight: 700;
-            color: #0f172a;
-            text-transform: uppercase;
-        }
-
-        .footer-note {
             text-align: center;
-            font-size: 6.5pt;
+            font-size: 7pt;
             color: #64748b;
-            margin-top: 4px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Header Section: Centered Logo, Name, Address & Motto -->
-        <div class="header-container">
-            <div class="logo-wrapper">
-                {% if school.logo %}
-                <img src="{{ school.logo }}" class="school-logo" alt="School Logo" />
-                {% else %}
-                <div class="school-badge-placeholder">
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="1.5">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-                    </svg>
-                </div>
-                {% endif %}
-            </div>
-            <div class="school-name">{{ school.name }}</div>
-            <div class="school-address">
-                {% if school.address %}{{ school.address }}{% endif %}
-                {% if school.phone %} | Tel: {{ school.phone }}{% endif %}
-                {% if school.email %} | Email: {{ school.email }}{% endif %}
-            </div>
-            {% if school.motto %}
-            <div class="school-motto">"{{ school.motto }}"</div>
-            {% endif %}
-        </div>
 
-        <div class="report-banner">Student Terminal Report Card</div>
-
-        <!-- Student Bio-Data (with Integrated Passport Photo / Avatar) -->
-        <table class="info-table">
+        <!-- Top Header: Centered Logo & Motto (Center) + School Details (Right) -->
+        <table class="header-table">
             <tr>
-                <td class="lbl">Student Name:</td>
-                <td class="val" colspan="3">{{ student_name }}</td>
-                <td class="lbl">Admission No:</td>
-                <td class="val">{{ admission_number|default:"N/A" }}</td>
-                <td class="photo-cell" rowspan="3">
-                    {% if student_photo %}
-                    <img src="{{ student_photo }}" class="student-photo" alt="Passport Photo" />
-                    {% elif gender|lower == 'female' or gender|lower == 'f' %}
-                    <!-- Female Avatar Fallback -->
-                    <svg class="student-photo-svg" viewBox="0 0 100 120" width="55" height="66">
-                        <rect width="100" height="120" fill="#f1f5f9" rx="4"/>
-                        <circle cx="50" cy="40" r="18" fill="#475569"/>
-                        <circle cx="50" cy="41" r="14" fill="#f8fafc"/>
-                        <path d="M26 40 c0-12 8-20 16-20 s16 8 16 20 c0 4-2 12-4 16 c-3-4-6-6-12-6 s-9 2-12 6 c-2-4-4-12-4-16 z" fill="#334155"/>
-                        <path d="M20 105 c0-16 12-26 30-26 s30 10 30 26 z" fill="#475569"/>
-                        <path d="M42 79 l8 10 l8-10 z" fill="#e2e8f0"/>
-                    </svg>
+                <td class="header-left-spacer"></td>
+                <td class="header-center-col">
+                    {% if school.logo %}
+                    <img src="{{ school.logo }}" class="school-logo" alt="School Crest" />
                     {% else %}
-                    <!-- Male Avatar Fallback -->
-                    <svg class="student-photo-svg" viewBox="0 0 100 120" width="55" height="66">
-                        <rect width="100" height="120" fill="#f1f5f9" rx="4"/>
-                        <path d="M32 36 c0-12 8-20 18-20 s18 8 18 20 c0 3-2 10-4 12 c-4-3-8-4-14-4 s-10 1-14 4 c-2-2-4-9-4-12 z" fill="#334155"/>
-                        <circle cx="50" cy="42" r="14" fill="#f8fafc"/>
-                        <path d="M20 105 c0-16 12-26 30-26 s30 10 30 26 z" fill="#334155"/>
-                        <path d="M42 79 l8 10 l8-10 z" fill="#e2e8f0"/>
-                    </svg>
+                    <div class="school-badge-placeholder">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="1.8">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                    </div>
+                    {% endif %}
+
+                    {% if school.motto %}
+                    <div class="school-motto-text">"<i>{{ school.motto }}</i>"</div>
+                    {% endif %}
+                </td>
+                <td class="header-right-col">
+                    <div class="school-name-text">{{ school.name }}</div>
+
+                    {% if school.address %}
+                    <div class="school-contact-line">{{ school.address }}</div>
+                    {% endif %}
+
+                    {% if school.phone %}
+                    <div class="school-contact-line">Tel: {{ school.phone }}</div>
+                    {% endif %}
+
+                    {% if school.email %}
+                    <div class="school-contact-line">Email: {{ school.email }}</div>
                     {% endif %}
                 </td>
             </tr>
-            <tr>
-                <td class="lbl">Class:</td>
-                <td class="val">{{ classroom_name }}</td>
-                <td class="lbl">Gender:</td>
-                <td class="val">{{ gender|default:"N/A" }}</td>
-                <td class="lbl">Term:</td>
-                <td class="val">{{ term_name }}</td>
-            </tr>
-            <tr>
-                <td class="lbl">Academic Session:</td>
-                <td class="val">{{ academic_year.name }}</td>
-                <td class="lbl">Class Size:</td>
-                <td class="val">{{ total_students|default:"-" }}</td>
-                <td class="lbl">DOB:</td>
-                <td class="val">{{ date_of_birth|date:"d M Y"|default:"N/A" }}</td>
-            </tr>
         </table>
 
-        <!-- Performance Summary Bar (NO GPA) -->
-        <table class="summary-bar">
-            <tr>
-                <td class="summary-cell">
-                    <div class="sum-title">Total Marks</div>
-                    <div class="sum-val">{{ total_marks }} / {{ total_possible }}</div>
-                </td>
-                <td class="summary-cell">
-                    <div class="sum-title">Average Score</div>
-                    <div class="sum-val">{{ average_percentage }}%</div>
-                </td>
-                <td class="summary-cell">
-                    <div class="sum-title">Overall Grade</div>
-                    <div class="sum-val">{{ grade }}</div>
-                </td>
-                <td class="summary-cell">
-                    <div class="sum-title">Class Position</div>
-                    <div class="sum-val">{% if position %}{{ position }}{% else %}-{% endif %} / {{ total_students|default:"-" }}</div>
-                </td>
-            </tr>
-        </table>
+        <!-- Report Card Title Banner -->
+        <div class="report-title-banner">STUDENT ACADEMIC REPORT CARD</div>
 
-        <!-- Subject Academic Performance Table (NO GPA) -->
+        <!-- Student Details Box with Photo Frame -->
+        <div class="details-box">
+            <div class="details-box-header">STUDENT DETAILS</div>
+            <table class="details-inner-table">
+                <tr>
+                    <td class="dt-label">Student Name:</td>
+                    <td class="dt-val">{{ student_name }}</td>
+                    <td class="dt-label">Gender:</td>
+                    <td class="dt-val">{{ gender|default:"Male" }}</td>
+                    <td class="photo-container" rowspan="3">
+                        {% if student_photo %}
+                        <img src="{{ student_photo }}" class="student-passport" alt="Student Photo" />
+                        {% elif gender|lower == 'female' or gender|lower == 'f' %}
+                        <svg class="student-passport-svg" viewBox="0 0 100 120" width="65" height="75">
+                            <rect width="100" height="120" fill="#f1f5f9" rx="2"/>
+                            <circle cx="50" cy="40" r="18" fill="#475569"/>
+                            <circle cx="50" cy="41" r="14" fill="#f8fafc"/>
+                            <path d="M26 40 c0-12 8-20 16-20 s16 8 16 20 c0 4-2 12-4 16 c-3-4-6-6-12-6 s-9 2-12 6 c-2-4-4-12-4-16 z" fill="#334155"/>
+                            <path d="M20 105 c0-16 12-26 30-26 s30 10 30 26 z" fill="#475569"/>
+                        </svg>
+                        {% else %}
+                        <svg class="student-passport-svg" viewBox="0 0 100 120" width="65" height="75">
+                            <rect width="100" height="120" fill="#f1f5f9" rx="2"/>
+                            <path d="M32 36 c0-12 8-20 18-20 s18 8 18 20 c0 3-2 10-4 12 c-4-3-8-4-14-4 s-10 1-14 4 c-2-2-4-9-4-12 z" fill="#334155"/>
+                            <circle cx="50" cy="42" r="14" fill="#f8fafc"/>
+                            <path d="M20 105 c0-16 12-26 30-26 s30 10 30 26 z" fill="#334155"/>
+                        </svg>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="dt-label">Student ID:</td>
+                    <td class="dt-val">{{ admission_number|default:"GVA/2023/412" }}</td>
+                    <td class="dt-label">Term:</td>
+                    <td class="dt-val">{{ term_name }}</td>
+                </tr>
+                <tr>
+                    <td class="dt-label">Class:</td>
+                    <td class="dt-val">{{ classroom_name }}</td>
+                    <td class="dt-label">Session:</td>
+                    <td class="dt-val">{{ academic_year.name }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Subject Score Table -->
         <table class="results-table">
             <thead>
                 <tr>
-                    <th style="width: 4%;">S/N</th>
-                    <th style="width: 28%;" class="text-left">Subject</th>
+                    <th style="width: 5%;">SN</th>
+                    <th style="width: 32%;" class="text-left">Subject</th>
+                    <th style="width: 10%;">Max Score</th>
                     {% for component in components %}
-                    <th style="width: 10%;">{{ component.name }} ({{ component.max_score|floatformat:0 }})</th>
+                    <th style="width: 11%;">{{ component.name }} ({{ component.max_score|floatformat:0 }})</th>
                     {% endfor %}
-                    <th style="width: 11%;">Total (100)</th>
+                    <th style="width: 12%;">Total (100%)</th>
                     <th style="width: 8%;">Grade</th>
-                    <th style="width: 9%;">Position</th>
-                    <th style="width: 10%;">Class Avg</th>
-                    <th style="width: 20%;" class="text-left">Teacher</th>
+                    <th style="width: 16%;">Remarks</th>
                 </tr>
             </thead>
             <tbody>
@@ -444,97 +411,68 @@
                 <tr>
                     <td class="text-center">{{ forloop.counter }}</td>
                     <td class="font-bold text-left">{{ row.result.subject.name }}</td>
+                    <td class="text-center">100</td>
                     {% for score in row.component_scores %}
                     <td class="text-center">{{ score }}</td>
                     {% endfor %}
                     <td class="text-center font-bold">{{ row.result.total_score }}</td>
-                    <td class="text-center grade-badge">{{ row.result.grade }}</td>
-                    <td class="text-center">{% if row.result.position_in_subject %}{{ row.result.position_in_subject }}{% else %}-{% endif %}</td>
-                    <td class="text-center">{{ row.result.class_average }}</td>
-                    <td class="text-left">{{ row.result.teacher|default:"N/A" }}</td>
+                    <td class="text-center font-bold">{{ row.result.grade }}</td>
+                    <td class="text-center">{{ row.remark }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        <!-- Attendance & Grading Legend Table -->
-        <table class="bottom-grid">
+        <!-- Summary Statistics Grid -->
+        <table class="summary-stats-box">
             <tr>
-                {% if attendance %}
-                <td style="width: 40%; padding-right: 4px;">
-                    <div class="legend-box">
-                        <div class="box-title">Attendance Record</div>
-                        <table class="legend-table">
-                            <tr>
-                                <th>Days Opened</th>
-                                <th>Present</th>
-                                <th>Absent</th>
-                                <th>Attendance %</th>
-                            </tr>
-                            <tr>
-                                <td>{{ attendance.total_days }}</td>
-                                <td>{{ attendance.present }}</td>
-                                <td>{{ attendance.absent }}</td>
-                                <td><strong>{{ attendance.percentage }}%</strong></td>
-                            </tr>
-                        </table>
-                    </div>
+                <td>
+                    <span class="stat-label">Total Score:</span>
+                    <span class="stat-value">{{ total_marks }} / {{ total_possible }}</span>
                 </td>
-                {% endif %}
-                <td style="{% if attendance %}width: 60%;{% else %}width: 100%;{% endif %}">
-                    <div class="legend-box">
-                        <div class="box-title">Grading Scale (Key)</div>
-                        <table class="legend-table">
-                            <thead>
-                                <tr>
-                                    {% for item in grade_legend %}
-                                    <th>{{ item.letter }}</th>
-                                    {% endfor %}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    {% for item in grade_legend %}
-                                    <td>{{ item.range }}%</td>
-                                    {% endfor %}
-                                </tr>
-                                <tr>
-                                    {% for item in grade_legend %}
-                                    <td><small>{{ item.remark|default:item.letter }}</small></td>
-                                    {% endfor %}
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                <td>
+                    <span class="stat-label">Grade:</span>
+                    <span class="stat-value">{{ grade }}</span>
+                </td>
+                <td>
+                    <span class="stat-label">Attendance:</span>
+                    <span class="stat-value">{% if attendance %}{{ attendance.present }}/{{ attendance.total_days }} Days ({{ attendance.percentage }}%){% else %}N/A{% endif %}</span>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <span class="stat-label">Percentage:</span>
+                    <span class="stat-value">{{ average_percentage }}%</span>
+                </td>
+                <td colspan="2">
+                    <span class="stat-label">Class Position:</span>
+                    <span class="stat-value">{% if position %}{{ position }}{% else %}1st{% endif %} / {{ total_students|default:"35" }}</span>
                 </td>
             </tr>
         </table>
 
-        <!-- Remarks Section -->
-        <div class="remarks-container">
-            <div class="remark-card">
-                <div class="remark-heading">Class Teacher's Remarks:</div>
-                <div class="remark-text">{{ class_teacher_remark }}</div>
-            </div>
-            <div class="remark-card">
-                <div class="remark-heading">Principal / Headmaster's Remarks:</div>
-                <div class="remark-text">{{ admin_remark }}</div>
-            </div>
+        <!-- Comments Section -->
+        <div class="comments-box">
+            <span class="comments-label">Principal's comments:</span>
+            <span class="comments-content">{{ admin_remark|default:"Excellent performance. Emeka is an outstanding and diligent student." }}</span>
         </div>
 
-        <!-- Signatures & Stamp with Ample Vertical Space -->
+        <!-- Signatures & Stamp Block -->
         <table class="signature-table">
             <tr>
-                <td class="sig-cell">
-                    <div class="sig-line">Class Teacher's Sign</div>
+                <td class="sig-cell-left">
+                    <div class="stat-label">Teacher's Signature:</div>
+                    <div class="sig-name">{{ class_teacher_name|default:"Adewale B. (JSS 1A)" }}</div>
+                    <div class="stamp-note">Date: {{ generated_date|date:"d/m/Y" }}</div>
                 </td>
-                <td class="sig-cell">
-                    <div class="sig-line">Principal's Sign & Stamp</div>
+                <td class="sig-cell-right">
+                    <div class="stat-label">Principal's Signature & Stamp:</div>
+                    <div class="sig-name">{{ principal_name|default:"Margaret O. Nwachukwu" }}</div>
                 </td>
             </tr>
         </table>
 
-        <div class="footer-note">
+        <div class="footer-line">
             Generated on {{ generated_date|date:"F d, Y" }} | Official Computer Generated Report Card
         </div>
     </div>

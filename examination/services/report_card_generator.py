@@ -164,6 +164,20 @@ class ReportCardGenerator:
         scheme = term_result.grading_scheme
         components = list(scheme.components.order_by('order')) if scheme else []
 
+        def get_remark_for_grade(grade_letter):
+            g = str(grade_letter or '').strip().upper()
+            if g in ['A', 'A1']:
+                return 'Distinction'
+            elif g in ['B', 'B2', 'B3']:
+                return 'Very Good'
+            elif g in ['C', 'C4', 'C5', 'C6']:
+                return 'Credit'
+            elif g in ['D', 'D7', 'E', 'E8']:
+                return 'Pass'
+            elif g in ['F', 'F9']:
+                return 'Fail'
+            return 'Good'
+
         subject_rows = []
         for sr in subject_results:
             scores_by_component = {
@@ -172,6 +186,7 @@ class ReportCardGenerator:
             subject_rows.append({
                 'result': sr,
                 'component_scores': [scores_by_component.get(c.id, '-') for c in components],
+                'remark': get_remark_for_grade(sr.grade),
             })
 
         logo_uri = None
@@ -248,34 +263,47 @@ class ReportCardGenerator:
             Dictionary with attendance stats or None
         """
         try:
-            from attendance.models import Attendance
+            from attendance.models import StudentAttendance
 
-            # Get attendance records for student and term
-            attendances = Attendance.objects.filter(
-                student=self.term_result.student,
-                date__gte=self.term_result.term.start_date,
-                date__lte=self.term_result.term.end_date
-            )
+            term = self.term_result.term
+            student = self.term_result.student
+
+            filters = {'student': student}
+            if term:
+                if getattr(term, 'id', None):
+                    filters['term'] = term
+                elif getattr(term, 'start_date', None) and getattr(term, 'end_date', None):
+                    filters['date__gte'] = term.start_date
+                    filters['date__lte'] = term.end_date
+
+            attendances = StudentAttendance.objects.filter(**filters).select_related('status')
 
             total_days = attendances.count()
-            present_days = attendances.filter(status='Present').count()
-            absent_days = attendances.filter(status='Absent').count()
-            late_days = attendances.filter(status='Late').count()
+            if total_days == 0 and term and getattr(term, 'start_date', None) and getattr(term, 'end_date', None):
+                attendances = StudentAttendance.objects.filter(
+                    student=student,
+                    date__gte=term.start_date,
+                    date__lte=term.end_date
+                ).select_related('status')
+                total_days = attendances.count()
 
-            if total_days > 0:
-                attendance_percentage = (present_days / total_days) * 100
-            else:
-                attendance_percentage = 0
+            if total_days == 0:
+                return None
+
+            absent_days = attendances.filter(status__absent=True).count()
+            late_days = attendances.filter(status__late=True).count()
+            present_days = total_days - absent_days
+
+            attendance_percentage = (present_days / total_days) * 100 if total_days > 0 else 0
 
             return {
                 'total_days': total_days,
                 'present': present_days,
                 'absent': absent_days,
                 'late': late_days,
-                'percentage': round(attendance_percentage, 2)
+                'percentage': round(attendance_percentage, 1)
             }
         except Exception:
-            # Attendance module might not be available or configured
             return None
 
     def _generate_filename(self) -> str:

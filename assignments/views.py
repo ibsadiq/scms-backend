@@ -57,12 +57,19 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
     ordering = ['-assigned_date']
     
     def get_queryset(self):
-        """Return assignments created by this teacher"""
-        teacher = get_object_or_404(Teacher, user=self.request.user)
-        
-        queryset = Assignment.objects.filter(teacher=teacher).select_related(
-            'teacher', 'classroom', 'subject', 'academic_year', 'term'
-        ).prefetch_related('attachments')
+        """Return assignments created by this teacher, or all assignments for admins"""
+        teacher = getattr(self.request.user, 'teacher', None)
+        if not teacher:
+            if getattr(self.request.user, 'is_admin', False) or getattr(self.request.user, 'is_staff', False) or getattr(self.request.user, 'is_superuser', False):
+                queryset = Assignment.objects.all().select_related(
+                    'teacher', 'classroom', 'subject', 'academic_year', 'term'
+                ).prefetch_related('attachments')
+            else:
+                return Assignment.objects.none()
+        else:
+            queryset = Assignment.objects.filter(teacher=teacher).select_related(
+                'teacher', 'classroom', 'subject', 'academic_year', 'term'
+            ).prefetch_related('attachments')
         
         # Filter by status
         status_filter = self.request.query_params.get('status', None)
@@ -95,7 +102,14 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Automatically set teacher when creating assignment"""
-        teacher = get_object_or_404(Teacher, user=self.request.user)
+        teacher = getattr(self.request.user, 'teacher', None)
+        if not teacher:
+            teacher_id = self.request.data.get('teacher')
+            if teacher_id:
+                teacher = get_object_or_404(Teacher, id=teacher_id)
+            else:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({"teacher": "Teacher profile required to create assignment."})
         serializer.save(teacher=teacher, assigned_date=timezone.now())
     
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
@@ -283,18 +297,19 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
         """Return published assignments for student's classroom"""
         student = get_object_or_404(Student, user=self.request.user)
         
-        # Get student's current classroom enrollment
+        # Get student's current classroom
         from academic.models import StudentClassEnrollment
         current_enrollment = StudentClassEnrollment.objects.filter(
             student=student,
             is_active=True
         ).select_related('classroom').first()
         
-        if not current_enrollment:
+        classroom = current_enrollment.classroom if current_enrollment else student.classroom
+        if not classroom:
             return Assignment.objects.none()
         
         queryset = Assignment.objects.filter(
-            classroom=current_enrollment.classroom,
+            classroom=classroom,
             status='published',
             is_active=True
         ).select_related(

@@ -645,6 +645,7 @@ class SchoolSettingsView(APIView):
             'address':              tenant.address or '',
             'logo_url':             tenant.get_logo_url(),
             'primary_color':        tenant.primary_color,
+            'motto':                tenant.motto or '',
             'onboarding_completed': tenant.onboarding_completed,
         }
 
@@ -659,7 +660,7 @@ class SchoolSettingsView(APIView):
         tenant = self._get_client()
 
         # Updatable text fields
-        allowed = ('name', 'contact_phone', 'website', 'address', 'primary_color', 'onboarding_completed')
+        allowed = ('name', 'contact_phone', 'website', 'address', 'primary_color', 'motto', 'onboarding_completed')
         for field in allowed:
             if field in request.data:
                 setattr(tenant, field, request.data[field])

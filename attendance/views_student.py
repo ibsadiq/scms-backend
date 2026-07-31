@@ -98,10 +98,10 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
                 period_label = f"{now.strftime('%B %Y')}"
 
             total_days = queryset.count()
-            present_count = queryset.filter(status__name__iexact='present').count()
-            absent_count = queryset.filter(status__name__iexact='absent').count()
-            late_count = queryset.filter(status__name__iexact='late').count()
-            excused_count = queryset.filter(status__name__iexact='excused').count()
+            absent_count = queryset.filter(status__absent=True).count()
+            present_count = total_days - absent_count
+            late_count = queryset.filter(status__late=True).count()
+            excused_count = queryset.filter(status__excused=True).count()
             attendance_rate = (present_count / total_days * 100) if total_days > 0 else 0
 
             recent_records = queryset.order_by('-date')[:10]
@@ -171,10 +171,10 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
 
         total_records = queryset.count()
         total_days = queryset.values('date').distinct().count()
-        present_count = queryset.filter(status__name__iexact='present').count()
-        absent_count = queryset.filter(status__name__iexact='absent').count()
-        late_count = queryset.filter(status__name__iexact='late').count()
-        excused_count = queryset.filter(status__name__iexact='excused').count()
+        absent_count = queryset.filter(status__absent=True).count()
+        present_count = total_records - absent_count
+        late_count = queryset.filter(status__late=True).count()
+        excused_count = queryset.filter(status__excused=True).count()
 
         attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
 
@@ -220,8 +220,8 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
             )
             
             total = queryset.count()
-            present = queryset.filter(status__name__iexact='present').count()
-            absent = queryset.filter(status__name__iexact='absent').count()
+            absent = queryset.filter(status__absent=True).count()
+            present = total - absent
             
             monthly_data.append({
                 'month': month,
@@ -427,8 +427,8 @@ class ClassAttendanceSummaryView(APIView):
 
         total_records = queryset.count()
         total_days = queryset.values('date').distinct().count()
-        present_count = queryset.filter(status__name__iexact='present').count()
-        absent_count = queryset.filter(status__name__iexact='absent').count()
+        absent_count = queryset.filter(status__absent=True).count()
+        present_count = total_records - absent_count
         total_students = StudentClassEnrollment.objects.filter(classroom_id=classroom_id).count()
 
         attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
