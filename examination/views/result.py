@@ -33,17 +33,39 @@ def _get_schema_name(request):
 def _term_results_for_user(user):
     if not user.is_authenticated:
         return TermResult.objects.none()
-    if user.is_admin:
+
+    if getattr(user, "is_admin", False) or getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
         return TermResult.objects.all()
-    if user.is_teacher and user.active_role == "teacher" and hasattr(user, "teacher"):
-        teacher = user.teacher
-        return TermResult.objects.filter(
-            Q(classroom__class_teacher=teacher) | Q(subject_results__teacher=teacher)
-        ).distinct()
-    if user.is_parent and user.active_role == "parent" and hasattr(user, "parent"):
-        return TermResult.objects.filter(student__parent_guardian=user.parent, is_published=True)
-    if user.is_student and user.active_role == "student" and hasattr(user, "student_profile"):
-        return TermResult.objects.filter(student=user.student_profile, is_published=True)
+
+    role = getattr(user, "active_role", None)
+    if not role:
+        if getattr(user, "is_teacher", False):
+            role = "teacher"
+        elif getattr(user, "is_parent", False):
+            role = "parent"
+        elif getattr(user, "is_student", False):
+            role = "student"
+        elif getattr(user, "is_accountant", False):
+            role = "accountant"
+
+    if role == "teacher" or getattr(user, "is_teacher", False):
+        teacher = getattr(user, "teacher", None)
+        if teacher:
+            return TermResult.objects.filter(
+                Q(classroom__class_teacher=teacher) | Q(subject_results__teacher=teacher)
+            ).distinct()
+        return TermResult.objects.all()
+
+    if role == "parent" or getattr(user, "is_parent", False):
+        parent = getattr(user, "parent", None)
+        if parent:
+            return TermResult.objects.filter(student__parent_guardian=parent, is_published=True)
+
+    if role == "student" or getattr(user, "is_student", False):
+        student = getattr(user, "student_profile", None) or getattr(user, "student", None)
+        if student:
+            return TermResult.objects.filter(student=student, is_published=True)
+
     return TermResult.objects.none()
 
 

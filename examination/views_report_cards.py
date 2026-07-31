@@ -42,9 +42,17 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
         """Filter report cards based on user permissions and query params"""
         queryset = super().get_queryset()
 
-        # If not staff, only show report cards for published results
-        if not self.request.user.is_staff:
+        user = self.request.user
+        # If not admin or staff, only show report cards for published results
+        if not (user.is_staff or getattr(user, "is_admin", False) or getattr(user, "is_superuser", False)):
             queryset = queryset.filter(term_result__is_published=True)
+
+        if getattr(user, "is_parent", False) and hasattr(user, "parent"):
+            queryset = queryset.filter(term_result__student__parent_guardian=user.parent)
+        elif getattr(user, "is_student", False):
+            student = getattr(user, "student_profile", None) or getattr(user, "student", None)
+            if student:
+                queryset = queryset.filter(term_result__student=student)
 
         # Filter by student if provided
         student_id = self.request.query_params.get('student')
