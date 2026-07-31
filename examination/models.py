@@ -8,6 +8,17 @@ from academic.models import Student, Teacher, ClassRoom, StudentClassEnrollment,
 from academic.models import AllocatedSubject
 from administration.models import AcademicYear, Term
 from django.conf import settings
+from django.core.files.storage import default_storage
+
+def get_pdf_storage():
+    """Returns RawMediaCloudinaryStorage if Cloudinary is used, else default storage"""
+    if getattr(settings, 'USE_CLOUDINARY', False):
+        try:
+            from cloudinary_storage.storage import RawMediaCloudinaryStorage
+            return RawMediaCloudinaryStorage()
+        except ImportError:
+            pass
+    return default_storage
 
 from django.core.validators import FileExtensionValidator
 
@@ -1166,6 +1177,7 @@ class ReportCard(models.Model):
     )
     pdf_file = models.FileField(
         upload_to='report_cards/%Y/%m/',
+        storage=get_pdf_storage,
         null=True,
         blank=True,
         help_text="Generated PDF file"
@@ -1260,6 +1272,7 @@ class MarkedScript(models.Model):
     # File upload
     script_file = models.FileField(
         upload_to='examination/marked_scripts/%Y/%m/',
+        storage=get_pdf_storage,
         validators=[
             FileExtensionValidator(allowed_extensions=['pdf', 'jpg', 'jpeg', 'png', 'webp']),
             validate_file_size
