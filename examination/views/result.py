@@ -526,9 +526,26 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"detail": "Authentication credentials were not provided."}, status=status.HTTP_401_UNAUTHORIZED)
 
         report_card = self.get_object()
-        if not report_card.pdf_file:
-            return Response({"detail": "Report card PDF not available."}, status=status.HTTP_404_NOT_FOUND)
-        
+
+        # Check if PDF file exists on storage or auto-generate on-the-fly if missing
+        pdf_exists = False
+        if report_card.pdf_file:
+            try:
+                pdf_exists = report_card.pdf_file.storage.exists(report_card.pdf_file.name)
+            except Exception:
+                pdf_exists = False
+
+        if not pdf_exists:
+            try:
+                from examination.services.report_card_generator import ReportCardGenerator
+                generator = ReportCardGenerator(report_card.term_result, generated_by=request.user)
+                report_card = generator.generate_pdf(regenerate=True, allow_unpublished=True)
+            except Exception as gen_err:
+                return Response(
+                    {"detail": f"Report card PDF not available and generation failed: {str(gen_err)}"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
         report_card.increment_download_count()
         
         student_name = report_card.term_result.student.full_name if report_card.term_result and report_card.term_result.student else "Student"

@@ -91,12 +91,23 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
 
         report_card = self.get_object()
 
-        # Check if PDF exists
-        if not report_card.pdf_file:
-            return Response(
-                {'error': 'Report card PDF has not been generated yet'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Check if PDF exists on storage or auto-generate on-the-fly if missing
+        pdf_exists = False
+        if report_card.pdf_file:
+            try:
+                pdf_exists = report_card.pdf_file.storage.exists(report_card.pdf_file.name)
+            except Exception:
+                pdf_exists = False
+
+        if not pdf_exists:
+            try:
+                generator = ReportCardGenerator(report_card.term_result, generated_by=request.user)
+                report_card = generator.generate_pdf(regenerate=True, allow_unpublished=True)
+            except Exception as gen_err:
+                return Response(
+                    {'error': f'Report card PDF not available and generation failed: {str(gen_err)}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
         # Increment download counter
         report_card.increment_download_count()
