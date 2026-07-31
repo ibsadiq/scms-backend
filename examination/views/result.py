@@ -553,6 +553,15 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
         filename = f"Report_Card_{student_name}_{term_name}.pdf".replace(" ", "_")
         
         try:
+            # If the storage provides an absolute HTTP URL (like Cloudinary or S3),
+            # it is much better and more reliable to redirect the user to download it
+            # directly from the CDN rather than proxying it through Django and hitting 401s.
+            url = report_card.pdf_file.url
+            if url.startswith('http://') or url.startswith('https://'):
+                from django.http import HttpResponseRedirect
+                return HttpResponseRedirect(url)
+            
+            # Local file storage fallback
             pdf_file = report_card.pdf_file.open("rb")
             response = HttpResponse(pdf_file.read(), content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}"'

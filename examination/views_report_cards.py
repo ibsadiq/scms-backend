@@ -115,6 +115,15 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
         # Return PDF file
         try:
             filename = f"report_card_{report_card.term_result.student.full_name.replace(' ', '_')}.pdf"
+            
+            # If the storage provides an absolute HTTP URL (like Cloudinary or S3),
+            # it is much better and more reliable to redirect the user to download it
+            # directly from the CDN rather than proxying it through Django and hitting 401s.
+            url = report_card.pdf_file.url
+            if url.startswith('http://') or url.startswith('https://'):
+                from django.http import HttpResponseRedirect
+                return HttpResponseRedirect(url)
+                
             response = FileResponse(
                 report_card.pdf_file.open('rb'),
                 content_type='application/pdf'
