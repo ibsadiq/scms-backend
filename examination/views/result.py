@@ -499,8 +499,9 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(term_result__term_id=p["term"])
         if p.get("classroom"):
             qs = qs.filter(term_result__classroom_id=p["classroom"])
-        if p.get("student"):
-            qs = qs.filter(term_result__student_id=p["student"])
+        student_id = p.get("student") or p.get("student_id")
+        if student_id:
+            qs = qs.filter(term_result__student_id=student_id)
         if p.get("admin_approved"):
             is_approved = p["admin_approved"].lower() in ("true", "1")
             qs = qs.filter(term_result__admin_approved=is_approved)
@@ -508,6 +509,22 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
+        if not request.user or not request.user.is_authenticated:
+            token = request.query_params.get("token") or request.query_params.get("access_token")
+            if token:
+                from rest_framework_simplejwt.tokens import AccessToken
+                from django.contrib.auth import get_user_model
+                try:
+                    validated = AccessToken(token)
+                    user_id = validated.get("user_id")
+                    user = get_user_model().objects.get(id=user_id)
+                    request.user = user
+                except Exception:
+                    pass
+
+        if not request.user or not request.user.is_authenticated:
+            return Response({"detail": "Authentication credentials were not provided."}, status=status.HTTP_401_UNAUTHORIZED)
+
         report_card = self.get_object()
         if not report_card.pdf_file:
             return Response({"detail": "Report card PDF not available."}, status=status.HTTP_404_NOT_FOUND)

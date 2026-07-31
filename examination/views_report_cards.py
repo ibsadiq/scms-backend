@@ -73,6 +73,22 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
 
         GET /api/examination/report-cards/{id}/download/
         """
+        if not request.user or not request.user.is_authenticated:
+            token = request.query_params.get("token") or request.query_params.get("access_token")
+            if token:
+                from rest_framework_simplejwt.tokens import AccessToken
+                from django.contrib.auth import get_user_model
+                try:
+                    validated = AccessToken(token)
+                    user_id = validated.get("user_id")
+                    user = get_user_model().objects.get(id=user_id)
+                    request.user = user
+                except Exception:
+                    pass
+
+        if not request.user or not request.user.is_authenticated:
+            return Response({'error': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+
         report_card = self.get_object()
 
         # Check if PDF exists
