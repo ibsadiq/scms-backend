@@ -17,6 +17,16 @@ from .serializers import (
 from academic.models import ClassRoom
 
 
+def is_user_admin(user):
+    if not user or not user.is_authenticated:
+        return False
+    return bool(
+        getattr(user, "is_admin", False) or
+        getattr(user, "is_staff", False) or
+        getattr(user, "is_superuser", False)
+    )
+
+
 class IsAdminOrReadOnly(permissions.BasePermission):
     """
     Admins (and homeroom-equivalent staff, if you want to extend this) can
@@ -28,7 +38,7 @@ class IsAdminOrReadOnly(permissions.BasePermission):
             return False
         if request.method in permissions.SAFE_METHODS:
             return True
-        return getattr(request.user, "is_admin", False)
+        return is_user_admin(request.user)
 
 
 class RoomViewSet(viewsets.ModelViewSet):
@@ -301,7 +311,7 @@ class GenerateTimetableView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        if not getattr(request.user, "is_admin", False):
+        if not is_user_admin(request.user):
             return Response({"error": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
         term_id = request.data.get("term")
