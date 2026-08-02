@@ -407,8 +407,8 @@ class ParentSerializer(serializers.ModelSerializer):
                 "id": child.id,
                 "first_name": child.first_name,
                 "last_name": child.last_name,
-                "classroom_name": child.classroom.name if child.classroom else None,
-                "admission_number": child.admission_number,
+                "classroom_name": str(child.classroom) if child.classroom else None,
+                "admission_number": getattr(child, "admission_number", None),
             }
             for child in obj.children.all()
         ]
