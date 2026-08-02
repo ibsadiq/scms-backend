@@ -215,17 +215,29 @@ class TeacherFilter(FilterSet):
 
 
 class ParentFilter(FilterSet):
+    search = CharFilter(method="filter_search")
     first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
     middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
     last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
+    phone_number = CharFilter(field_name="phone_number", lookup_expr="icontains")
 
     class Meta:
         model = Parent
-        fields = [
-            "first_name",
-            "middle_name",
-            "last_name",
-        ]
+        fields = ["search", "first_name", "middle_name", "last_name", "phone_number"]
+
+    def filter_search(self, queryset, name, value):
+        if not value:
+            return queryset
+        return queryset.filter(
+            Q(first_name__icontains=value)
+            | Q(last_name__icontains=value)
+            | Q(middle_name__icontains=value)
+            | Q(phone_number__icontains=value)
+            | Q(email__icontains=value)
+            | Q(occupation__icontains=value)
+            | Q(children__first_name__icontains=value)
+            | Q(children__last_name__icontains=value)
+        ).distinct()
 
 
 class UserListView(generics.ListCreateAPIView):
@@ -365,7 +377,7 @@ class UserDetailView(views.APIView):
 
 
 class ParentListView(generics.ListCreateAPIView):
-    queryset = Parent.objects.all()
+    queryset = Parent.objects.all().prefetch_related("children", "children__classroom")
     serializer_class = ParentSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = ParentFilter

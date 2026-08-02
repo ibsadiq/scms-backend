@@ -357,6 +357,8 @@ class TeacherSerializer(serializers.ModelSerializer):
 
 class ParentSerializer(serializers.ModelSerializer):
     children_details = serializers.SerializerMethodField()
+    children = serializers.SerializerMethodField()
+    parent_type = serializers.SerializerMethodField()
     send_invitation = serializers.BooleanField(write_only=True, required=False, default=False)
     students = serializers.ListField(
         child=serializers.IntegerField(),
@@ -384,9 +386,19 @@ class ParentSerializer(serializers.ModelSerializer):
             "image",
             "inactive",
             "children_details",
+            "children",
             "send_invitation",
             "students",
         ]
+
+    def get_parent_type(self, obj):
+        if obj.parent_type:
+            return obj.parent_type
+        if obj.gender == "Male":
+            return "Father"
+        if obj.gender == "Female":
+            return "Mother"
+        return "Guardian"
 
     def get_children_details(self, obj):
         """Returns a list of children associated with the parent."""
@@ -395,9 +407,14 @@ class ParentSerializer(serializers.ModelSerializer):
                 "id": child.id,
                 "first_name": child.first_name,
                 "last_name": child.last_name,
+                "classroom_name": child.classroom.name if child.classroom else None,
+                "admission_number": child.admission_number,
             }
             for child in obj.children.all()
         ]
+
+    def get_children(self, obj):
+        return self.get_children_details(obj)
 
     def validate_email(self, value):
         """Ensure email uniqueness among parents."""
