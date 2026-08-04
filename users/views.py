@@ -435,7 +435,7 @@ class ParentDetailView(views.APIView):
 
     def put(self, request, pk, format=None):
         parent = self.get_object(pk)
-        serializer = ParentSerializer(parent, data=request.data)
+        serializer = ParentSerializer(parent, data=request.data, partial=True)
         if serializer.is_valid():
             updated_parent = serializer.save()
 
@@ -453,8 +453,11 @@ class ParentDetailView(views.APIView):
             except User.DoesNotExist:
                 pass  # If user does not exist, no update is needed
 
-            return Response(serializer.data)
+            return Response(ParentSerializer(updated_parent).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, pk, format=None):
+        return self.put(request, pk, format=format)
 
     def delete(self, request, pk, format=None):
         parent = self.get_object(pk)

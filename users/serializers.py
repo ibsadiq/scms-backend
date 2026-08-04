@@ -436,18 +436,15 @@ class ParentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Creates a Parent and optionally sends invitation."""
         send_invitation = validated_data.pop("send_invitation", False)
-        student_ids = validated_data.pop("students", [])
+        student_ids = validated_data.pop("students", None)
 
         parent = Parent(**validated_data)
         parent.save()  # This triggers the model's save() where user is created if not send_invitation
 
         # Associate students with parent
-        if student_ids:
-            from sis.models import Student
-            students = Student.objects.filter(id__in=student_ids)
-            for student in students:
-                student.guardian = parent
-                student.save()
+        if student_ids is not None:
+            from academic.models import Student
+            Student.objects.filter(id__in=student_ids).update(parent_guardian=parent)
 
         # If send_invitation is True, create an invitation instead of auto-creating user
         if send_invitation:
@@ -477,12 +474,19 @@ class ParentSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         """Updates a Parent and syncs changes to the associated CustomUser."""
+        student_ids = validated_data.pop("students", None)
         email = validated_data.get("email", instance.email)
         first_name = validated_data.get("first_name", instance.first_name)
         last_name = validated_data.get("last_name", instance.last_name)
 
         # Update Parent
         parent = super().update(instance, validated_data)
+
+        # Update student linkages
+        if student_ids is not None:
+            from academic.models import Student
+            Student.objects.filter(parent_guardian=parent).exclude(id__in=student_ids).update(parent_guardian=None)
+            Student.objects.filter(id__in=student_ids).update(parent_guardian=parent)
 
         # If the Parent has an associated CustomUser, update it as well
         if hasattr(parent, "user") and parent.user:
