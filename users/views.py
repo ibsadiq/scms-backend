@@ -69,9 +69,40 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
                 raise drf_serializers.ValidationError(
                     {'email': 'Email or phone number is required.'}
                 )
-            try:
-                attrs['email'] = User.objects.get(phone_number=phone).email
-            except User.DoesNotExist:
+            clean_phone = phone.strip()
+            phone_variants = [clean_phone]
+            if clean_phone.startswith('0'):
+                phone_variants.extend(['+234' + clean_phone[1:], '234' + clean_phone[1:]])
+            elif clean_phone.startswith('+234'):
+                phone_variants.extend(['0' + clean_phone[4:], clean_phone[1:]])
+            elif clean_phone.startswith('234'):
+                phone_variants.extend(['0' + clean_phone[3:], '+' + clean_phone])
+
+            user = User.objects.filter(phone_number__in=phone_variants).first()
+
+            if not user:
+                from academic.models import Teacher, Parent
+                teacher = Teacher.objects.filter(
+                    Q(phone_number__in=phone_variants) | Q(mobile_phone__in=phone_variants)
+                ).select_related('user').first()
+                if teacher and teacher.user:
+                    user = teacher.user
+                    if not user.phone_number:
+                        user.phone_number = teacher.phone_number or clean_phone
+                        user.save(update_fields=['phone_number'])
+
+            if not user:
+                from academic.models import Parent
+                parent = Parent.objects.filter(phone_number__in=phone_variants).select_related('user').first()
+                if parent and parent.user:
+                    user = parent.user
+                    if not user.phone_number:
+                        user.phone_number = parent.phone_number or clean_phone
+                        user.save(update_fields=['phone_number'])
+
+            if user:
+                attrs['email'] = user.email
+            else:
                 raise drf_serializers.ValidationError(
                     {'phone_number': 'No account found with this phone number.'}
                 )
