@@ -494,37 +494,53 @@ class Parent(models.Model):
     def save(self, *args, **kwargs):
         """
         When a parent is created, ensure a user exists or is created
-        based on phone number. Attach the user to the parent.
+        based on email or phone number. Attach the user to the parent.
         """
-        user, created = CustomUser.objects.get_or_create(
-            phone_number=self.phone_number,
-            defaults={
-                "first_name": self.first_name,
-                "last_name": self.last_name,
-                "email": self.email,
-                "is_parent": True,
-            },
-        )
+        if not self.user:
+            from django.db.models import Q
+            from django.contrib.auth.models import Group
+            from users.models import CustomUser
 
-        if created:
-            # Set password only for new users
-            user.set_password("Complex.0000")
-            user.save()
+            query = Q()
+            if self.email:
+                query |= Q(email__iexact=self.email)
+            if self.phone_number:
+                clean_phone = self.phone_number.strip().replace(' ', '').replace('-', '')
+                query |= Q(phone_number=self.phone_number) | Q(phone_number=clean_phone)
+                if clean_phone.startswith('+234'):
+                    query |= Q(phone_number='0' + clean_phone[4:])
+                elif clean_phone.startswith('234'):
+                    query |= Q(phone_number='0' + clean_phone[3:])
+                elif clean_phone.startswith('0') and len(clean_phone) == 11:
+                    query |= Q(phone_number='+234' + clean_phone[1:])
 
-            # Add user to "parent" group
-            group, _ = Group.objects.get_or_create(name="parent")
-            user.groups.add(group)
-        else:
-            # Optionally update user details if needed
-            updated = False
-            if not user.is_parent:
-                user.is_parent = True
-                updated = True
-            if updated:
+            user = CustomUser.objects.filter(query).first() if query else None
+
+            if user:
+                if not user.is_parent:
+                    user.is_parent = True
+                    user.save(update_fields=['is_parent'])
+                self.user = user
+            else:
+                user_email = self.email or self.alt_email
+                if not user_email:
+                    phone_clean = (self.phone_number or 'parent').replace('+', '').replace(' ', '').replace('-', '')
+                    user_email = f"parent_{phone_clean}@ssyncportal.local"
+
+                user = CustomUser.objects.create(
+                    first_name=self.first_name or '',
+                    last_name=self.last_name or '',
+                    email=user_email,
+                    phone_number=self.phone_number or '',
+                    is_parent=True,
+                )
+                user.set_password("Complex.0000")
                 user.save()
 
-        # Link the user to this parent instance
-        self.user = user
+                group, _ = Group.objects.get_or_create(name="parent")
+                user.groups.add(group)
+
+                self.user = user
 
         super().save(*args, **kwargs)
 
