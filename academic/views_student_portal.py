@@ -346,15 +346,15 @@ class StudentPortalViewSet(viewsets.ViewSet):
     def dashboard(self, request):
         """
         Get student dashboard with overview of academic data.
-
-        Returns:
-        - Basic info (name, admission number, class, photo)
-        - Current term results summary
-        - Attendance summary
-        - Upcoming assignments
-        - Fee balance
-        - Recent notifications
         """
+        from django.core.cache import cache
+        from django.db import connection
+
+        cache_key = f"student_dashboard_{connection.schema_name}_{request.user.id}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached, status=status.HTTP_200_OK)
+
         student = self._get_student(request)
         if not student:
             return Response(
@@ -363,7 +363,9 @@ class StudentPortalViewSet(viewsets.ViewSet):
             )
 
         serializer = StudentDashboardSerializer(student, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        payload = serializer.data
+        cache.set(cache_key, payload, 30)
+        return Response(payload, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def profile(self, request):

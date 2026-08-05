@@ -759,6 +759,15 @@ class TeacherDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.core.cache import cache
+        from django.db import connection
+        from django.db.models import Count
+
+        cache_key = f"teacher_dashboard_{connection.schema_name}_{request.user.id}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+
         try:
             teacher = Teacher.objects.get(user=request.user)
         except Teacher.DoesNotExist:
@@ -770,21 +779,18 @@ class TeacherDashboardView(APIView):
         today = timezone.now().date()
         current_time = timezone.now().time()
 
-        # ===== ALLOCATED SUBJECTS (single query, sliced to top 5) =====
+        # ===== ALLOCATED SUBJECTS =====
         all_allocations = AllocatedSubject.objects.filter(teacher_name=teacher).select_related('class_room', 'subject')
 
-        classroom_ids = all_allocations.values_list('class_room_id', flat=True).distinct()
+        classroom_ids = list(all_allocations.values_list('class_room_id', flat=True).distinct())
 
-
-        total_classes = all_allocations.values('class_room_id').distinct().count() 
+        total_classes = len(classroom_ids)
         total_students = StudentClassEnrollment.objects.filter(
             classroom_id__in=classroom_ids,
             academic_year__active_year=True
         ).values('student_id').distinct().count()
 
-      
-
-        # Today's periods — single query with all related data
+        # Today's periods
         todays_periods = list(
             TimetableEntry.objects.filter(
                 teacher=teacher,
@@ -794,10 +800,6 @@ class TeacherDashboardView(APIView):
             .order_by('slot__start_time')
         )
 
-        # ===== PENDING GRADES =====
-        # Temporarily disabled due to schema changes in the Assessment model.
-        # Future implementation should calculate pending grades based on AllocatedSubject
-        # and AssessmentComponent expectations instead of AssessmentSession.
         pending_grades = 0
 
         stats = {
@@ -829,15 +831,16 @@ class TeacherDashboardView(APIView):
                 "status": period_status
             })
 
-        # ===== MY CLASSES =====
+        # ===== MY CLASSES (1 Aggregate GROUP BY query) =====
+        enrollment_counts = StudentClassEnrollment.objects.filter(
+            classroom_id__in=classroom_ids,
+            academic_year__active_year=True
+        ).values('classroom_id').annotate(cnt=Count('student_id'))
+        class_count_map = {row['classroom_id']: row['cnt'] for row in enrollment_counts}
+
         my_classes = []
         for alloc in all_allocations:
-            student_count = 0
-            if alloc.class_room:
-                student_count = StudentClassEnrollment.objects.filter(
-                    classroom=alloc.class_room,
-                    academic_year__active_year=True
-                ).count()
+            student_count = class_count_map.get(alloc.class_room_id, 0) if alloc.class_room_id else 0
 
             my_classes.append({
                 "id": alloc.id,
@@ -915,14 +918,17 @@ class TeacherDashboardView(APIView):
                 "parent_name": parent_user.get_full_name() or parent_user.username if parent_user else (parent.first_name + " " + parent.last_name if parent else "No Parent"),
             })
 
-        return Response({
+        payload = {
             "stats": stats,
             "todaysSchedule": todays_schedule,
             "myClasses": my_classes,
             "recentActivities": recent_activities,
             "upcomingAssessments": upcoming_assessments,
             "homeroomStudents": homeroom_students
-        })
+        }
+
+        cache.set(cache_key, payload, 30)
+        return Response(payload)
 
 
 # Parent Dashboard View
@@ -935,11 +941,18 @@ class ParentDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.core.cache import cache
+        from django.db import connection
         from django.utils import timezone
         from finance.models import StudentFeeAssignment, Receipt
         from attendance.models import StudentAttendance
         from administration.models import SchoolEvent
         from examination.models import TermResult, AssessmentEntry, GradingScheme, GradeRule
+
+        cache_key = f"parent_dashboard_{connection.schema_name}_{request.user.id}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
 
         try:
             # Get the parent object for the logged-in user
@@ -1123,11 +1136,14 @@ class ParentDashboardView(APIView):
                 "paid_through": receipt.paid_through or "Cash"
             })
 
-        return Response({
+        payload = {
             "children": children_data,
             "upcomingEvents": upcoming_events,
             "recentPayments": recent_payments
-        })
+        }
+
+        cache.set(cache_key, payload, 30)
+        return Response(payload)
 
 
 # Invitation Views
