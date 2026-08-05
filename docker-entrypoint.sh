@@ -46,15 +46,36 @@ with connection.cursor() as cursor:
     cursor.execute('CREATE SCHEMA IF NOT EXISTS public;')
 " || true
 
-# Run database migrations
-echo -e "${BLUE}🔄 Running database migrations...${NC}"
-python manage.py migrate --noinput
-echo -e "${GREEN}✅ Migrations complete${NC}"
+# Run database migrations for public schema first
+echo -e "${BLUE}🔄 Running public schema migrations...${NC}"
+python manage.py migrate_schemas --schema=public --noinput
+echo -e "${GREEN}✅ Public migrations complete${NC}"
 echo ""
 
 # Setup public tenant & primary domain
 echo -e "${BLUE}🏢 Setting up public tenant and domain...${NC}"
 python manage.py setup_public_tenant || true
+echo ""
+
+# Ensure PostgreSQL schemas exist for all registered tenant clients
+echo -e "${BLUE}🔄 Verifying tenant schemas in PostgreSQL...${NC}"
+python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'school.settings')
+django.setup()
+from tenants.models import Client
+from django.db import connection
+
+for client in Client.objects.all():
+    if client.schema_name and client.schema_name != 'public':
+        with connection.cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA IF NOT EXISTS \"{client.schema_name}\";')
+" || true
+
+# Run database migrations for all tenants
+echo -e "${BLUE}🔄 Running tenant schema migrations...${NC}"
+python manage.py migrate_schemas --noinput || true
+echo -e "${GREEN}✅ All schema migrations complete${NC}"
 echo ""
 
 # Collect static files
