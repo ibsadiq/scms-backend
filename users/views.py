@@ -259,15 +259,21 @@ class ParentFilter(FilterSet):
     def filter_search(self, queryset, name, value):
         if not value:
             return queryset
+        val = value.strip()
         return queryset.filter(
-            Q(first_name__icontains=value)
-            | Q(last_name__icontains=value)
-            | Q(middle_name__icontains=value)
-            | Q(phone_number__icontains=value)
-            | Q(email__icontains=value)
-            | Q(occupation__icontains=value)
-            | Q(children__first_name__icontains=value)
-            | Q(children__last_name__icontains=value)
+            Q(first_name__icontains=val)
+            | Q(last_name__icontains=val)
+            | Q(middle_name__icontains=val)
+            | Q(phone_number__icontains=val)
+            | Q(email__icontains=val)
+            | Q(occupation__icontains=val)
+            | Q(user__first_name__icontains=val)
+            | Q(user__last_name__icontains=val)
+            | Q(user__email__icontains=val)
+            | Q(user__phone_number__icontains=val)
+            | Q(children__first_name__icontains=val)
+            | Q(children__last_name__icontains=val)
+            | Q(children__admission_number__icontains=val)
         ).distinct()
 
 
