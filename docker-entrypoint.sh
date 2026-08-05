@@ -35,10 +35,26 @@ done
 echo -e "${GREEN}✅ Redis is ready${NC}"
 echo ""
 
+# Ensure PostgreSQL public schema exists
+echo -e "${BLUE}🛠️  Ensuring public schema exists...${NC}"
+python -c "
+import django, os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'school.settings')
+django.setup()
+from django.db import connection
+with connection.cursor() as cursor:
+    cursor.execute('CREATE SCHEMA IF NOT EXISTS public;')
+" || true
+
 # Run database migrations
 echo -e "${BLUE}🔄 Running database migrations...${NC}"
 python manage.py migrate --noinput
 echo -e "${GREEN}✅ Migrations complete${NC}"
+echo ""
+
+# Setup public tenant & primary domain
+echo -e "${BLUE}🏢 Setting up public tenant and domain...${NC}"
+python manage.py setup_public_tenant || true
 echo ""
 
 # Collect static files
