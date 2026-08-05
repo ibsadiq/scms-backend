@@ -215,12 +215,22 @@ class SchoolEventTemplateDownloadView(APIView):
 
 class DashboardStatsView(APIView):
     """
-    Comprehensive dashboard with REAL FINANCE DATA
-    GET /api/academic/dashboard/stats/
+    Comprehensive, high-performance admin dashboard stats endpoint.
+    GET /api/administration/dashboard/
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.core.cache import cache
+        from django.db import connection
+        from django.db.models import Count, Sum
+        from django.db.models.functions import ExtractMonth, ExtractYear
+
+        cache_key = f"admin_dashboard_summary_{connection.schema_name}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+
         today = timezone.now().date()
         first_day_of_month = today.replace(day=1)
         
@@ -237,6 +247,7 @@ class DashboardStatsView(APIView):
         today_attendance = StudentAttendance.objects.filter(date=today)
         total_expected = Student.objects.filter(is_active=True).count()
         present_count = today_attendance.filter(status__absent=False).count()
+        absent_count = today_attendance.filter(status__absent=True).count()
         attendance_rate = round(
             (present_count / total_expected * 100) if total_expected > 0 else 0,
             1
@@ -296,31 +307,25 @@ class DashboardStatsView(APIView):
             }
         ]
         
-        # ===== FINANCIAL STATS (REAL DATA FROM NEW FINANCE SYSTEM) =====
+        # ===== FINANCIAL STATS =====
         try:
-            # Get all student fee assignments (non-waived)
             fee_assignments = StudentFeeAssignment.objects.filter(is_waived=False)
 
-            # Total expected (amount_owed)
             total_expected = fee_assignments.aggregate(
                 total=Sum('amount_owed')
             )['total'] or Decimal('0')
 
-            # Total paid (amount_paid)
             total_paid = fee_assignments.aggregate(
                 total=Sum('amount_paid')
             )['total'] or Decimal('0')
 
-            # Outstanding (calculated balance)
             total_outstanding = total_expected - total_paid
 
-            # Calculate collection rate
             collection_rate = round(
                 (float(total_paid) / float(total_expected) * 100)
                 if total_expected > 0 else 0, 1
             )
 
-            # Students with outstanding fees (balance > 0)
             from django.db.models import F
             students_with_debt = fee_assignments.annotate(
                 balance=F('amount_owed') - F('amount_paid')
@@ -346,6 +351,85 @@ class DashboardStatsView(APIView):
                 'studentsWithDebt': 0,
                 'totalStudents': total_students
             }
+
+        # ===== REVENUE SERIES (LAST 6 MONTHS) =====
+        series_months = []
+        for i in range(5, -1, -1):
+            m = (today.month - i - 1) % 12 + 1
+            y = today.year + ((today.month - i - 1) // 12)
+            series_months.append((y, m))
+
+        revenue_dict = {}
+        try:
+            receipts_grouped = Receipt.objects.annotate(
+                yr=ExtractYear('date'),
+                mo=ExtractMonth('date')
+            ).values('yr', 'mo').annotate(total=Sum('amount'))
+
+            for r in receipts_grouped:
+                if r['yr'] and r['mo']:
+                    revenue_dict[(r['yr'], r['mo'])] = float(r['total'] or 0)
+        except Exception:
+            pass
+
+        revenue_series = [revenue_dict.get((y, m), 0.0) for y, m in series_months]
+
+        # ===== ENROLLMENT TRENDS (12 Months of Academic Session) =====
+        academic_session_months = [
+            (9, 2025, 'Sep 2025', 'Sep'),
+            (10, 2025, 'Oct 2025', 'Oct'),
+            (11, 2025, 'Nov 2025', 'Nov'),
+            (12, 2025, 'Dec 2025', 'Dec'),
+            (1, 2026, 'Jan 2026', 'Jan'),
+            (2, 2026, 'Feb 2026', 'Feb'),
+            (3, 2026, 'Mar 2026', 'Mar'),
+            (4, 2026, 'Apr 2026', 'Apr'),
+            (5, 2026, 'May 2026', 'May'),
+            (6, 2026, 'Jun 2026', 'Jun'),
+            (7, 2026, 'Jul 2026', 'Jul'),
+            (8, 2026, 'Aug 2026', 'Aug'),
+        ]
+        
+        enrollment_dict = {}
+        try:
+            student_counts = Student.objects.filter(is_active=True, admission_date__isnull=False).annotate(
+                yr=ExtractYear('admission_date'),
+                mo=ExtractMonth('admission_date')
+            ).values('yr', 'mo').annotate(cnt=Count('id'))
+
+            for sc in student_counts:
+                if sc['yr'] and sc['mo']:
+                    enrollment_dict[(sc['yr'], sc['mo'])] = sc['cnt']
+        except Exception:
+            pass
+
+        enrollment_trends = [
+            {
+                'month': m,
+                'year': y,
+                'label': lbl,
+                'shortLabel': slbl,
+                'count': enrollment_dict.get((y, m), 0)
+            }
+            for m, y, lbl, slbl in academic_session_months
+        ]
+
+        # ===== RECENT STUDENTS (TOP 10) =====
+        recent_students_qs = Student.objects.filter(is_active=True).select_related(
+            'classroom', 'classroom__name'
+        ).order_by('-admission_date', '-id')[:10]
+
+        recent_students_list = [
+            {
+                'id': s.id,
+                'first_name': s.first_name,
+                'last_name': s.last_name,
+                'admission_number': s.admission_number or 'N/A',
+                'class_name': str(s.classroom) if s.classroom else 'Unassigned',
+                'admission_date': s.admission_date.isoformat() if s.admission_date else None,
+            }
+            for s in recent_students_qs
+        ]
         
         # ===== ATTENDANCE FOR THE WEEK =====
         week_start = today - timedelta(days=today.weekday())
@@ -387,52 +471,33 @@ class DashboardStatsView(APIView):
             })
         
         # ===== PERFORMANCE STATS =====
-        # Calculate real performance data from TermResult model
         try:
-            # Get the current or most recent academic year
-            current_academic_year = AcademicYear.objects.filter(
-                is_current=True
-            ).first()
+            current_academic_year = AcademicYear.objects.filter(is_current=True).first()
 
-            # Get the current or most recent term
             if current_academic_year:
                 current_term = Term.objects.filter(
                     academic_year=current_academic_year
                 ).order_by('-start_date').first()
             else:
-                # If no current academic year, get the most recent term
                 current_term = Term.objects.order_by('-start_date').first()
 
             if current_term:
-                # Get all term results for the current term
                 term_results = TermResult.objects.filter(term=current_term)
-
-                # Calculate total number of results
                 total_results = term_results.count()
 
                 if total_results > 0:
-                    # Count grade distribution
-                    grade_counts = term_results.values('overall_grade').annotate(
-                        count=Count('id')
-                    )
-
-                    # Initialize grade percentages
+                    grade_counts = term_results.values('overall_grade').annotate(count=Count('id'))
                     grade_dist = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0}
 
-                    # Calculate percentages for each grade
                     for grade_count in grade_counts:
                         grade = grade_count['overall_grade']
                         count = grade_count['count']
                         if grade in grade_dist:
                             grade_dist[grade] = round((count / total_results) * 100)
 
-                    # Calculate pass rate (A, B, C, D are passing grades)
-                    passing_count = term_results.filter(
-                        overall_grade__in=['A', 'B', 'C', 'D']
-                    ).count()
+                    passing_count = term_results.filter(overall_grade__in=['A', 'B', 'C', 'D']).count()
                     pass_rate = round((passing_count / total_results) * 100)
 
-                    # Get the most common grade as average
                     most_common_grade = max(grade_counts, key=lambda x: x['count'], default=None)
                     average_grade = most_common_grade['overall_grade'] if most_common_grade else 'N/A'
 
@@ -447,30 +512,26 @@ class DashboardStatsView(APIView):
                         }
                     }
                 else:
-                    # No results available
                     performance_stats = {
                         'averageGrade': 'N/A',
                         'passRate': 0,
                         'grades': {'a': 0, 'b': 0, 'c': 0, 'df': 0}
                     }
             else:
-                # No current term
                 performance_stats = {
                     'averageGrade': 'N/A',
                     'passRate': 0,
                     'grades': {'a': 0, 'b': 0, 'c': 0, 'df': 0}
                 }
         except Exception as e:
-            # Fallback if there's an error
             performance_stats = {
                 'averageGrade': 'N/A',
                 'passRate': 0,
                 'grades': {'a': 0, 'b': 0, 'c': 0, 'df': 0}
             }
         
-        # ===== RECENT PAYMENTS (BONUS) =====
+        # ===== RECENT PAYMENTS =====
         try:
-            # Get recent receipts with their allocations
             recent_receipts = Receipt.objects.select_related(
                 'student', 'term'
             ).order_by('-date')[:5]
@@ -490,19 +551,31 @@ class DashboardStatsView(APIView):
             print(f"Recent payments error: {e}")
             recent_payments_list = []
         
-        # ===== COMPILE RESPONSE =====
-        return Response({
+        # ===== COMPILE RESPONSE PAYLOAD =====
+        response_payload = {
             'stats': {
                 'totalStudents': total_students,
                 'totalTeachers': total_teachers,
                 'activeSubjects': active_subjects,
                 'attendanceRate': attendance_rate,
-                'newStudentsThisMonth': new_students_this_month
+                'attendancePresent': present_count,
+                'attendanceAbsent': absent_count,
+                'newStudentsThisMonth': new_students_this_month,
+                'revenueCollected': financial_stats['collected'],
+                'pendingFees': financial_stats['outstanding'],
+                'revenueSeries': revenue_series,
             },
+            'enrollmentTrends': enrollment_trends,
+            'recentStudents': recent_students_list,
             'studentsByLevel': students_by_level,
             'financial': financial_stats,
             'attendance': attendance_week,
             'recentAdmissions': recent_admissions_list,
             'recentPayments': recent_payments_list,
             'performance': performance_stats
-        })
+        }
+
+        # Cache payload for 30 seconds
+        cache.set(cache_key, response_payload, 30)
+
+        return Response(response_payload)
