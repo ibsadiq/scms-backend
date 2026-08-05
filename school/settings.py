@@ -124,6 +124,7 @@ MIDDLEWARE = [
     # CORS should be as high as possible so preflight requests are handled early
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.gzip.GZipMiddleware",  # Compress API JSON responses for 70%+ network savings
     "django_tenants.middleware.main.TenantMainMiddleware", 
     "tenants.middleware.TenantHeaderMiddleware",  # handle header before access check
     "tenants.middleware.TenantAccessMiddleware",
@@ -175,6 +176,7 @@ if DB_NAME:
             "PASSWORD": env("DB_PASSWORD"),
             "HOST": env("DB_HOST", default="localhost"),
             "PORT": env("DB_PORT", default="5432"),
+            "CONN_MAX_AGE": env.int("DB_CONN_MAX_AGE", default=60),  # Reuse persistent connections across HTTP requests
         }
     }
 else:
@@ -186,6 +188,24 @@ else:
         }
     }
     print("⚠️  Using SQLite (no .env or DB vars found)")
+
+
+# Cache configuration
+REDIS_URL = env("REDIS_URL", default=None)
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.PyRedisCache",
+            "LOCATION": REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "ssync-local-cache",
+        }
+    }
 
 
 # Password validation
