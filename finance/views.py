@@ -1,5 +1,6 @@
 # views.py
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -729,7 +730,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def summary(self, request):
         """
-        Get fee balance summary for all students.
+        Get fee balance summary for all students (optimized SQL aggregate).
         GET /api/financial/student-balance/summary/?term_id=1&academic_year_id=1
         """
         term_id = request.query_params.get('term_id')
@@ -738,34 +739,33 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         classroom_id = request.query_params.get('classroom_id')
         fee_type = request.query_params.get('fee_type')
 
-        students = Student.objects.filter(is_active=True)
+        students_qs = Student.objects.filter(is_active=True).select_related('classroom', 'class_level')
         if classroom_id:
-            students = students.filter(classroom_id=classroom_id)
+            students_qs = students_qs.filter(classroom_id=classroom_id)
+
+        assignments = StudentFeeAssignment.objects.filter(is_waived=False)
+        if term_id:
+            assignments = assignments.filter(term_id=term_id)
+        elif academic_year_id:
+            assignments = assignments.filter(term__academic_year_id=academic_year_id)
+        if fee_type:
+            assignments = assignments.filter(fee_structure__fee_type=fee_type)
+
+        # 1 Single SQL aggregation query for all students
+        student_totals = assignments.values('student_id').annotate(
+            total_fees=Sum('amount_owed'),
+            total_paid=Sum('amount_paid')
+        )
+        totals_map = {row['student_id']: row for row in student_totals}
 
         summaries = []
-
-        for student in students:
-            assignments = StudentFeeAssignment.objects.filter(student=student)
-
-            if term_id:
-                assignments = assignments.filter(term_id=term_id)
-            elif academic_year_id:
-                assignments = assignments.filter(term__academic_year_id=academic_year_id)
-
-            if fee_type:
-                assignments = assignments.filter(fee_structure__fee_type=fee_type)
-
-            total_fees = assignments.aggregate(
-                total=Sum('amount_owed')
-            )['total'] or Decimal('0.00')
-
-            total_paid = assignments.aggregate(
-                total=Sum('amount_paid')
-            )['total'] or Decimal('0.00')
-
+        for student in students_qs:
+            st = totals_map.get(student.id, {})
+            total_fees = st.get('total_fees') or Decimal('0.00')
+            total_paid = st.get('total_paid') or Decimal('0.00')
             balance = total_fees - total_paid
 
-            if balance == 0:
+            if balance == 0 and total_fees > 0:
                 payment_status = 'Paid'
             elif total_paid > 0:
                 payment_status = 'Partial'
@@ -787,25 +787,21 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 'status': payment_status,
             })
 
-        # Calculate mathematically sound method breakdown based on fee allocations
+        # Method breakdown
         from finance.models import FeePaymentAllocation
-
-        allocations = FeePaymentAllocation.objects.filter(fee_assignment__student__in=students)
+        allocations = FeePaymentAllocation.objects.filter(fee_assignment__student__in=students_qs)
         if term_id:
             allocations = allocations.filter(fee_assignment__term_id=term_id)
         elif academic_year_id:
             allocations = allocations.filter(fee_assignment__term__academic_year_id=academic_year_id)
-            
         if fee_type:
             allocations = allocations.filter(fee_assignment__fee_structure__fee_type=fee_type)
 
-        # Aggregate allocations by receipt payment method
         method_breakdown_map = {}
-        # Avoid N+1 queries by selecting related receipt
         for alloc in allocations.select_related('receipt'):
             method = alloc.receipt.paid_through or 'Unknown'
             method_breakdown_map[method] = method_breakdown_map.get(method, Decimal('0.00')) + alloc.amount
-            
+
         method_list = [{'method': m, 'total': t} for m, t in method_breakdown_map.items()]
         method_list.sort(key=lambda x: x['total'], reverse=True)
 
@@ -813,6 +809,112 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             'results': summaries,
             'method_breakdown': method_list
         })
+
+
+class FinanceDashboardSummaryView(APIView):
+    """
+    Fast, aggregated Finance Dashboard summary with 30-second Redis caching.
+    GET /api/finance/dashboard/summary/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.core.cache import cache
+        from django.db import connection
+        from finance.models import FeePaymentAllocation, Receipt, StudentFeeAssignment
+
+        term_id = request.query_params.get('term_id')
+        academic_year_id = request.query_params.get('academic_year_id')
+        classroom_id = request.query_params.get('classroom_id')
+        fee_type = request.query_params.get('fee_type')
+
+        cache_key = f"finance_dashboard_summary_{connection.schema_name}_{term_id}_{academic_year_id}_{classroom_id}_{fee_type}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+
+        assignments = StudentFeeAssignment.objects.filter(is_waived=False)
+        if term_id:
+            assignments = assignments.filter(term_id=term_id)
+        elif academic_year_id:
+            assignments = assignments.filter(term__academic_year_id=academic_year_id)
+        if fee_type:
+            assignments = assignments.filter(fee_structure__fee_type=fee_type)
+        if classroom_id:
+            assignments = assignments.filter(student__classroom_id=classroom_id)
+
+        agg = assignments.aggregate(
+            expected=Sum('amount_owed'),
+            collected=Sum('amount_paid')
+        )
+        total_expected = float(agg['expected'] or 0)
+        total_collected = float(agg['collected'] or 0)
+        total_outstanding = max(0.0, total_expected - total_collected)
+        collection_rate = round((total_collected / total_expected * 100) if total_expected > 0 else 0, 1)
+
+        student_totals = assignments.values('student_id').annotate(
+            owed=Sum('amount_owed'),
+            paid=Sum('amount_paid')
+        )
+        paid_count = 0
+        partial_count = 0
+        unpaid_count = 0
+
+        for st in student_totals:
+            owed = st['owed'] or 0
+            paid = st['paid'] or 0
+            bal = owed - paid
+            if bal <= 0 and owed > 0:
+                paid_count += 1
+            elif paid > 0:
+                partial_count += 1
+            else:
+                unpaid_count += 1
+
+        allocations = FeePaymentAllocation.objects.all()
+        if term_id:
+            allocations = allocations.filter(fee_assignment__term_id=term_id)
+        elif academic_year_id:
+            allocations = allocations.filter(fee_assignment__term__academic_year_id=academic_year_id)
+        if fee_type:
+            allocations = allocations.filter(fee_assignment__fee_structure__fee_type=fee_type)
+
+        method_breakdown_map = {}
+        for alloc in allocations.select_related('receipt'):
+            method = alloc.receipt.paid_through or 'Other'
+            method_breakdown_map[method] = method_breakdown_map.get(method, 0.0) + float(alloc.amount)
+
+        method_list = [{'method': m, 'total': t} for m, t in method_breakdown_map.items()]
+        method_list.sort(key=lambda x: x['total'], reverse=True)
+
+        recent_receipts_qs = Receipt.objects.select_related('student', 'term').order_by('-date', '-id')[:10]
+        recent_receipts = [
+            {
+                'id': r.id,
+                'receipt_number': r.receipt_number,
+                'student_name': r.student.full_name if r.student else r.payer,
+                'amount': float(r.amount),
+                'method': r.paid_through,
+                'date': r.payment_date.isoformat() if r.payment_date else r.date.isoformat(),
+                'term_name': r.term.name if r.term else 'N/A'
+            }
+            for r in recent_receipts_qs
+        ]
+
+        payload = {
+            'total_expected': total_expected,
+            'total_collected': total_collected,
+            'total_outstanding': total_outstanding,
+            'collection_rate': collection_rate,
+            'paid_count': paid_count,
+            'partial_count': partial_count,
+            'unpaid_count': unpaid_count,
+            'method_breakdown': method_list,
+            'recent_receipts': recent_receipts,
+        }
+
+        cache.set(cache_key, payload, 30)
+        return Response(payload)
 
 from rest_framework.views import APIView
 from academic.models import Parent
