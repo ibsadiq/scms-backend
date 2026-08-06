@@ -98,6 +98,8 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
         student_id = params.get("student") or params.get("student_id")
         subject_id = params.get("subject") or params.get("subject_id")
         classroom_id = params.get("classroom") or params.get("classroom_id")
+        academic_year_id = params.get("academic_year") or params.get("academic_year_id")
+        term_id = params.get("term") or params.get("term_id")
 
         if exam_id:
             qs = qs.filter(exam_id=exam_id)
@@ -106,7 +108,24 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
         if subject_id:
             qs = qs.filter(subject_id=subject_id)
         if classroom_id:
-            qs = qs.filter(student__class_enrollments__classroom_id=classroom_id)
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(student__classroom_id=classroom_id) |
+                Q(student__student_classes__classroom_id=classroom_id) |
+                Q(exam__classrooms__id=classroom_id)
+            ).distinct()
+        if academic_year_id:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(assessment_entry__component__scheme__academic_year_id=academic_year_id) |
+                Q(student__student_classes__academic_year_id=academic_year_id)
+            ).distinct()
+        if term_id:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(assessment_entry__student__academic_year__terms__id=term_id) |
+                Q(student__student_classes__academic_year__terms__id=term_id)
+            ).distinct()
 
         return qs
 
