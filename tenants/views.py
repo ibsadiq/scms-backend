@@ -308,12 +308,43 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
         if error_response:
             return error_response
 
-        qs = self.get_queryset()
+        qs = self.get_queryset().exclude(schema_name='public')
 
-        agg = qs.aggregate(
-            total_students=Sum('cached_student_count'),
-            total_teachers=Sum('cached_teacher_count'),
-        )
+        total_students = 0
+        total_teachers = 0
+        total_parents = 0
+
+        for tenant in qs:
+            try:
+                with schema_context(tenant.schema_name):
+                    from academic.models import Student, Teacher, Parent
+                    st_count = Student.objects.filter(is_active=True).count()
+                    tc_count = Teacher.objects.count()
+                    pr_count = Parent.objects.count()
+
+                    total_students += st_count
+                    total_teachers += tc_count
+                    total_parents += pr_count
+
+                    # Update cached fields on tenant
+                    update_fields = []
+                    if tenant.cached_student_count != st_count:
+                        tenant.cached_student_count = st_count
+                        update_fields.append('cached_student_count')
+                    if tenant.cached_teacher_count != tc_count:
+                        tenant.cached_teacher_count = tc_count
+                        update_fields.append('cached_teacher_count')
+                    if hasattr(tenant, 'cached_parent_count') and tenant.cached_parent_count != pr_count:
+                        tenant.cached_parent_count = pr_count
+                        update_fields.append('cached_parent_count')
+                    if update_fields:
+                        tenant.stats_last_synced = timezone.now()
+                        update_fields.append('stats_last_synced')
+                        tenant.save(update_fields=update_fields)
+            except Exception:
+                total_students += tenant.cached_student_count
+                total_teachers += tenant.cached_teacher_count
+                total_parents += getattr(tenant, 'cached_parent_count', 0)
 
         by_status = {
             item['status']: item['count']
@@ -328,8 +359,9 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
             'rejected_schools':  by_status.get(TenantStatus.REJECTED,  0),
             'premium_schools':   qs.filter(has_mobile_access=True).count(),
             'standard_schools':  qs.filter(has_mobile_access=False).count(),
-            'total_students':    agg['total_students'] or 0,
-            'total_teachers':    agg['total_teachers'] or 0,
+            'total_students':    total_students,
+            'total_teachers':    total_teachers,
+            'total_parents':     total_parents,
         })
 
     @action(detail=True, methods=['post'])

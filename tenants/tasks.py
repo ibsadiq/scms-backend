@@ -25,6 +25,7 @@ def sync_tenant_stats(self, tenant_id):
         Client.objects.filter(pk=tenant_id).update(
             cached_student_count=stats['total_students'],
             cached_teacher_count=stats['total_teachers'],
+            cached_parent_count=stats.get('total_parents', 0),
             stats_last_synced=now(),
         )
     except Client.DoesNotExist:

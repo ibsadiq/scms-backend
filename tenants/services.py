@@ -263,20 +263,21 @@ class TenantService:
         """
         try:
             with schema_context(schema_name):
-                from academic.models import Student, Teacher
+                from academic.models import Student, Teacher, Parent
                 from finance.models import Receipt
                 from django.db.models import Sum
 
                 return {
-                    'total_students': Student.objects.filter(status='Active').count(),
+                    'total_students': Student.objects.filter(is_active=True).count(),
                     'total_teachers': Teacher.objects.count(),
+                    'total_parents':  Parent.objects.count(),
                     'total_revenue':  Receipt.objects.aggregate(
                         total=Sum('amount')
                     )['total'] or 0,
                 }
         except Exception as e:
             logger.warning("Could not get live stats for '%s': %s", schema_name, e)
-            return {'total_students': 0, 'total_teachers': 0, 'total_revenue': 0}
+            return {'total_students': 0, 'total_teachers': 0, 'total_parents': 0, 'total_revenue': 0}
 
     # ─── Utility ──────────────────────────────────────────────────────────────
 

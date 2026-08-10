@@ -23,6 +23,7 @@ class Client(TenantMixin):
 
     cached_student_count = models.PositiveIntegerField(default=0)
     cached_teacher_count = models.PositiveIntegerField(default=0)
+    cached_parent_count  = models.PositiveIntegerField(default=0)
     stats_last_synced    = models.DateTimeField(null=True, blank=True)
 
     name = models.CharField(max_length=100)
@@ -159,14 +160,15 @@ class Client(TenantMixin):
         
         try:
             with schema_context(self.schema_name):
-                from academic.models import Student, Teacher
+                from academic.models import Student, Teacher, Parent
                 
                 return {
-                    'total_students': Student.objects.filter(status='Active').count(),
+                    'total_students': Student.objects.filter(is_active=True).count(),
                     'total_teachers': Teacher.objects.count(),
+                    'total_parents':  Parent.objects.count(),
                 }
-        except:
-            return {'total_students': 0, 'total_teachers': 0}
+        except Exception:
+            return {'total_students': 0, 'total_teachers': 0, 'total_parents': 0}
     
     def save(self, *args, **kwargs):
         if self.contact_email:
