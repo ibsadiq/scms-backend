@@ -98,6 +98,7 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
         source='student.admission_number',
         read_only=True
     )
+    classroom_name = serializers.SerializerMethodField()
     fee_structure_name = serializers.CharField(
         source='fee_structure.name',
         read_only=True
@@ -122,6 +123,11 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
     payment_status = serializers.CharField(read_only=True)
     is_fully_paid = serializers.BooleanField(read_only=True)
 
+    def get_classroom_name(self, obj):
+        if obj.student and obj.student.classroom:
+            return str(obj.student.classroom)
+        return None
+
     class Meta:
         model = StudentFeeAssignment
         fields = [
@@ -129,6 +135,7 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
             'student',
             'student_name',
             'student_admission_number',
+            'classroom_name',
             'fee_structure',
             'fee_structure_name',
             'fee_type',
@@ -217,6 +224,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True
     )
+    classroom_name = serializers.SerializerMethodField()
     term_name = serializers.CharField(
         source='term.name',
         read_only=True,
@@ -235,6 +243,11 @@ class ReceiptSerializer(serializers.ModelSerializer):
     )
     fee_allocations = FeePaymentAllocationSerializer(many=True, read_only=True)
 
+    def get_classroom_name(self, obj):
+        if obj.student and obj.student.classroom:
+            return str(obj.student.classroom)
+        return None
+
     class Meta:
         model = Receipt
         fields = [
@@ -245,6 +258,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
             'student',
             'student_name',
             'student_admission_number',
+            'classroom_name',
             'amount',
             'paid_through',
             'term',

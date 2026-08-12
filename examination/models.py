@@ -1260,6 +1260,14 @@ class MarkedScript(models.Model):
         related_name='marked_scripts',
         help_text="Subject of the assessment"
     )
+    classroom = models.ForeignKey(
+        "academic.ClassRoom",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='marked_scripts',
+        help_text="Snapshot classroom for this marked script"
+    )
     assessment_entry = models.ForeignKey(
         AssessmentEntry,
         on_delete=models.SET_NULL,
@@ -1318,6 +1326,11 @@ class MarkedScript(models.Model):
         default=False,
         help_text="Whether parent can view this marked script"
     )
+
+    def save(self, *args, **kwargs):
+        if not self.classroom_id and self.student and getattr(self.student, "classroom", None):
+            self.classroom = self.student.classroom
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ['-uploaded_at']

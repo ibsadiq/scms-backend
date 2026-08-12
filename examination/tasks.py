@@ -35,21 +35,19 @@ def compute_class_results_task(self, schema_name, classroom_id, term_id, academi
         except (ClassRoom.DoesNotExist, Term.DoesNotExist, AcademicYear.DoesNotExist) as e:
             return {"status": "failed", "error": "Invalid classroom, term, or academic year."}
 
-        students = classroom.students.filter(is_active=True)
-        total = students.count()
-        for i, student in enumerate(students):
+        def update_progress(current, total, student):
             self.update_state(
                 state='PROGRESS',
-                meta={'current': i, 'total': total, 'student': student.full_name}
+                meta={'current': current, 'total': total, 'student': getattr(student, 'full_name', str(student))}
             )
-            try:
-                ResultComputationService.compute_student_term_result(
-                    student=student, term=term, academic_year=academic_year, user=user
-                )
-                summary["computed"] += 1
-            except (DjangoValidationError, Exception) as e:
-                summary["failed"] += 1
-                summary["errors"].append({"student": student.full_name, "error": str(e)})
+
+        summary = ResultComputationService.compute_classroom_term_results(
+            classroom=classroom,
+            term=term,
+            academic_year=academic_year,
+            user=user,
+            progress_callback=update_progress,
+        )
 
         summary["status"] = "success"
         logger.info(f"Computed term results asynchronously for classroom {classroom_id}: {summary['computed']} success, {summary['failed']} failed.")

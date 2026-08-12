@@ -24,6 +24,17 @@ class AssessmentService:
         if not enrollment:
             raise ValidationError(f"Student ID {student} is not actively enrolled.")
 
+        from ..models import TermResult, Term
+        current_term = Term.objects.filter(academic_year=current_year, is_current=True).first()
+        if current_term:
+            locked = TermResult.objects.filter(
+                student_id=student,
+                term=current_term,
+                is_locked=True
+            ).exists()
+            if locked:
+                raise ValidationError(f"Term result for this student is locked. Unlock result to modify scores.")
+
         entry, created = AssessmentEntry.objects.update_or_create(
             component_id=component,
             student=enrollment,

@@ -59,12 +59,17 @@ def _term_results_for_user(user):
     if role == "parent" or getattr(user, "is_parent", False):
         parent = getattr(user, "parent", None)
         if parent:
-            return TermResult.objects.filter(student__parent_guardian=parent, is_published=True)
+            return TermResult.objects.filter(
+                Q(student__parent_guardian=parent) | Q(student__parent_guardian__user=user),
+                is_published=True
+            ).distinct()
+        return TermResult.objects.filter(student__parent_guardian__user=user, is_published=True).distinct()
 
     if role == "student" or getattr(user, "is_student", False):
         student = getattr(user, "student_profile", None) or getattr(user, "student", None)
         if student:
-            return TermResult.objects.filter(student=student, is_published=True)
+            return TermResult.objects.filter(student=student, is_published=True).distinct()
+        return TermResult.objects.filter(student__user=user, is_published=True).distinct()
 
     return TermResult.objects.none()
 
@@ -78,8 +83,9 @@ class TermResultViewSet(viewsets.ModelViewSet):
         ).prefetch_related("subject_results")
 
         p = self.request.query_params
-        if p.get("student"):
-            qs = qs.filter(student_id=p["student"])
+        student_param = p.get("student") or p.get("student_id")
+        if student_param:
+            qs = qs.filter(student_id=student_param)
         if p.get("term"):
             qs = qs.filter(term_id=p["term"])
         if p.get("classroom"):
@@ -163,16 +169,12 @@ class TermResultViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_202_ACCEPTED
             )
 
-        summary = {"computed": 0, "failed": 0, "errors": []}
-        for student in classroom.students.filter(is_active=True):
-            try:
-                ResultComputationService.compute_student_term_result(
-                    student=student, term=term, academic_year=academic_year, user=request.user
-                )
-                summary["computed"] += 1
-            except DjangoValidationError as e:
-                summary["failed"] += 1
-                summary["errors"].append({"student": student.full_name, "error": str(e)})
+        summary = ResultComputationService.compute_classroom_term_results(
+            classroom=classroom,
+            term=term,
+            academic_year=academic_year,
+            user=request.user,
+        )
         return Response(summary)
 
     @action(detail=True, methods=["post"])

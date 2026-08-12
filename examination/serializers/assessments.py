@@ -50,21 +50,36 @@ class MarkedScriptSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.full_name", read_only=True)
     student_admission_number = serializers.CharField(source="student.admission_number", read_only=True)
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+    classroom_name = serializers.SerializerMethodField(read_only=True)
     uploaded_by_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MarkedScript
         fields = [
             "id", "exam", "exam_name", "student", "student_name", "student_admission_number",
-            "subject", "subject_name", "assessment_entry",
+            "subject", "subject_name", "classroom_name", "assessment_entry",
             "script_file", "file_name", "file_size", "uploaded_by", "uploaded_by_name", "uploaded_at",
             "notes", "visible_to_student", "visible_to_parent",
         ]
         read_only_fields = ["file_name", "file_size", "uploaded_by", "uploaded_at"]
 
+    def get_classroom_name(self, obj):
+        if obj.student and getattr(obj.student, "classroom", None):
+            return str(obj.student.classroom.name if hasattr(obj.student.classroom, "name") else obj.student.classroom)
+        return ""
+
     def get_uploaded_by_name(self, obj):
         if obj.uploaded_by:
-            return obj.uploaded_by.full_name
+            if hasattr(obj.uploaded_by, 'get_full_name'):
+                name = obj.uploaded_by.get_full_name()
+                if name:
+                    return name
+            if hasattr(obj.uploaded_by, 'full_name'):
+                return obj.uploaded_by.full_name
+            first = getattr(obj.uploaded_by, 'first_name', '')
+            last = getattr(obj.uploaded_by, 'last_name', '')
+            name = f"{first} {last}".strip()
+            return name if name else str(obj.uploaded_by)
         return "System Admin"
 
     def create(self, validated_data):

@@ -5,10 +5,11 @@ from .models import StudentFeeAssignment
 class StudentFeeAssignmentFilter(django_filters.FilterSet):
     payment_status = django_filters.CharFilter(method='filter_payment_status')
     classroom = django_filters.NumberFilter(field_name='student__classroom')
+    academic_year = django_filters.NumberFilter(field_name='term__academic_year')
 
     class Meta:
         model = StudentFeeAssignment
-        fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type']
+        fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type', 'classroom', 'academic_year']
 
     def filter_payment_status(self, queryset, name, value):
         qs = queryset.alias(balance_calc=F('amount_owed') - F('amount_paid'))

@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from django.http import FileResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -83,12 +84,29 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = super().get_queryset()
 
-        if hasattr(user, "teacher") and not getattr(user, "is_admin", False):
+        role = getattr(user, "active_role", None)
+        if not role:
+            if getattr(user, "is_teacher", False):
+                role = "teacher"
+            elif getattr(user, "is_parent", False):
+                role = "parent"
+            elif getattr(user, "is_student", False):
+                role = "student"
+
+        if hasattr(user, "teacher") and not getattr(user, "is_admin", False) and role == "teacher":
             qs = qs.filter(uploaded_by=user.teacher)
-        elif user.is_student and user.active_role == "student" and hasattr(user, "student_profile"):
-            qs = qs.filter(student=user.student_profile, visible_to_student=True)
-        elif user.is_parent and user.active_role == "parent" and hasattr(user, "parent"):
-            qs = qs.filter(student__parent_guardian=user.parent, visible_to_parent=True)
+        elif role == "student" or getattr(user, "is_student", False):
+            student = getattr(user, "student_profile", None) or getattr(user, "student", None)
+            if student:
+                qs = qs.filter(student=student, visible_to_student=True)
+            else:
+                qs = qs.filter(student__user=user, visible_to_student=True)
+        elif role == "parent" or getattr(user, "is_parent", False):
+            parent = getattr(user, "parent", None)
+            if parent:
+                qs = qs.filter(Q(student__parent_guardian=parent) | Q(student__parent_guardian__user=user), visible_to_parent=True).distinct()
+            else:
+                qs = qs.filter(student__parent_guardian__user=user, visible_to_parent=True).distinct()
         elif not user.is_authenticated:
             return qs.none()
 
@@ -108,20 +126,17 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
         if subject_id:
             qs = qs.filter(subject_id=subject_id)
         if classroom_id:
-            from django.db.models import Q
             qs = qs.filter(
                 Q(student__classroom_id=classroom_id) |
                 Q(student__student_classes__classroom_id=classroom_id) |
                 Q(exam__classrooms__id=classroom_id)
             ).distinct()
         if academic_year_id:
-            from django.db.models import Q
             qs = qs.filter(
                 Q(assessment_entry__component__scheme__academic_year_id=academic_year_id) |
                 Q(student__student_classes__academic_year_id=academic_year_id)
             ).distinct()
         if term_id:
-            from django.db.models import Q
             qs = qs.filter(
                 Q(assessment_entry__student__academic_year__terms__id=term_id) |
                 Q(student__student_classes__academic_year__terms__id=term_id)
@@ -177,6 +192,9 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
                 script = MarkedScript.objects.filter(exam=exam, student=student, subject=subject).first()
                 if not script:
                     script = MarkedScript(exam=exam, student=student, subject=subject)
+
+                if getattr(student, "classroom", None):
+                    script.classroom = student.classroom
 
                 script.script_file = file_obj
                 script.uploaded_by = teacher

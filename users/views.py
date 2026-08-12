@@ -928,22 +928,43 @@ class TeacherDashboardView(APIView):
                 "date": exam.start_date.strftime('%Y-%m-%d')
             })
 
-        # ===== HOMEROOM STUDENTS (For messaging parents) =====
-        from academic.models import Student
+        # ===== HOMEROOM STUDENTS & CLASSES (For messaging parents) =====
+        from academic.models import Student, ClassRoom
+        homeroom_classes = ClassRoom.objects.filter(class_teacher=teacher)
+        homeroom_classes_data = [
+            {
+                "id": c.id,
+                "name": str(c.name) if (hasattr(c, 'name') and c.name) else str(c)
+            }
+            for c in homeroom_classes
+        ]
+
         homeroom_students_qs = Student.objects.filter(
             classroom__class_teacher=teacher,
             is_active=True
-        ).select_related('parent_guardian', 'parent_guardian__user')
+        ).select_related('classroom', 'classroom__name', 'parent_guardian', 'parent_guardian__user')
         
         homeroom_students = []
         for student in homeroom_students_qs:
             parent = student.parent_guardian
             parent_user = parent.user if parent else None
+            p_name = "No Parent"
+            if parent_user:
+                p_name = parent_user.get_full_name() or parent_user.username
+            elif parent:
+                p_name = f"{parent.first_name or ''} {parent.last_name or ''}".strip() or "Parent"
+
+            c_name = str(student.classroom.name) if (student.classroom and hasattr(student.classroom, 'name') and student.classroom.name) else (str(student.classroom) if student.classroom else '')
+
             homeroom_students.append({
                 "id": student.id,
+                "first_name": student.first_name or '',
+                "last_name": student.last_name or '',
                 "name": student.full_name,
+                "classroom_id": student.classroom_id,
+                "classroom_name": c_name,
                 "parent_id": parent_user.id if parent_user else None,
-                "parent_name": parent_user.get_full_name() or parent_user.username if parent_user else (parent.first_name + " " + parent.last_name if parent else "No Parent"),
+                "parent_name": p_name,
             })
 
         payload = {
@@ -952,7 +973,8 @@ class TeacherDashboardView(APIView):
             "myClasses": my_classes,
             "recentActivities": recent_activities,
             "upcomingAssessments": upcoming_assessments,
-            "homeroomStudents": homeroom_students
+            "homeroomStudents": homeroom_students,
+            "homeroomClasses": homeroom_classes_data,
         }
 
         cache.set(cache_key, payload, 30)
@@ -1084,9 +1106,12 @@ class ParentDashboardView(APIView):
                 full_name = f"{t.first_name or ''} {t.last_name or ''}".strip()
                 if not full_name and t_user:
                     full_name = f"{t_user.first_name or ''} {t_user.last_name or ''}".strip() or t_user.email
+                user_id = t_user.id if t_user else t.id
                 homeroom_teacher = {
-                    "id": t.id,
-                    "name": full_name or "Assigned Teacher"
+                    "id": user_id,
+                    "name": full_name or "Assigned Teacher",
+                    "first_name": t.first_name or (t_user.first_name if t_user else ''),
+                    "last_name": t.last_name or (t_user.last_name if t_user else '')
                 }
 
             # Class name resolution (classroom > class_level > N/A)
@@ -1172,6 +1197,47 @@ class ParentDashboardView(APIView):
 
         cache.set(cache_key, payload, 30)
         return Response(payload)
+
+
+class ParentChildrenView(APIView):
+    """
+    Parent Children List API
+    GET /api/users/parent/children/
+    Returns: list of children associated with the logged-in parent
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            parent = Parent.objects.get(user=request.user)
+        except Parent.DoesNotExist:
+            return Response(
+                {"error": "Parent profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        children_data = []
+        for student in parent.children.all():
+            class_name = 'N/A'
+            if student.classroom:
+                class_name = str(student.classroom.name) if hasattr(student.classroom, 'name') and student.classroom.name else str(student.classroom)
+            elif student.class_level:
+                class_name = student.class_level.name if hasattr(student.class_level, 'name') and student.class_level.name else str(student.class_level)
+
+            children_data.append({
+                "id": student.id,
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "full_name": f"{student.first_name} {student.last_name}".strip(),
+                "admission_number": student.admission_number or student.student_id or '',
+                "class_name": class_name,
+                "classroom_name": class_name,
+                "gender": getattr(student, 'gender', ''),
+                "date_of_birth": str(student.date_of_birth) if getattr(student, 'date_of_birth', None) else None,
+                "status": "active" if student.is_active else "inactive",
+            })
+
+        return Response(children_data)
 
 
 # Invitation Views

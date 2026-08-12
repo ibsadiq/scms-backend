@@ -110,8 +110,10 @@ class ClassRoomSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Customize the output representation"""
         representation = super().to_representation(instance)
-        # Replace the name ID with the readable name in responses
-        representation['name_display'] = instance.name.name if instance.name else None
+        # Replace the name ID with the readable class name (e.g. "JSS 1 Gold")
+        readable = str(instance)
+        representation['name_display'] = readable
+        representation['display_name'] = readable
         return representation
 
     @extend_schema_field(serializers.CharField)

@@ -353,6 +353,13 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
             Q(sender=user) | Q(recipient=user)
         ).select_related('sender', 'recipient', 'student').order_by('-created_at')
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message = serializer.save(sender=request.user)
+        read_serializer = DirectMessageSerializer(message, context=self.get_serializer_context())
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+
     def perform_create(self, serializer):
         serializer.save(sender=self.request.user)
 

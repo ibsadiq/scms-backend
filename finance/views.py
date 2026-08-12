@@ -291,6 +291,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     """
     queryset = Receipt.objects.select_related(
         'student',
+        'student__classroom',
         'term',
         'received_by'
     ).prefetch_related('fee_allocations')
@@ -300,6 +301,8 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     filterset_fields = {
         'student': ['exact'],
         'student_id': ['exact'],
+        'student__classroom': ['exact'],
+        'student__classroom_id': ['exact'],
         'term': ['exact'],
         'term_id': ['exact'],
         'term__academic_year': ['exact'],
@@ -370,6 +373,35 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=False, methods=['get'])
+    def summary_stats(self, request):
+        """
+        Get aggregated summary statistics for receipts matching active filters.
+        GET /api/finance/receipts/summary_stats/
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        from django.db.models import Sum, Count, Q
+        from django.utils import timezone as tz
+
+        today = tz.now().date()
+        aggregates = queryset.aggregate(
+            total_collected=Sum('amount'),
+            total_count=Count('id'),
+            today_count=Count('id', filter=Q(date=today) | Q(payment_date=today))
+        )
+
+        total_collected = aggregates['total_collected'] or Decimal('0.00')
+        total_count = aggregates['total_count'] or 0
+        today_count = aggregates['today_count'] or 0
+        avg_payment = (total_collected / Decimal(str(total_count))) if total_count > 0 else Decimal('0.00')
+
+        return Response({
+            'total_collected': float(total_collected),
+            'total_count': total_count,
+            'today_count': today_count,
+            'avg_payment': float(avg_payment),
+        })
+
+    @action(detail=False, methods=['get'])
     def by_student(self, request):
         """
         Get all receipts for a specific student.
@@ -393,162 +425,35 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         Generate and download a PDF receipt.
         GET /api/finance/receipts/{id}/download/
         """
+        if not request.user or not request.user.is_authenticated:
+            token = request.query_params.get("token") or request.query_params.get("access_token")
+            if token:
+                try:
+                    from rest_framework_simplejwt.tokens import AccessToken
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    validated = AccessToken(token)
+                    user_id = validated.get("user_id")
+                    request.user = User.objects.get(id=user_id)
+                except Exception:
+                    pass
+
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {"error": 401, "detail": {"detail": "Authentication credentials were not provided."}},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
         from django.http import HttpResponse
-        from weasyprint import HTML
-        from django.utils import timezone as tz
+        from finance.tasks import render_receipt_pdf
 
         receipt = self.get_object()
+        pdf_bytes = render_receipt_pdf(receipt)
 
-        # Get school name from current tenant
-        try:
-            from django.db import connection
-            from tenants.models import Client
-            school_name = Client.objects.get(schema_name=connection.schema_name).name
-        except Exception:
-            school_name = "School"
-
-        allocations = receipt.fee_allocations.select_related(
-            'fee_assignment__fee_structure'
-        ).all()
-
-        student = receipt.student
-        student_name = f"{student.first_name} {student.last_name}" if student else receipt.payer
-        admission_no = student.admission_number if student else "—"
-        classroom = str(student.classroom) if student and student.classroom else "—"
-
-        # Build fee breakdown rows
-        fee_rows = ""
-        for alloc in allocations:
-            fee_name = alloc.fee_assignment.fee_structure.name if alloc.fee_assignment else "Fee"
-            fee_rows += f"""
-            <tr>
-                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">{fee_name}</td>
-                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">
-                    &#8358;{alloc.amount:,.2f}
-                </td>
-            </tr>"""
-
-        if not fee_rows:
-            fee_rows = f"""
-            <tr>
-                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">School Fees</td>
-                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">
-                    &#8358;{receipt.amount:,.2f}
-                </td>
-            </tr>"""
-
-        term_name = str(receipt.term) if receipt.term else "—"
-        payment_date = receipt.payment_date.strftime("%d %B %Y") if receipt.payment_date else "—"
-        generated_at = tz.now().strftime("%d %B %Y, %H:%M")
-
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8"/>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            * {{ margin:0; padding:0; box-sizing:border-box; }}
-            body {{ font-family: Inter, Arial, sans-serif; background:#f9fafb; color:#111827; font-size:14px; }}
-            .page {{ max-width:680px; margin:40px auto; background:#fff; border-radius:12px;
-                     box-shadow:0 1px 3px rgba(0,0,0,.12); padding:40px; }}
-            .header {{ display:flex; justify-content:space-between; align-items:flex-start;
-                       border-bottom:2px solid #059669; padding-bottom:24px; margin-bottom:28px; }}
-            .school-name {{ font-size:22px; font-weight:700; color:#059669; }}
-            .school-sub {{ font-size:12px; color:#6b7280; margin-top:4px; }}
-            .receipt-badge {{ background:#059669; color:#fff; padding:6px 18px;
-                              border-radius:20px; font-size:12px; font-weight:600; }}
-            .receipt-no {{ font-size:24px; font-weight:700; color:#111827; text-align:right; margin-top:6px; }}
-            .section-label {{ font-size:11px; font-weight:600; color:#6b7280;
-                               text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px; }}
-            .info-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:28px; }}
-            .info-block p {{ font-size:14px; font-weight:600; color:#111827; }}
-            table {{ width:100%; border-collapse:collapse; margin-bottom:20px; }}
-            thead th {{ background:#f3f4f6; padding:10px 12px; text-align:left; font-size:12px;
-                        font-weight:600; color:#374151; text-transform:uppercase; letter-spacing:.04em; }}
-            thead th:last-child {{ text-align:right; }}
-            .total-row td {{ padding:12px; font-weight:700; font-size:15px;
-                             background:#f0fdf4; color:#065f46; }}
-            .total-row td:last-child {{ text-align:right; }}
-            .status-badge {{ display:inline-block; background:#d1fae5; color:#065f46;
-                              border-radius:12px; padding:3px 12px; font-size:12px; font-weight:600; }}
-            .footer {{ margin-top:32px; padding-top:20px; border-top:1px solid #e5e7eb;
-                       text-align:center; font-size:11px; color:#9ca3af; }}
-          </style>
-        </head>
-        <body>
-          <div class="page">
-            <div class="header">
-              <div>
-                <div class="school-name">{school_name}</div>
-                <div class="school-sub">Official Payment Receipt</div>
-              </div>
-              <div style="text-align:right;">
-                <span class="receipt-badge">RECEIPT</span>
-                <div class="receipt-no">#{receipt.receipt_number}</div>
-              </div>
-            </div>
-
-            <div class="info-grid">
-              <div class="info-block">
-                <div class="section-label">Student</div>
-                <p>{student_name}</p>
-                <div style="color:#6b7280;font-size:12px;margin-top:2px;">
-                  Adm: {admission_no} &nbsp;|&nbsp; {classroom}
-                </div>
-              </div>
-              <div class="info-block">
-                <div class="section-label">Payment Details</div>
-                <p>{payment_date}</p>
-                <div style="color:#6b7280;font-size:12px;margin-top:2px;">
-                  Via: {receipt.paid_through} &nbsp;|&nbsp; Term: {term_name}
-                </div>
-              </div>
-              <div class="info-block">
-                <div class="section-label">Received From</div>
-                <p>{receipt.payer}</p>
-              </div>
-              <div class="info-block">
-                <div class="section-label">Status</div>
-                <span class="status-badge">{receipt.status}</span>
-              </div>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th style="text-align:right;">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fee_rows}
-              </tbody>
-              <tfoot>
-                <tr class="total-row">
-                  <td>Total Paid</td>
-                  <td>&#8358;{receipt.amount:,.2f}</td>
-                </tr>
-              </tfoot>
-            </table>
-
-            {"<p style='font-size:12px;color:#6b7280;margin-bottom:16px;'><strong>Remarks:</strong> " + receipt.remarks + "</p>" if receipt.remarks else ""}
-            {"<p style='font-size:12px;color:#6b7280;'><strong>Reference:</strong> " + receipt.reference_number + "</p>" if receipt.reference_number else ""}
-
-            <div class="footer">
-              <p>This is a computer-generated receipt. No signature required.</p>
-              <p style="margin-top:4px;">Generated on {generated_at} &nbsp;|&nbsp; {school_name} Finance System</p>
-            </div>
-          </div>
-        </body>
-        </html>
-        """
-
-        pdf = HTML(string=html_content).write_pdf()
         filename = f"receipt_{receipt.receipt_number}.pdf"
-        response = HttpResponse(pdf, content_type='application/pdf')
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{filename}"'
-        response['Content-Length'] = len(pdf)
+        response['Content-Length'] = len(pdf_bytes)
         return response
 
 

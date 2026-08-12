@@ -142,12 +142,14 @@ class AnnualResultSerializer(serializers.ModelSerializer):
 class ReportCardSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="term_result.student.full_name", read_only=True)
     term_name = serializers.CharField(source="term_result.term.name", read_only=True)
+    classroom_name = serializers.CharField(source="term_result.classroom.name", read_only=True)
+    academic_year_name = serializers.CharField(source="term_result.academic_year.name", read_only=True)
     pdf_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ReportCard
         fields = [
-            "id", "term_result", "student_name", "term_name",
+            "id", "term_result", "student_name", "term_name", "classroom_name", "academic_year_name",
             "pdf_file", "pdf_url", "generated_date", "generated_by",
             "download_count", "last_downloaded", "status", "error_message",
         ]

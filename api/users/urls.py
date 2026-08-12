@@ -19,6 +19,7 @@ from users.views import (
     BulkUploadTeachersView,
     TeacherDashboardView,
     ParentDashboardView,
+    ParentChildrenView,
     UserInvitationListCreateView,
     UserInvitationDetailView,
     ValidateInvitationView,
@@ -61,6 +62,7 @@ urlpatterns = [
     # Dashboard URLs
     path("teacher/dashboard/", TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("parent/dashboard/", ParentDashboardView.as_view(), name="parent-dashboard"),
+    path("parent/children/", ParentChildrenView.as_view(), name="parent-children"),
     # Invitation URLs
     path("invitations/", UserInvitationListCreateView.as_view(), name="invitation-list-create"),
     path("invitations/<int:pk>/", UserInvitationDetailView.as_view(), name="invitation-detail"),

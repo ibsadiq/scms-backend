@@ -17,6 +17,7 @@ from finance.views import (
 router = DefaultRouter()
 router.register(r'fee-structures', FeeStructureViewSet, basename='fee-structure')
 router.register(r'student-fee-assignments', StudentFeeAssignmentViewSet, basename='student-fee-assignment')
+router.register(r'fee-assignments', StudentFeeAssignmentViewSet, basename='fee-assignment')
 router.register(r'receipts', ReceiptViewSet, basename='receipt')
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'payment-categories', PaymentCategoryViewSet, basename='payment-category')
