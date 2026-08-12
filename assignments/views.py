@@ -280,6 +280,34 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         return Response(stats)
 
 
+def _get_student_for_user(request_or_user):
+    """Safely retrieve Student instance for a given user or request."""
+    if not request_or_user:
+        return None
+
+    user = getattr(request_or_user, 'user', request_or_user)
+    if not hasattr(user, 'is_authenticated') or not user.is_authenticated:
+        return None
+
+    # Check query params if request object is passed
+    if hasattr(request_or_user, 'query_params'):
+        student_id = request_or_user.query_params.get('student_id') or request_or_user.query_params.get('student')
+        if student_id:
+            student = Student.objects.filter(id=student_id).first()
+            if student:
+                return student
+
+    student = getattr(user, 'student_profile', None)
+    if student:
+        return student
+
+    student = getattr(user, 'student', None)
+    if student:
+        return student
+
+    return Student.objects.filter(user=user).first()
+
+
 class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Student assignment view:
@@ -295,7 +323,9 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         """Return published assignments for student's classroom"""
-        student = get_object_or_404(Student, user=self.request.user)
+        student = _get_student_for_user(self.request)
+        if not student:
+            return Assignment.objects.none()
         
         # Get student's current classroom
         from academic.models import StudentClassEnrollment
@@ -304,7 +334,7 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
             is_active=True
         ).select_related('classroom').first()
         
-        classroom = current_enrollment.classroom if current_enrollment else student.classroom
+        classroom = current_enrollment.classroom if current_enrollment else getattr(student, 'classroom', None)
         if not classroom:
             return Assignment.objects.none()
         
@@ -335,8 +365,11 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
     
     def list(self, request, *args, **kwargs):
         """Return assignments with student-specific data"""
+        student = _get_student_for_user(request)
+        if not student:
+            return Response([])
+
         queryset = self.filter_queryset(self.get_queryset())
-        student = get_object_or_404(Student, user=request.user)
         
         assignments_data = []
         for assignment in queryset:
@@ -348,8 +381,8 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'title': assignment.title,
                 'description': assignment.description,
                 'assignment_type': assignment.assignment_type,
-                'subject_name': assignment.subject.name,
-                'teacher_name': assignment.teacher.user.get_full_name() if assignment.teacher.user else 'Unknown',
+                'subject_name': assignment.subject.name if assignment.subject else '',
+                'teacher_name': assignment.teacher.user.get_full_name() if (assignment.teacher and assignment.teacher.user) else 'Unknown',
                 'due_date': assignment.due_date,
                 'max_score': assignment.max_score,
                 'is_overdue': assignment.is_overdue,
@@ -386,7 +419,12 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
     def submit(self, request, pk=None):
         """Submit assignment"""
         assignment = self.get_object()
-        student = get_object_or_404(Student, user=request.user)
+        student = _get_student_for_user(request)
+        if not student:
+            return Response(
+                {'error': 'No student profile associated with this account.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
         # Check if already submitted
         existing_submission = AssignmentSubmission.objects.filter(
@@ -430,7 +468,12 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
     def update_submission(self, request, pk=None):
         """Update existing submission (before graded)"""
         assignment = self.get_object()
-        student = get_object_or_404(Student, user=request.user)
+        student = _get_student_for_user(request)
+        if not student:
+            return Response(
+                {'error': 'No student profile associated with this account.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
         submission = get_object_or_404(
             AssignmentSubmission,
@@ -466,7 +509,12 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
     def my_submission(self, request, pk=None):
         """Get student's own submission for this assignment"""
         assignment = self.get_object()
-        student = get_object_or_404(Student, user=request.user)
+        student = _get_student_for_user(request)
+        if not student:
+            return Response(
+                {'detail': 'No submission found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
         submission = AssignmentSubmission.objects.filter(
             assignment=assignment,
