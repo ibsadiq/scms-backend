@@ -21,6 +21,24 @@ from academic.models import Student
 
 
 
+def _resolve_attendance_student(identifier, user=None):
+    from academic.models import Student
+    from django.db.models import Q
+    if identifier:
+        st = Student.objects.filter(id=identifier).first()
+        if not st:
+            st = Student.objects.filter(user_id=identifier).first()
+        if not st and str(identifier).isdigit():
+            st = Student.objects.filter(Q(id=int(identifier)) | Q(user_id=int(identifier))).first()
+        if not st:
+            st = Student.objects.filter(admission_number=str(identifier)).first()
+        if st:
+            return st
+    if user and user.is_authenticated:
+        return getattr(user, 'student_profile', None) or getattr(user, 'student', None) or Student.objects.filter(user=user).first()
+    return None
+
+
 class StudentAttendanceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for student attendance records.
@@ -42,13 +60,25 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
         # ── Filter by student ──
         student_id = self.request.query_params.get('student')
         if student_id:
-            queryset = queryset.filter(student_id=student_id)
+            st = _resolve_attendance_student(student_id, self.request.user)
+            if st:
+                queryset = queryset.filter(student=st)
+            else:
+                queryset = queryset.filter(student_id=student_id)
         
         # ── Filter by classroom ──
         classroom_id = self.request.query_params.get('classroom')
         if classroom_id:
             queryset = queryset.filter(ClassRoom_id=classroom_id)
         
+        # ── Filter by month and year ──
+        month = self.request.query_params.get('month') or self.request.query_params.get('date__month')
+        year = self.request.query_params.get('year') or self.request.query_params.get('date__year')
+        if month:
+            queryset = queryset.filter(date__month=month)
+        if year:
+            queryset = queryset.filter(date__year=year)
+
         # ── CRITICAL FIX: Filter by specific date ──
         date_param = self.request.query_params.get('date')
         if date_param:
@@ -67,16 +97,17 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def summary(self, request):
-        student_id = request.query_params.get('student')
+        student_id = request.query_params.get('student') or request.query_params.get('student_id')
+        is_student_user = getattr(request.user, 'is_student', False)
 
-        if student_id:
-            # ── existing per-student logic — unchanged, keep exactly as-is ──
-            try:
-                student = Student.objects.get(id=student_id)
-            except Student.DoesNotExist:
+        student = None
+        if student_id or is_student_user:
+            student = _resolve_attendance_student(student_id, request.user)
+            if not student and student_id:
                 return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
 
-            queryset = StudentAttendance.objects.filter(student_id=student_id)
+        if student:
+            queryset = StudentAttendance.objects.filter(student=student)
 
             month = request.query_params.get('month')
             year = request.query_params.get('year')
@@ -98,14 +129,14 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
                 period_label = f"{now.strftime('%B %Y')}"
 
             total_days = queryset.count()
-            absent_count = queryset.filter(status__absent=True).count()
+            absent_count = queryset.filter(Q(status__absent=True) | Q(status__name__iexact='Absent')).count()
             present_count = total_days - absent_count
-            late_count = queryset.filter(status__late=True).count()
-            excused_count = queryset.filter(status__excused=True).count()
+            late_count = queryset.filter(Q(status__late=True) | Q(status__name__iexact='Late')).count()
+            excused_count = queryset.filter(Q(status__excused=True) | Q(status__name__iexact='Excused')).count()
             attendance_rate = (present_count / total_days * 100) if total_days > 0 else 0
 
-            recent_records = queryset.order_by('-date')[:10]
-            records_data = StudentAttendanceSerializer(recent_records, many=True).data
+            all_records = queryset.order_by('date')
+            records_data = StudentAttendanceSerializer(all_records, many=True).data
 
             return Response({
                 'student': {
@@ -122,7 +153,8 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
                     'excused': excused_count,
                     'attendance_rate': round(attendance_rate, 1)
                 },
-                'recent_records': records_data
+                'records': records_data,
+                'recent_records': records_data[:10]
             }, status=status.HTTP_200_OK)
 
         # ── School-wide summary (no student param) ──
@@ -200,12 +232,12 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
         
         GET /api/attendance/student-attendance/monthly-breakdown/?student=505&year=2025
         """
-        student_id = request.query_params.get('student')
-        
-        if not student_id:
+        student_id = request.query_params.get('student') or request.query_params.get('student_id')
+        student = _resolve_attendance_student(student_id, request.user)
+        if not student:
             return Response(
-                {'error': 'student parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'Student not found'},
+                status=status.HTTP_404_NOT_FOUND
             )
         
         year = request.query_params.get('year', datetime.now().year)
@@ -214,7 +246,7 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
         monthly_data = []
         for month in range(1, 13):
             queryset = StudentAttendance.objects.filter(
-                student_id=student_id,
+                student=student,
                 date__year=year,
                 date__month=month
             )

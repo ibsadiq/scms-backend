@@ -65,7 +65,19 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
 class AssignmentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating assignments"""
+    from administration.models import AcademicYear, Term
     
+    academic_year = serializers.PrimaryKeyRelatedField(
+        queryset=AcademicYear.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    term = serializers.PrimaryKeyRelatedField(
+        queryset=Term.objects.all(),
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = Assignment
         fields = [
@@ -82,6 +94,30 @@ class AssignmentCreateSerializer(serializers.ModelSerializer):
         if value < timezone.now():
             raise serializers.ValidationError("Due date must be in the future")
         return value
+
+    def validate(self, attrs):
+        from administration.models import AcademicYear, Term
+        from django.utils import timezone
+        
+        # Default academic year if not provided
+        if not attrs.get('academic_year'):
+            active_year = AcademicYear.objects.filter(active_year=True).first() or AcademicYear.objects.order_by('-id').first()
+            if not active_year:
+                raise serializers.ValidationError({"academic_year": "No active academic year found."})
+            attrs['academic_year'] = active_year
+
+        # Default term if not provided
+        if not attrs.get('term'):
+            today = timezone.now().date()
+            active_term = Term.objects.filter(
+                academic_year=attrs['academic_year'],
+                start_date__lte=today,
+                end_date__gte=today
+            ).first() or Term.objects.filter(academic_year=attrs['academic_year']).first()
+            attrs['term'] = active_term
+
+        return attrs
+
 
 
 class SubmissionAttachmentSerializer(serializers.ModelSerializer):

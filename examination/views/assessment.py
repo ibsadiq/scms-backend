@@ -97,6 +97,9 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
             qs = qs.filter(uploaded_by=user.teacher)
         elif role == "student" or getattr(user, "is_student", False):
             student = getattr(user, "student_profile", None) or getattr(user, "student", None)
+            if not student:
+                from academic.models import Student
+                student = Student.objects.filter(user=user).first()
             if student:
                 qs = qs.filter(student=student, visible_to_student=True)
             else:
@@ -122,7 +125,14 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
         if exam_id:
             qs = qs.filter(exam_id=exam_id)
         if student_id:
-            qs = qs.filter(student_id=student_id)
+            from academic.models import Student
+            st = Student.objects.filter(id=student_id).first()
+            if not st and str(student_id).isdigit():
+                st = Student.objects.filter(user_id=student_id).first()
+            if st:
+                qs = qs.filter(student=st)
+            else:
+                qs = qs.filter(student_id=student_id)
         if subject_id:
             qs = qs.filter(subject_id=subject_id)
         if classroom_id:

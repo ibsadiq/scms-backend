@@ -31,23 +31,39 @@ class TeacherMyClassesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Get the teacher associated with the logged-in user
-        try:
-            teacher = Teacher.objects.get(user=request.user)
-        except Teacher.DoesNotExist:
+        is_admin = getattr(request.user, "is_admin", False) or getattr(request.user, "is_staff", False) or getattr(request.user, "is_superuser", False)
+        teacher = Teacher.objects.filter(user=request.user).first()
+        if not teacher and not is_admin:
             return Response(
                 {"error": "Teacher profile not found for this user"},
                 status=status.HTTP_404_NOT_FOUND
             )
 
         # Get current academic year
-        try:
-            current_academic_year = AcademicYear.objects.get(active_year=True)
-        except AcademicYear.DoesNotExist:
+        current_academic_year = AcademicYear.objects.filter(active_year=True).first() or AcademicYear.objects.order_by('-start_date').first()
+        if not current_academic_year:
             return Response(
                 {"error": "No active academic year found"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        # If admin and no teacher profile, return all active classrooms
+        if not teacher and is_admin:
+            all_classrooms = ClassRoom.objects.filter(is_active=True).select_related('name')
+            homeroom_classes = []
+            for classroom in all_classrooms:
+                student_count = Student.objects.filter(classroom=classroom, is_active=True).count()
+                homeroom_classes.append({
+                    'id': f'homeroom_{classroom.id}',
+                    'classroom_id': classroom.id,
+                    'classroom_name': str(classroom),
+                    'grade_level_name': classroom.name.name if classroom.name else '',
+                    'student_count': student_count,
+                })
+            return Response({
+                'homeroom_classes': homeroom_classes,
+                'teaching_assignments': []
+            }, status=status.HTTP_200_OK)
 
         # Get homeroom classes (where teacher is class_teacher)
         homeroom_classes = []
@@ -79,6 +95,8 @@ class TeacherMyClassesView(APIView):
 
         for allocation in allocations:
             classroom = allocation.class_room
+            if not classroom:
+                continue
 
             # Count active students in this classroom
             student_count = Student.objects.filter(
@@ -86,31 +104,16 @@ class TeacherMyClassesView(APIView):
                 is_active=True
             ).count()
 
-            # Check if teacher is also the homeroom teacher for this class
-            is_class_teacher = classroom.class_teacher == teacher
-
-            # Get schedule (you can expand this based on your timetable model)
-            schedule = []
-            # TODO: If you have a timetable model, query it here
-            # Example:
-            # timetable_entries = TimetableEntry.objects.filter(allocated_subject=allocation)
-            # for entry in timetable_entries:
-            #     schedule.append({
-            #         'day': entry.day_of_week,
-            #         'start_time': entry.start_time.strftime('%H:%M:%S'),
-            #         'end_time': entry.end_time.strftime('%H:%M:%S')
-            #     })
-
             teaching_assignments.append({
                 'id': allocation.id,
                 'classroom_id': classroom.id,
                 'classroom_name': str(classroom),
-                'subject_id': allocation.subject.id,
-                'subject_name': allocation.subject.name,
+                'subject_id': allocation.subject.id if allocation.subject else None,
+                'subject_name': str(allocation.subject) if allocation.subject else '',
                 'grade_level_name': classroom.name.name if classroom.name else '',
                 'student_count': student_count,
-                'is_class_teacher': is_class_teacher,
-                'schedule': schedule
+                'is_class_teacher': classroom.class_teacher == teacher,
+                'schedule': []
             })
 
         return Response({
@@ -123,15 +126,13 @@ class ClassroomStudentsView(APIView):
     """
     GET /api/academic/classrooms/{classroom_id}/students/
     Returns all students enrolled in a specific classroom.
-    Only teachers who are assigned to this classroom can access this endpoint.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, classroom_id):
-        # Get the teacher associated with the logged-in user
-        try:
-            teacher = Teacher.objects.get(user=request.user)
-        except Teacher.DoesNotExist:
+        is_admin = getattr(request.user, "is_admin", False) or getattr(request.user, "is_staff", False) or getattr(request.user, "is_superuser", False)
+        teacher = Teacher.objects.filter(user=request.user).first()
+        if not teacher and not is_admin:
             return Response(
                 {"error": "Teacher profile not found for this user"},
                 status=status.HTTP_404_NOT_FOUND
@@ -140,30 +141,24 @@ class ClassroomStudentsView(APIView):
         # Get the classroom
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
 
-        # Verify teacher has access to this classroom
-        # Either they are the class teacher OR they teach a subject in this classroom
-        is_class_teacher = classroom.class_teacher == teacher
-
         # Get current academic year
-        try:
-            current_academic_year = AcademicYear.objects.get(active_year=True)
-        except AcademicYear.DoesNotExist:
-            return Response(
-                {"error": "No active academic year found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        current_academic_year = AcademicYear.objects.filter(active_year=True).first() or AcademicYear.objects.order_by('-start_date').first()
 
-        has_subject_allocation = AllocatedSubject.objects.filter(
-            teacher_name=teacher,
-            class_room=classroom,
-            academic_year=current_academic_year
-        ).exists()
+        if not is_admin and teacher:
+            is_class_teacher = classroom.class_teacher == teacher
+            has_subject_allocation = False
+            if current_academic_year:
+                has_subject_allocation = AllocatedSubject.objects.filter(
+                    teacher_name=teacher,
+                    class_room=classroom,
+                    academic_year=current_academic_year
+                ).exists()
 
-        if not is_class_teacher and not has_subject_allocation:
-            return Response(
-                {"error": "You do not have permission to view students in this classroom"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            if not is_class_teacher and not has_subject_allocation:
+                return Response(
+                    {"error": "You do not have permission to view students in this classroom"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
         # Get all active students in this classroom
         students = Student.objects.filter(

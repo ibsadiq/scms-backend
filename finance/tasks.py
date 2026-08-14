@@ -45,7 +45,7 @@ def send_fee_reminders():
                     fee_structure__due_date=target_date,
                     amount_paid__lt=F('amount_owed'),
                     is_waived=False
-                ).select_related('student', 'student__parent', 'fee_structure')
+                ).select_related('student', 'student__parent_guardian', 'student__parent_guardian__user', 'fee_structure')
                 
                 # If the rule has a fee_structure, ONLY process assignments for that fee.
                 if rule.fee_structure:
@@ -80,11 +80,12 @@ def send_fee_reminders():
                     else:
                         message = message.replace('{{due_date}}', 'N/A')
 
-                    if assignment.student.parent:
-                        parent_user = CustomUser.objects.filter(
-                            email=assignment.student.parent.email,
-                            is_parent=True
-                        ).first()
+                    parent = assignment.student.parent_guardian
+                    if parent:
+                        parent_user = getattr(parent, 'user', None) or (
+                            CustomUser.objects.filter(email=parent.email, is_parent=True).first()
+                            if getattr(parent, 'email', None) else None
+                        )
 
                         if parent_user:
                             try:
@@ -151,16 +152,17 @@ def send_custom_fee_reminder(schema_name, fee_structure_id, message=None):
                 fee_structure=fee_structure,
                 amount_paid__lt=F('amount_owed'),
                 is_waived=False
-            ).select_related('student', 'student__parent')
+            ).select_related('student', 'student__parent_guardian', 'student__parent_guardian__user')
 
             for assignment in assignments:
                 balance = assignment.amount_owed - assignment.amount_paid
 
-                if assignment.student.parent:
-                    parent_user = CustomUser.objects.filter(
-                        email=assignment.student.parent.email,
-                        is_parent=True
-                    ).first()
+                parent = assignment.student.parent_guardian
+                if parent:
+                    parent_user = getattr(parent, 'user', None) or (
+                        CustomUser.objects.filter(email=parent.email, is_parent=True).first()
+                        if getattr(parent, 'email', None) else None
+                    )
 
                     if parent_user:
                         try:

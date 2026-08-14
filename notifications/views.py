@@ -377,3 +377,79 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
     def unread_count(self, request):
         count = DirectMessage.objects.filter(recipient=request.user, is_read=False).count()
         return Response({'unread_count': count})
+
+    @action(detail=False, methods=['get'])
+    def classroom_parents(self, request):
+        """
+        Get active students and their parents for a classroom (or all classrooms).
+        Returns list of contacts for initiating conversations.
+        """
+        from academic.models import Student
+        from users.models import CustomUser
+
+        classroom_id = request.query_params.get('classroom_id')
+        queryset = Student.objects.filter(is_active=True).select_related(
+            'parent_guardian',
+            'parent_guardian__user',
+            'classroom',
+            'classroom__name'
+        )
+        if classroom_id:
+            queryset = queryset.filter(classroom_id=classroom_id)
+
+        results = []
+        for s in queryset:
+            p = s.parent_guardian
+            if not p:
+                continue
+
+            p_user = getattr(p, 'user', None) or (
+                CustomUser.objects.filter(email=p.email, is_parent=True).first()
+                if getattr(p, 'email', None) else None
+            )
+
+            if not p_user:
+                continue
+
+            c_name = str(s.classroom.name) if (s.classroom and hasattr(s.classroom, 'name') and s.classroom.name) else str(s.classroom or 'N/A')
+            p_full_name = f"{p.first_name or ''} {p.last_name or ''}".strip() or p_user.get_full_name() or p.email or "Parent"
+
+            results.append({
+                "student_id": s.id,
+                "student_name": s.full_name,
+                "admission_number": s.admission_number,
+                "classroom_id": s.classroom_id,
+                "classroom_name": c_name,
+                "parent_id": p.id,
+                "parent_user_id": p_user.id,
+                "parent_name": p_full_name,
+                "parent_email": p.email or p_user.email,
+                "phone_number": p.phone_number or getattr(p_user, 'phone_number', ''),
+            })
+
+        return Response(results)
+
+    @action(detail=False, methods=['get'])
+    def school_admins(self, request):
+        """
+        Return school administrator users for parents/teachers to message.
+        """
+        from users.models import CustomUser
+        admins = CustomUser.objects.filter(
+            Q(is_admin=True) | Q(is_superuser=True) | Q(active_role='admin') | Q(is_staff=True),
+            is_active=True
+        ).distinct()
+
+        results = []
+        for admin in admins:
+            name = admin.get_full_name()
+            results.append({
+                "id": admin.id,
+                "name": name or "School Administrator",
+                "first_name": admin.first_name or "School",
+                "last_name": admin.last_name or "Administrator",
+                "email": admin.email,
+                "role_label": "School Administrator",
+            })
+        return Response(results)
+

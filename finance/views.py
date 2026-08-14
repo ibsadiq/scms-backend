@@ -317,6 +317,42 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     ordering_fields = ['date', 'receipt_number', 'amount']
     ordering = ['-date', '-receipt_number']
 
+    def get_queryset(self):
+        queryset = Receipt.objects.select_related(
+            'student',
+            'student__classroom',
+            'term',
+            'received_by'
+        ).prefetch_related('fee_allocations')
+
+        user = self.request.user
+        if hasattr(user, 'is_student') and user.is_student:
+            student = getattr(user, 'student_profile', None) or getattr(user, 'student', None)
+            if not student:
+                from academic.models import Student
+                student = Student.objects.filter(user=user).first()
+            if student:
+                return queryset.filter(student=student)
+            return Receipt.objects.none()
+
+        return queryset
+
+    def filter_queryset(self, queryset):
+        student_param = self.request.query_params.get('student') or self.request.query_params.get('student_id')
+        if student_param:
+            from academic.models import Student
+            st = Student.objects.filter(id=student_param).first()
+            if not st and str(student_param).isdigit():
+                st = Student.objects.filter(user_id=student_param).first()
+            if st:
+                queryset = queryset.filter(student=st)
+                mutable_get = self.request.query_params.copy()
+                mutable_get.pop('student', None)
+                mutable_get.pop('student_id', None)
+                self.request._request.GET = mutable_get
+
+        return super().filter_queryset(queryset)
+
     @action(detail=True, methods=['post'])
     def allocate_to_fees(self, request, pk=None):
         """
@@ -500,23 +536,36 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticated]
 
+    def _resolve_student(self, pk_or_id, user=None):
+        from academic.models import Student
+        from django.db.models import Q
+        if pk_or_id:
+            st = Student.objects.filter(id=pk_or_id).first()
+            if not st:
+                st = Student.objects.filter(user_id=pk_or_id).first()
+            if not st and str(pk_or_id).isdigit():
+                st = Student.objects.filter(Q(id=int(pk_or_id)) | Q(user_id=int(pk_or_id))).first()
+            if not st:
+                st = Student.objects.filter(admission_number=str(pk_or_id)).first()
+            if st:
+                return st
+        if user and user.is_authenticated:
+            return getattr(user, 'student_profile', None) or getattr(user, 'student', None) or Student.objects.filter(user=user).first()
+        return None
+
     def list(self, request):
         """
         Get fee balance using query parameters.
         GET /api/finance/fee-balance/?student={student_id}&term={term_id}
         """
-        student_id = request.query_params.get('student')
-
-        if not student_id:
+        student_id = request.query_params.get('student') or request.query_params.get('student_id')
+        student = self._resolve_student(student_id, request.user)
+        if not student:
             return Response(
-                {'error': 'student parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'No student found matching query'},
+                status=status.HTTP_404_NOT_FOUND
             )
-
-        # Use the retrieve logic with query params
-        student = get_object_or_404(Student, id=student_id)
         term_id = request.query_params.get('term')
-
         return self._get_student_balance(student, term_id)
 
     def retrieve(self, request, pk=None):
@@ -524,10 +573,14 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         Get fee balance for a specific student.
         GET /api/financial/student-balance/{student_id}/?term_id=1
         """
-        student = get_object_or_404(Student, id=pk)
+        student = self._resolve_student(pk, request.user)
+        if not student:
+            return Response(
+                {'error': 'No student found matching query'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         term_id = request.query_params.get('term_id')
         academic_year_id = request.query_params.get('academic_year_id')
-
         return self._get_student_balance(student, term_id, academic_year_id)
 
     def _get_student_balance(self, student, term_id=None, academic_year_id=None):

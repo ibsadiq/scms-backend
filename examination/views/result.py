@@ -67,6 +67,9 @@ def _term_results_for_user(user):
 
     if role == "student" or getattr(user, "is_student", False):
         student = getattr(user, "student_profile", None) or getattr(user, "student", None)
+        if not student:
+            from academic.models import Student
+            student = Student.objects.filter(user=user).first()
         if student:
             return TermResult.objects.filter(student=student, is_published=True).distinct()
         return TermResult.objects.filter(student__user=user, is_published=True).distinct()
@@ -85,7 +88,14 @@ class TermResultViewSet(viewsets.ModelViewSet):
         p = self.request.query_params
         student_param = p.get("student") or p.get("student_id")
         if student_param:
-            qs = qs.filter(student_id=student_param)
+            from academic.models import Student
+            st = Student.objects.filter(id=student_param).first()
+            if not st and str(student_param).isdigit():
+                st = Student.objects.filter(user_id=student_param).first()
+            if st:
+                qs = qs.filter(student=st)
+            else:
+                qs = qs.filter(student_id=student_param)
         if p.get("term"):
             qs = qs.filter(term_id=p["term"])
         if p.get("classroom"):
@@ -503,7 +513,14 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(term_result__classroom_id=p["classroom"])
         student_id = p.get("student") or p.get("student_id")
         if student_id:
-            qs = qs.filter(term_result__student_id=student_id)
+            from academic.models import Student
+            st = Student.objects.filter(id=student_id).first()
+            if not st and str(student_id).isdigit():
+                st = Student.objects.filter(user_id=student_id).first()
+            if st:
+                qs = qs.filter(term_result__student=st)
+            else:
+                qs = qs.filter(term_result__student_id=student_id)
         if p.get("admin_approved"):
             is_approved = p["admin_approved"].lower() in ("true", "1")
             qs = qs.filter(term_result__admin_approved=is_approved)

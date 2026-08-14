@@ -11,7 +11,7 @@ from rest_framework import permissions
 
 class IsStudentOwner(permissions.BasePermission):
     """
-    Permission to allow students to only access their own data.
+    Permission to allow students to only access their own data and classroom assignments.
 
     Usage:
     - Student can view/edit their own profile
@@ -20,19 +20,35 @@ class IsStudentOwner(permissions.BasePermission):
 
     def has_permission(self, request, view):
         """Check if user is authenticated and is a student"""
-        return request.user and request.user.is_authenticated and request.user.is_student
+        return request.user and request.user.is_authenticated and (
+            request.user.is_student or getattr(request.user, 'active_role', '') == 'student'
+        )
 
     def has_object_permission(self, request, view, obj):
-        """Check if student owns the object"""
+        """Check if student owns the object or object is for their classroom"""
         # If object is the student themselves
-        if hasattr(obj, 'user'):
+        if hasattr(obj, 'user') and obj.user:
             return obj.user == request.user
 
-        # If object belongs to the student (e.g., AttendanceRecord, Assignment)
-        if hasattr(obj, 'student'):
-            return hasattr(request.user, 'student_profile') and obj.student == request.user.student_profile
+        # Get student profile for user
+        student = getattr(request.user, 'student_profile', None) or getattr(request.user, 'student', None)
+        if not student:
+            from academic.models import Student
+            student = Student.objects.filter(user=request.user).first()
+
+        if not student:
+            return False
+
+        # If object is an Assignment for the student's classroom
+        if hasattr(obj, 'classroom') and obj.classroom_id:
+            return obj.classroom_id == student.classroom_id
+
+        # If object belongs to the student (e.g., AttendanceRecord, Submission)
+        if hasattr(obj, 'student') and obj.student_id:
+            return obj.student_id == student.id
 
         return False
+
 
 
 class IsParentOfStudent(permissions.BasePermission):

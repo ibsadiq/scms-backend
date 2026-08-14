@@ -104,12 +104,14 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         """Automatically set teacher when creating assignment"""
         teacher = getattr(self.request.user, 'teacher', None)
         if not teacher:
+            teacher = Teacher.objects.filter(user=self.request.user).first()
+        if not teacher:
             teacher_id = self.request.data.get('teacher')
             if teacher_id:
                 teacher = get_object_or_404(Teacher, id=teacher_id)
-            else:
-                from rest_framework.exceptions import ValidationError
-                raise ValidationError({"teacher": "Teacher profile required to create assignment."})
+        if not teacher:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"teacher": "Teacher profile required to create assignment."})
         serializer.save(teacher=teacher, assigned_date=timezone.now())
     
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])

@@ -26,7 +26,7 @@ from django.db.models import Sum, Count
 from academic.models import StudentClassEnrollment, Teacher, Subject, Parent, AllocatedSubject
 from examination.models import AssessmentSession, AssessmentEntry
 from schedule.models import PeriodSlot, TimetableEntry
-from .models import CustomUser as User, UserInvitation
+from .models import CustomUser, CustomUser as User, UserInvitation
 from .serializers import (
     UserSerializer,
     UserSerializerWithToken,
@@ -1189,8 +1189,25 @@ class ParentDashboardView(APIView):
                 "paid_through": receipt.paid_through or "Cash"
             })
 
+        # ===== SCHOOL ADMINISTRATORS FOR MESSAGING =====
+        school_admins_list = []
+        admin_users = CustomUser.objects.filter(
+            Q(is_admin=True) | Q(is_superuser=True) | Q(active_role='admin') | Q(is_staff=True),
+            is_active=True
+        ).distinct()
+        for au in admin_users:
+            school_admins_list.append({
+                "id": au.id,
+                "name": au.get_full_name() or "School Administrator",
+                "first_name": au.first_name or "School",
+                "last_name": au.last_name or "Administrator",
+                "email": au.email,
+                "role_label": "School Administrator",
+            })
+
         payload = {
             "children": children_data,
+            "school_admins": school_admins_list,
             "upcomingEvents": upcoming_events,
             "recentPayments": recent_payments
         }
