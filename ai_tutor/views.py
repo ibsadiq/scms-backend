@@ -57,6 +57,23 @@ class LessonTopicViewSet(viewsets.ModelViewSet):
         content_text = request.data.get('content_text', '')
         document_file = request.FILES.get('document_file')
 
+        # Auto-extract text from uploaded PDF if provided
+        if document_file and document_file.name.lower().endswith('.pdf'):
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(document_file)
+                extracted_pages = []
+                for page in reader.pages[:30]:  # extract up to 30 pages
+                    text = page.extract_text()
+                    if text:
+                        extracted_pages.append(text)
+                if extracted_pages:
+                    pdf_text = "\n".join(extracted_pages)
+                    content_text = f"{content_text}\n{pdf_text}".strip() if content_text else pdf_text
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Error extracting PDF text: {e}")
+
         material = LessonMaterial.objects.create(
             lesson_topic=topic,
             title=title,
@@ -94,6 +111,80 @@ class TutorSessionViewSet(viewsets.ModelViewSet):
             return qs.none()
 
         return qs
+
+    @action(detail=False, methods=['get'], url_path='parent-digest')
+    def parent_digest(self, request):
+        """
+        Provides parent view of their children's AI Tutor study and inquiry activity.
+        """
+        from academic.models import Parent
+        parent = Parent.objects.filter(user=request.user).first()
+        if not parent and not (getattr(request.user, 'is_staff', False) or getattr(request.user, 'is_admin', False)):
+            return Response({"error": "Parent profile not found"}, status=status.HTTP_403_FORBIDDEN)
+
+        children = Student.objects.filter(parent_guardian=parent) if parent else Student.objects.filter(is_active=True)[:5]
+        digest = []
+
+        for child in children:
+            child_sessions = TutorSession.objects.filter(student=child)
+            total_sessions = child_sessions.count()
+            total_questions = TutorMessage.objects.filter(session__in=child_sessions, role='student').count()
+
+            # Active subjects
+            subjects_explored = list(child_sessions.values_list('subject__name', flat=True).distinct())
+
+            # Recent questions asked by child
+            recent_queries = []
+            for msg in TutorMessage.objects.filter(session__in=child_sessions, role='student').select_related('session', 'session__subject', 'session__lesson_topic').order_by('-created_at')[:8]:
+                recent_queries.append({
+                    'id': msg.id,
+                    'subject': msg.session.subject.name,
+                    'topic': msg.session.lesson_topic.title if msg.session.lesson_topic else 'General Support',
+                    'question': msg.content,
+                    'created_at': msg.created_at
+                })
+
+            digest.append({
+                'student_id': child.id,
+                'student_name': child.full_name if hasattr(child, 'full_name') else f"{child.first_name} {child.last_name}",
+                'admission_number': child.admission_number,
+                'classroom': str(child.classroom) if child.classroom else 'N/A',
+                'total_sessions': total_sessions,
+                'total_questions': total_questions,
+                'subjects_explored': subjects_explored,
+                'recent_queries': recent_queries
+            })
+
+        return Response(digest, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='admin-overview')
+    def admin_overview(self, request):
+        """
+        Provides school-wide analytics on AI Tutor usage.
+        """
+        if not (getattr(request.user, 'is_staff', False) or getattr(request.user, 'is_admin', False) or getattr(request.user, 'is_superuser', False)):
+            return Response({"error": "Admin access required"}, status=status.HTTP_403_FORBIDDEN)
+
+        total_sessions = TutorSession.objects.count()
+        total_questions = TutorMessage.objects.filter(role='student').count()
+        total_active_teachers = TutorSession.objects.values('teacher').distinct().count()
+        total_active_students = TutorSession.objects.values('student').distinct().count()
+
+        # Subject breakdown
+        subject_counts = {}
+        for s in TutorSession.objects.select_related('subject'):
+            name = s.subject.name
+            subject_counts[name] = subject_counts.get(name, 0) + 1
+
+        top_subjects = sorted([{'subject': k, 'sessions': v} for k, v in subject_counts.items()], key=lambda x: x['sessions'], reverse=True)[:6]
+
+        return Response({
+            'total_sessions': total_sessions,
+            'total_questions': total_questions,
+            'total_active_teachers': total_active_teachers,
+            'total_active_students': total_active_students,
+            'top_subjects': top_subjects,
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='teacher-insights')
     def teacher_insights(self, request):
