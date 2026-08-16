@@ -100,6 +100,7 @@ TENANT_APPS = [
     "notifications.apps.NotificationsConfig",
     "schedule.apps.ScheduleConfig",
     "sis.apps.SisConfig",
+    "ai_tutor.apps.AiTutorConfig",
 ]
 
 # ==============================================================================
