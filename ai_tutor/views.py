@@ -279,16 +279,24 @@ class TutorSessionViewSet(viewsets.ModelViewSet):
         if lesson_topic_id:
             lesson_topic = LessonTopic.objects.filter(id=lesson_topic_id).first()
 
-        # Find existing active session or create new
-        session, created = TutorSession.objects.get_or_create(
+        # Find existing active session or create new (resilient to race conditions)
+        session = TutorSession.objects.filter(
             student=student,
             teacher=teacher,
             subject=subject,
             lesson_topic=lesson_topic,
-            defaults={
-                'title': f"{subject.name} - {lesson_topic.title if lesson_topic else 'Tutoring'}"
-            }
-        )
+        ).order_by('-updated_at').first()
+
+        created = False
+        if not session:
+            session = TutorSession.objects.create(
+                student=student,
+                teacher=teacher,
+                subject=subject,
+                lesson_topic=lesson_topic,
+                title=f"{subject.name} - {lesson_topic.title if lesson_topic else 'Tutoring'}"
+            )
+            created = True
 
         serializer = self.get_serializer(session)
         return Response(serializer.data, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
