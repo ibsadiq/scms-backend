@@ -2,6 +2,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from finance.views import (
+    OptionalServiceViewSet,
+    ServiceSubscriptionViewSet,
     FeeStructureViewSet,
     StudentFeeAssignmentViewSet,
     ReceiptViewSet,
@@ -11,10 +13,13 @@ from finance.views import (
     ParentFeesView,
     ReminderSettingViewSet,
     FinanceDashboardSummaryView,
+    FinanceAuditLogViewSet,
 )
 
 # Create router and register viewsets
 router = DefaultRouter()
+router.register(r'optional-services', OptionalServiceViewSet, basename='optional-service')
+router.register(r'service-subscriptions', ServiceSubscriptionViewSet, basename='service-subscription')
 router.register(r'fee-structures', FeeStructureViewSet, basename='fee-structure')
 router.register(r'student-fee-assignments', StudentFeeAssignmentViewSet, basename='student-fee-assignment')
 router.register(r'fee-assignments', StudentFeeAssignmentViewSet, basename='fee-assignment')
@@ -24,6 +29,7 @@ router.register(r'payment-categories', PaymentCategoryViewSet, basename='payment
 router.register(r'student-balance', StudentFeeBalanceViewSet, basename='student-balance')
 router.register(r'fee-balance', StudentFeeBalanceViewSet, basename='fee-balance')
 router.register(r'reminder-settings', ReminderSettingViewSet, basename='reminder-setting')
+router.register(r'audit-logs', FinanceAuditLogViewSet, basename='finance-audit-log')
 
 urlpatterns = [
     path('dashboard/summary/', FinanceDashboardSummaryView.as_view(), name='finance-dashboard-summary'),

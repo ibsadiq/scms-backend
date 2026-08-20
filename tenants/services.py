@@ -166,9 +166,10 @@ class TenantService:
         """Initialize default academic year, terms, and grade levels for a new school."""
         from datetime import date
         from administration.models import AcademicYear, Term
-        from academic.models import GradeLevel
+        from academic.models import GradeLevel, SchoolSection
 
         with schema_context(schema_name):
+            SchoolSection.initialize_defaults()
             GradeLevel.initialize_defaults()
             today = date.today()
             # If we are before August, we are still in the previous year's academic session (e.g. July 2026 is in the 2025/2026 session)

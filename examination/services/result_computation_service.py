@@ -9,153 +9,28 @@ from ..models import (
 )
 from .ranking_service import RankingService
 from .grading_engine import GradingSchemeResolver
+from .term_result_service import TermResultService
 
 
 class ResultComputationService:
 
     @staticmethod
     def _get_grade_resolver(scheme):
-        rules = list(GradeRule.objects.filter(scheme=scheme))
-        def resolve(percentage):
-            dec_pct = Decimal(str(percentage))
-            for rule in rules:
-                if rule.min_score <= dec_pct <= rule.max_score:
-                    return rule
-            for rule in rules:
-                if (rule.min_score - Decimal("0.05")) <= dec_pct <= (rule.max_score + Decimal("0.05")):
-                    return rule
-            raise ValidationError(f"No grade rule covers {percentage}% in scheme {scheme.name}.")
-        return resolve
+        return TermResultService._get_grade_resolver(scheme)
 
     @staticmethod
-    @transaction.atomic
-    def compute_student_term_result(student, term, academic_year, user, scheme=None, grade_resolver=None, skip_ranking=False):
-        enrollment = StudentClassEnrollment.objects.filter(
-            student=student, academic_year=academic_year
-        ).select_related("classroom").first()
-        if not enrollment:
-            raise ValidationError("Student has no enrollment for this academic year.")
-
-        classroom = enrollment.classroom
-        if not scheme:
-            scheme = GradingSchemeResolver.get_scheme(classroom, academic_year)
-        if not scheme:
-            raise ValidationError("No active grading scheme found for this class.")
-
-        if not grade_resolver:
-            grade_resolver = ResultComputationService._get_grade_resolver(scheme)
-
-        entries = list(AssessmentEntry.objects.filter(student=enrollment).select_related(
-            "component", "subject", "component__scheme"
-        ))
-        if not entries:
-            raise ValidationError("No assessment entries found for this student/term.")
-
-        existing_result = TermResult.objects.filter(
-            student=student, term=term, academic_year=academic_year
-        ).first()
-        if existing_result and existing_result.is_locked:
-            raise ValidationError(f"Term result for student '{getattr(student, 'full_name', str(student))}' is locked. Unlock result first to re-compute.")
-
-        # Group entries by subject
-        by_subject = {}
-        for entry in entries:
-            by_subject.setdefault(entry.subject_id, []).append(entry)
-
-        term_result, _ = TermResult.objects.update_or_create(
-            student=student, term=term, academic_year=academic_year,
-            defaults={
-                "grading_scheme": scheme,
-                "scheme_name": scheme.name,
-                "classroom": classroom,
-                "total_marks": Decimal("0"),
-                "average_percentage": Decimal("0"),
-                "grade": "N/A",
-                "gpa": Decimal("0"),
-                "computed_date": timezone.now(),
-                "computed_by": user,
-                "admin_approved": False, "admin_approved_by": None, "admin_approved_at": None,
-                "homeroom_approved": False, "homeroom_approved_by": None, "homeroom_approved_at": None,
-                "is_published": False, "published_date": None,
-            },
+    def compute_student_term_result(
+        student, term, academic_year, user,
+        scheme=None, grade_resolver=None, skip_ranking=False,
+        pre_fetched_enrollment=None, pre_fetched_entries=None, pre_fetched_existing_result=None
+    ):
+        return TermResultService.compute_student_term_result(
+            student=student, term=term, academic_year=academic_year, user=user,
+            scheme=scheme, grade_resolver=grade_resolver, skip_ranking=skip_ranking,
+            pre_fetched_enrollment=pre_fetched_enrollment,
+            pre_fetched_entries=pre_fetched_entries,
+            pre_fetched_existing_result=pre_fetched_existing_result
         )
-        term_result.subject_results.all().delete()
-
-        subject_totals = []
-        overall_pass = True
-        promotion_rule = getattr(scheme, "promotion_rule", None)
-
-        subject_results_to_create = []
-
-        for subject_id, subject_entries in by_subject.items():
-            components = {e.component for e in subject_entries}
-            weight_total = sum(c.weight for c in components)
-            if weight_total == 0:
-                continue
-
-            weighted_score = Decimal("0")
-            for entry in subject_entries:
-                component = entry.component
-                normalized = (Decimal(str(entry.score)) / Decimal(str(component.max_score))) * Decimal(str(component.weight))
-                weighted_score += normalized
-
-            percentage = round((weighted_score / Decimal(str(weight_total))) * Decimal("100"), 2)
-            grade_rule = grade_resolver(percentage)
-            is_pass = percentage >= Decimal(str(promotion_rule.minimum_subject_pass if promotion_rule else 40))
-            overall_pass = overall_pass and is_pass
-
-            subject_result = SubjectResult(
-                term_result=term_result,
-                subject_id=subject_id,
-                total_score=weighted_score,
-                percentage=percentage,
-                grade=grade_rule.grade,
-                grade_point=grade_rule.grade_point,
-                is_pass=is_pass,
-                grading_scheme_name=scheme.name,
-                grading_rule_snapshot={
-                    "min_score": str(grade_rule.min_score),
-                    "max_score": str(grade_rule.max_score),
-                    "remark": grade_rule.remark,
-                },
-            )
-            subject_results_to_create.append((subject_result, subject_entries))
-            subject_totals.append(percentage)
-
-        if not subject_totals:
-            raise ValidationError("No valid subject scores to compute a term result.")
-
-        created_subject_results = SubjectResult.objects.bulk_create([sr[0] for sr in subject_results_to_create])
-        
-        assessment_scores_to_create = []
-        for subject_result, subject_entries in zip(created_subject_results, [sr[1] for sr in subject_results_to_create]):
-            for entry in subject_entries:
-                assessment_scores_to_create.append(
-                    AssessmentScore(
-                        subject_result=subject_result,
-                        component=entry.component,
-                        score=entry.score,
-                    )
-                )
-        if assessment_scores_to_create:
-            AssessmentScore.objects.bulk_create(assessment_scores_to_create)
-
-        average = round(sum(subject_totals) / len(subject_totals), 2)
-        overall_grade_rule = grade_resolver(average)
-
-        term_result.total_marks = sum(subject_totals)
-        term_result.average_percentage = average
-        term_result.grade = overall_grade_rule.grade
-        term_result.gpa = overall_grade_rule.grade_point
-        term_result.is_pass = overall_pass
-        term_result.save()
-
-        if not skip_ranking:
-            RankingService.rank_class(classroom, term, academic_year)
-            for subject_id in by_subject:
-                RankingService.rank_subject(classroom, term, academic_year, subject_id)
-
-        return term_result
 
     @staticmethod
     @transaction.atomic
@@ -172,12 +47,37 @@ class ResultComputationService:
         grade_resolver = ResultComputationService._get_grade_resolver(scheme)
         students = list(classroom.students.filter(is_active=True))
 
+        # Pre-fetch enrollments for all students
+        enrollments = list(StudentClassEnrollment.objects.filter(
+            student__in=students, academic_year=academic_year, classroom=classroom
+        ).select_related("classroom"))
+        enrollments_by_student = {e.student_id: e for e in enrollments}
+
+        # Pre-fetch existing results for all students
+        existing_results = list(TermResult.objects.filter(
+            student__in=students, term=term, academic_year=academic_year
+        ))
+        existing_results_by_student = {r.student_id: r for r in existing_results}
+
+        # Pre-fetch assessment entries for all enrollments
+        entries = list(AssessmentEntry.objects.filter(
+            student__in=enrollments
+        ).select_related("component", "subject", "component__scheme"))
+        entries_by_enrollment = {}
+        for entry in entries:
+            entries_by_enrollment.setdefault(entry.student_id, []).append(entry)
+
         summary = {"computed": 0, "failed": 0, "errors": []}
         subjects_seen = set()
 
         for i, student in enumerate(students):
             if progress_callback:
                 progress_callback(i, len(students), student)
+                
+            enrollment = enrollments_by_student.get(student.id)
+            student_entries = entries_by_enrollment.get(enrollment.id, []) if enrollment else []
+            existing_result = existing_results_by_student.get(student.id)
+            
             try:
                 result = ResultComputationService.compute_student_term_result(
                     student=student,
@@ -187,6 +87,9 @@ class ResultComputationService:
                     scheme=scheme,
                     grade_resolver=grade_resolver,
                     skip_ranking=True,
+                    pre_fetched_enrollment=enrollment,
+                    pre_fetched_entries=student_entries,
+                    pre_fetched_existing_result=existing_result
                 )
                 summary["computed"] += 1
                 for sr in result.subject_results.values_list('subject_id', flat=True):

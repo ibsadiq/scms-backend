@@ -10,6 +10,8 @@ from django.db.models import Sum, Q, F
 from django.shortcuts import get_object_or_404
 from decimal import Decimal
 from .models import (
+    OptionalService,
+    ServiceSubscription,
     FeeStructure,
     StudentFeeAssignment,
     FeeAdjustment,
@@ -17,10 +19,14 @@ from .models import (
     FeePaymentAllocation,
     Payment,
     PaymentCategory,
-    ReminderSetting
+    ReminderSetting,
+    FinanceAuditLog,
+    AuditAction
 )
 from .filters import StudentFeeAssignmentFilter
 from .serializers import (
+    OptionalServiceSerializer,
+    ServiceSubscriptionSerializer,
     FeeStructureSerializer,
     StudentFeeAssignmentSerializer,
     FeeAdjustmentSerializer,
@@ -33,6 +39,71 @@ from .serializers import (
 )
 from academic.models import Student
 from administration.models import Term
+
+
+class OptionalServiceViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing optional services."""
+    queryset = OptionalService.objects.all()
+    serializer_class = OptionalServiceSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['is_active', 'fee_type']
+    search_fields = ['name', 'description']
+    ordering_fields = ['name', 'created_at']
+    ordering = ['name']
+
+
+class ServiceSubscriptionViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing student subscriptions to optional services."""
+    queryset = ServiceSubscription.objects.select_related('student', 'service')
+    serializer_class = ServiceSubscriptionSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['service', 'student', 'is_active']
+    search_fields = ['student__first_name', 'student__last_name', 'student__admission_number', 'service__name']
+    ordering_fields = ['subscribed_on', 'is_active']
+    ordering = ['-subscribed_on']
+
+    @action(detail=False, methods=['post'])
+    def bulk_subscribe(self, request):
+        """
+        Bulk subscribe multiple students to a service.
+        Body: { "service": 1, "student_ids": [10, 15, 20] }
+        """
+        service_id = request.data.get('service')
+        student_ids = request.data.get('student_ids', [])
+        
+        if not service_id or not student_ids:
+            return Response(
+                {"error": "service and student_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        service = get_object_or_404(OptionalService, id=service_id)
+        
+        created_count = 0
+        for student_id in student_ids:
+            student = get_object_or_404(Student, id=student_id)
+            _, created = ServiceSubscription.objects.get_or_create(
+                student=student,
+                service=service,
+                defaults={'is_active': True}
+            )
+            if created:
+                created_count += 1
+                
+        if created_count > 0:
+            FinanceAuditLog.objects.create(
+                user=request.user,
+                action=AuditAction.SERVICE_SUBSCRIBED,
+                description=f"Bulk subscribed {created_count} students to service '{service.name}'.",
+                metadata={"service_id": service.id, "student_ids": student_ids}
+            )
+
+        return Response({
+            "message": f"Successfully subscribed {created_count} students to {service.name}",
+            "subscribed_count": created_count
+        })
 
 
 class FeeStructureViewSet(viewsets.ModelViewSet):
@@ -186,6 +257,16 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
     ordering_fields = ['assigned_date', 'amount_owed', 'balance']
     ordering = ['-assigned_date']
 
+    def perform_create(self, serializer):
+        assignment = serializer.save()
+        FinanceAuditLog.objects.create(
+            user=self.request.user,
+            action=AuditAction.FEE_ASSIGNED,
+            target_student=assignment.student,
+            description=f"Assigned fee '{assignment.fee_structure.name}' (₦{assignment.amount_owed}) to {assignment.student.full_name}.",
+            metadata={"amount_owed": float(assignment.amount_owed), "fee_id": assignment.fee_structure.id}
+        )
+
     @action(detail=False, methods=['get'])
     def by_student(self, request):
         """
@@ -209,6 +290,54 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'])
+    def bulk_assign(self, request):
+        """
+        Bulk assign a fee structure to multiple students.
+        Body: { "fee_structure": 1, "term": 1, "student_ids": [10, 15, 20] }
+        """
+        fee_structure_id = request.data.get('fee_structure')
+        term_id = request.data.get('term')
+        student_ids = request.data.get('student_ids', [])
+
+        if not fee_structure_id or not student_ids:
+            return Response(
+                {"error": "fee_structure and student_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        fee_structure = get_object_or_404(FeeStructure, id=fee_structure_id)
+        term = get_object_or_404(Term, id=term_id) if term_id else None
+
+        created_count = 0
+        for student_id in student_ids:
+            student = get_object_or_404(Student, id=student_id)
+            if fee_structure.applies_to_student(student, term):
+                _, created = StudentFeeAssignment.objects.get_or_create(
+                    student=student,
+                    fee_structure=fee_structure,
+                    term=term,
+                    defaults={
+                        'amount_owed': fee_structure.amount,
+                        'amount_paid': Decimal('0.00'),
+                    }
+                )
+                if created:
+                    created_count += 1
+
+        if created_count > 0:
+            FinanceAuditLog.objects.create(
+                user=request.user,
+                action=AuditAction.BULK_FEE_ASSIGNED,
+                description=f"Bulk assigned fee '{fee_structure.name}' to {created_count} students.",
+                metadata={"fee_id": fee_structure.id, "student_ids": student_ids}
+            )
+
+        return Response({
+            "message": f"Successfully assigned fee to {created_count} students",
+            "assigned_count": created_count
+        })
+
     @action(detail=True, methods=['post'])
     def waive(self, request, pk=None):
         """
@@ -218,8 +347,17 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         """
         assignment = self.get_object()
         reason = request.data.get('reason', 'No reason provided')
+        original_amount = assignment.amount_owed
 
         assignment.waive_fee(reason=reason, waived_by=request.user)
+
+        FinanceAuditLog.objects.create(
+            user=request.user,
+            action=AuditAction.FEE_WAIVED,
+            target_student=assignment.student,
+            description=f"Waived fee '{assignment.fee_structure.name}' for {assignment.student.full_name}. Reason: {reason}",
+            metadata={"original_amount": float(original_amount), "new_amount": float(assignment.amount_owed)}
+        )
 
         return Response({
             'message': 'Fee waived successfully',
@@ -245,7 +383,16 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
 
         try:
             new_amount = Decimal(str(new_amount))
+            original_amount = assignment.amount_owed
             assignment.adjust_amount(new_amount, reason)
+
+            FinanceAuditLog.objects.create(
+                user=request.user,
+                action=AuditAction.AMOUNT_ADJUSTED,
+                target_student=assignment.student,
+                description=f"Adjusted fee '{assignment.fee_structure.name}' for {assignment.student.full_name} from ₦{original_amount} to ₦{new_amount}. Reason: {reason}",
+                metadata={"original_amount": float(original_amount), "new_amount": float(new_amount)}
+            )
 
             return Response({
                 'message': 'Fee amount adjusted successfully',
@@ -336,6 +483,26 @@ class ReceiptViewSet(viewsets.ModelViewSet):
             return Receipt.objects.none()
 
         return queryset
+
+    def perform_create(self, serializer):
+        receipt = serializer.save(received_by=self.request.user)
+        FinanceAuditLog.objects.create(
+            user=self.request.user,
+            action=AuditAction.PAYMENT_RECORDED,
+            target_student=receipt.student,
+            description=f"Recorded incoming payment of ₦{receipt.amount} from {receipt.student.full_name} ({receipt.student.admission_number}).",
+            metadata={"amount": float(receipt.amount), "receipt_id": receipt.id}
+        )
+
+    def perform_destroy(self, instance):
+        FinanceAuditLog.objects.create(
+            user=self.request.user,
+            action=AuditAction.PAYMENT_REVERSED,
+            target_student=instance.student,
+            description=f"Reversed/deleted incoming payment of ₦{instance.amount} from {instance.student.full_name}.",
+            metadata={"amount": float(instance.amount), "receipt_id": instance.id}
+        )
+        instance.delete()
 
     def filter_queryset(self, queryset):
         student_param = self.request.query_params.get('student') or self.request.query_params.get('student_id')
@@ -524,6 +691,24 @@ class PaymentViewSet(viewsets.ModelViewSet):
     search_fields = ['paid_to', 'payment_number', 'reference_number', 'description']
     ordering_fields = ['date', 'payment_number', 'amount']
     ordering = ['-date', '-payment_number']
+
+    def perform_create(self, serializer):
+        payment = serializer.save(paid_by=self.request.user)
+        FinanceAuditLog.objects.create(
+            user=self.request.user,
+            action=AuditAction.PAYMENT_RECORDED,
+            description=f"Recorded outgoing payment of ₦{payment.amount} to '{payment.paid_to}' for {payment.category.name if payment.category else 'Uncategorized'}.",
+            metadata={"amount": float(payment.amount), "payment_id": payment.id}
+        )
+
+    def perform_destroy(self, instance):
+        FinanceAuditLog.objects.create(
+            user=self.request.user,
+            action=AuditAction.PAYMENT_REVERSED,
+            description=f"Reversed/deleted outgoing payment of ₦{instance.amount} to '{instance.paid_to}'.",
+            metadata={"amount": float(instance.amount), "payment_id": instance.id}
+        )
+        instance.delete()
 
 
 class StudentFeeBalanceViewSet(viewsets.ViewSet):
@@ -964,4 +1149,20 @@ class ReminderSettingViewSet(viewsets.ModelViewSet):
     search_fields = ['name']
     ordering_fields = ['days_before_due', 'created_at']
     ordering = ['days_before_due']
+
+
+class FinanceAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing finance audit logs.
+    """
+    from finance.models import FinanceAuditLog
+    from finance.serializers import FinanceAuditLogSerializer
+    queryset = FinanceAuditLog.objects.select_related('user', 'target_student').all()
+    serializer_class = FinanceAuditLogSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['action', 'user', 'target_student']
+    search_fields = ['description', 'target_student__first_name', 'target_student__last_name', 'user__first_name', 'user__last_name']
+    ordering_fields = ['timestamp']
+    ordering = ['-timestamp']
 

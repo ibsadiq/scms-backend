@@ -12,7 +12,8 @@ from .models import (
     StudentClassEnrollment,
     Stream,
     PromotionRule,
-    StudentPromotion
+    StudentPromotion,
+    SchoolSection
 )
 
 
@@ -76,6 +77,11 @@ class SubjectSerializer(serializers.ModelSerializer):
             )
         return value
 
+
+class SchoolSectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SchoolSection
+        fields = ['id', 'system_code', 'default_name', 'alias', 'sequence_order']
 
 class GradeLevelSerializer(serializers.ModelSerializer):
     section_display = serializers.CharField(source='get_section_display', read_only=True)

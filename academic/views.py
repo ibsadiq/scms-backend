@@ -15,6 +15,7 @@ from .models import (
     ClassLevel,
     Teacher,
     GradeLevel,
+    SchoolSection,
     ClassYear,
     ReasonLeft,
     StudentClassEnrollment as StudentClass,
@@ -25,6 +26,7 @@ from .serializers import (
     DepartmentSerializer,
     ClassLevelSerializer,
     GradeLevelSerializer,
+    SchoolSectionSerializer,
     ClassYearSerializer,
     ReasonLeftSerializer,
     SubjectSerializer,
@@ -65,6 +67,19 @@ class ClassLevelListCreateView(generics.ListCreateAPIView):
 class ClassLevelDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = ClassLevel.objects.all()
     serializer_class = ClassLevelSerializer
+    permission_classes = [IsAuthenticated]
+
+
+# SchoolSection Views
+class SchoolSectionListView(generics.ListAPIView):
+    queryset = SchoolSection.objects.all()
+    serializer_class = SchoolSectionSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class SchoolSectionDetailView(generics.RetrieveUpdateAPIView):
+    queryset = SchoolSection.objects.all()
+    serializer_class = SchoolSectionSerializer
     permission_classes = [IsAuthenticated]
 
 

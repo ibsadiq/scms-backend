@@ -244,8 +244,14 @@ class GradeRule(models.Model):
 class PromotionRule(models.Model):
 
     class AnnualComputationMethod(models.TextChoices):
-        AVERAGE_ALL_TERMS = "AVERAGE_ALL_TERMS", "Average of all three terms"
+        AVERAGE_ALL_TERMS = "AVERAGE_ALL_TERMS", "Average of all terms"
         FINAL_TERM_ONLY = "FINAL_TERM_ONLY", "Third term result is the annual result"
+        WEIGHTED_TERMS = "WEIGHTED_TERMS", "Use custom term weights"
+
+    class MissingTermPolicy(models.TextChoices):
+        TREAT_AS_ZERO = "TREAT_AS_ZERO", "Treat missing terms as 0%"
+        IGNORE_AND_AVERAGE = "IGNORE_AND_AVERAGE", "Ignore missing terms and average the rest"
+        FAIL_SUBJECT = "FAIL_SUBJECT", "Automatically fail the subject if a term is missing"
 
     scheme = models.OneToOneField(
         GradingScheme,
@@ -285,6 +291,13 @@ class PromotionRule(models.Model):
     auto_promote = models.BooleanField(
         default=True
     )
+    
+    missing_term_policy = models.CharField(
+        max_length=30,
+        choices=MissingTermPolicy.choices,
+        default=MissingTermPolicy.IGNORE_AND_AVERAGE,
+        help_text="How to handle missing terms when computing annual results"
+    )
 
     def clean(self):
 
@@ -297,6 +310,50 @@ class PromotionRule(models.Model):
             raise ValidationError(
                 "Subject pass cannot exceed 100."
             )
+
+class TermWeightConfig(models.Model):
+    promotion_rule = models.ForeignKey(
+        PromotionRule,
+        related_name="term_weights",
+        on_delete=models.CASCADE
+    )
+    term_number = models.PositiveIntegerField(help_text="e.g. 1 for First Term")
+    weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Percentage weight of this term (e.g. 30.00)"
+    )
+
+    class Meta:
+        unique_together = ("promotion_rule", "term_number")
+        ordering = ["term_number"]
+
+    def __str__(self):
+        return f"Term {self.term_number}: {self.weight}%"
+
+class CumulativePolicy(models.Model):
+    class CumulativeComputationMethod(models.TextChoices):
+        AVERAGE_ANNUAL_RESULTS = "AVERAGE_ANNUAL_RESULTS", "Average Annual Results"
+        WEIGHTED_ANNUAL_RESULTS = "WEIGHTED_ANNUAL_RESULTS", "Weighted Annual Results"
+        FINAL_YEAR_ONLY = "FINAL_YEAR_ONLY", "Final Year Only"
+
+    scheme = models.OneToOneField(
+        GradingScheme,
+        related_name="cumulative_policy",
+        on_delete=models.CASCADE
+    )
+    
+    computation_method = models.CharField(
+        max_length=50,
+        choices=CumulativeComputationMethod.choices,
+        default=CumulativeComputationMethod.AVERAGE_ANNUAL_RESULTS
+    )
+    
+    include_failed_years = models.BooleanField(default=True)
+    include_repeated_years = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return f"Cumulative Policy for {self.scheme.name}"
 
 
 class AssessmentType(models.TextChoices):
@@ -478,11 +535,25 @@ class AssessmentEntry(models.Model):
 # RESULT COMPUTATION MODELS (Phase 1.1)
 # ============================================================================
 
+class LifecycleState(models.TextChoices):
+    DRAFT = "DRAFT", "Draft"
+    COMPUTED = "COMPUTED", "Computed"
+    HOMEROOM_APPROVED = "HOMEROOM_APPROVED", "Homeroom Approved"
+    ADMIN_APPROVED = "ADMIN_APPROVED", "Admin Approved"
+    LOCKED = "LOCKED", "Locked"
+    PUBLISHED = "PUBLISHED", "Published"
+
 class TermResult(models.Model):
     """
     Stores computed results for a student in a specific term.
     This is the master result record that aggregates all subject results.
     """
+    lifecycle_state = models.CharField(
+        max_length=25,
+        choices=LifecycleState.choices,
+        default=LifecycleState.COMPUTED
+    )
+
     grading_scheme = models.ForeignKey(
         GradingScheme,
         on_delete=models.PROTECT
@@ -915,9 +986,69 @@ class SubjectResult(models.Model):
         verbose_name_plural = "Subject Results"
 
     def __str__(self):
-        return f"{self.term_result.student.full_name} - {self.subject.name} ({self.grade})"
+        return f"{self.annual_result.student.full_name} - {self.subject.name} - Annual"
+
+
+class PromotionDecision(models.Model):
+    class Status(models.TextChoices):
+        PROMOTED = "PROMOTED", "Promoted"
+        NOT_PROMOTED = "NOT_PROMOTED", "Not Promoted"
+        CONDITIONAL_PROMOTION = "CONDITIONAL_PROMOTION", "Conditional Promotion"
+        REPEAT_CLASS = "REPEAT_CLASS", "Repeat Class"
+        PENDING_REVIEW = "PENDING_REVIEW", "Pending Review"
+        GRADUATED = "GRADUATED", "Graduated"
+
+    annual_result = models.OneToOneField(
+        "AnnualResult",
+        on_delete=models.CASCADE,
+        related_name="promotion_decision"
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.PENDING_REVIEW
+    )
+
+    promoted_to = models.ForeignKey(
+        GradeLevel,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="promotion_decisions"
+    )
+
+    reasons = models.TextField(
+        blank=True,
+        help_text="Automated reasons for this decision"
+    )
+    
+    failed_subjects_count = models.PositiveIntegerField(default=0)
+    
+    # Manual overrides
+    is_overridden = models.BooleanField(default=False)
+    overridden_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="overridden_promotions"
+    )
+    overridden_at = models.DateTimeField(null=True, blank=True)
+    override_reason = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.annual_result.student.full_name} - {self.status}"
 
 class AnnualResult(models.Model):
+    lifecycle_state = models.CharField(
+        max_length=25,
+        choices=LifecycleState.choices,
+        default=LifecycleState.COMPUTED
+    )
 
     student = models.ForeignKey(
         Student,
@@ -977,7 +1108,8 @@ class AnnualResult(models.Model):
     )
 
     is_promoted = models.BooleanField(
-        default=True
+        default=True,
+        help_text="Legacy field. Use promotion_decision instead."
     )
 
     promoted_to = models.ForeignKey(
@@ -985,7 +1117,7 @@ class AnnualResult(models.Model):
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="promoted_students"
+        related_name="legacy_promoted_students"
     )
 
     promotion_reason = models.TextField(
@@ -1046,6 +1178,154 @@ class AnnualResult(models.Model):
             return False
         return True
 
+class CumulativeResult(models.Model):
+    lifecycle_state = models.CharField(
+        max_length=25,
+        choices=LifecycleState.choices,
+        default=LifecycleState.COMPUTED
+    )
+    
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="cumulative_results"
+    )
+
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        help_text="The latest academic year included in this cumulative result"
+    )
+    
+    grading_scheme = models.ForeignKey(
+        GradingScheme,
+        on_delete=models.PROTECT,
+        null=True
+    )
+
+    total_marks = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cumulative_average = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    cumulative_gpa = models.DecimalField(max_digits=4, decimal_places=2, default=0)
+    grade = models.CharField(max_length=20, blank=True)
+
+    computed_at = models.DateTimeField(auto_now_add=True)
+    computed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+    )
+
+    class Meta:
+        unique_together = ("student", "academic_year")
+
+    def __str__(self):
+        return f"{self.student.full_name} - Cumulative ({self.academic_year})"
+
+
+class CumulativeSubjectResult(models.Model):
+    cumulative_result = models.ForeignKey(
+        CumulativeResult,
+        on_delete=models.CASCADE,
+        related_name="subjects"
+    )
+
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE
+    )
+
+    cumulative_average = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    grade = models.CharField(max_length=20, blank=True)
+    grade_point = models.DecimalField(max_digits=4, decimal_places=2, default=0)
+
+    class Meta:
+        unique_together = ("cumulative_result", "subject")
+
+    def __str__(self):
+        return f"{self.cumulative_result.student.full_name} - {self.subject.name} (Cumulative)"
+
+class ResultAmendmentRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    term_result = models.ForeignKey(
+        TermResult,
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name="amendment_requests"
+    )
+    
+    annual_result = models.ForeignKey(
+        AnnualResult,
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name="amendment_requests"
+    )
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="requested_amendments"
+    )
+    reason = models.TextField()
+    
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+    
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="resolved_amendments"
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_notes = models.TextField(blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if not self.term_result and not self.annual_result:
+            raise ValidationError("Amendment must be for either a term or annual result.")
+        if self.term_result and self.annual_result:
+            raise ValidationError("Amendment cannot be for both term and annual result simultaneously.")
+
+class AcademicTranscript(models.Model):
+    student = models.OneToOneField(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="academic_transcript"
+    )
+    
+    date_generated = models.DateTimeField(auto_now_add=True)
+    generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL
+    )
+    
+    # Stores a JSON snapshot of the student's entire finalized academic history
+    # This ensures that even if models change, the generated transcript remains intact.
+    history_snapshot = models.JSONField(default=dict)
+    
+    pdf_document = models.FileField(
+        upload_to="transcripts/",
+        null=True, blank=True,
+        storage=get_pdf_storage(),
+        validators=[
+            FileExtensionValidator(['pdf']),
+            validate_file_size
+        ]
+    )
+
+    def __str__(self):
+        return f"Transcript - {self.student.full_name}"
+
+
 class AnnualSubjectResult(models.Model):
 
     annual_result = models.ForeignKey(
@@ -1057,6 +1337,30 @@ class AnnualSubjectResult(models.Model):
     subject = models.ForeignKey(
         Subject,
         on_delete=models.CASCADE
+    )
+    
+    class TermStatus(models.TextChoices):
+        AVAILABLE = "AVAILABLE", "Available"
+        NOT_OFFERED = "NOT_OFFERED", "Not Offered"
+        MISSING = "MISSING", "Missing"
+        EXEMPTED = "EXEMPTED", "Exempted"
+
+    first_term_status = models.CharField(
+        max_length=20,
+        choices=TermStatus.choices,
+        default=TermStatus.AVAILABLE
+    )
+    
+    second_term_status = models.CharField(
+        max_length=20,
+        choices=TermStatus.choices,
+        default=TermStatus.AVAILABLE
+    )
+    
+    third_term_status = models.CharField(
+        max_length=20,
+        choices=TermStatus.choices,
+        default=TermStatus.AVAILABLE
     )
 
     first_term = models.DecimalField(
@@ -1095,6 +1399,11 @@ class AnnualSubjectResult(models.Model):
 
     is_pass = models.BooleanField(
         default=True
+    )
+    
+    position_in_subject = models.IntegerField(
+        null=True,
+        blank=True
     )
 
     class Meta:

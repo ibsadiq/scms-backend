@@ -65,7 +65,7 @@ class TermResultSerializer(serializers.ModelSerializer):
             "is_pass", "is_locked", "locked_at", "locked_by",
             "unlock_reason", "unlocked_by", "unlocked_at", "result_release_date",
             "status", "can_view", "subject_results",
-            "last_audit_log",  # <-- ADDED
+            "last_audit_log", "lifecycle_state",
         ]
         read_only_fields = [
             "scheme_name", "total_marks", "average_percentage", "grade", "gpa",
@@ -74,21 +74,25 @@ class TermResultSerializer(serializers.ModelSerializer):
             "admin_approved", "admin_approved_by", "admin_approved_at",
             "is_published", "published_date", "is_pass",
             "is_locked", "locked_at", "locked_by", "unlocked_by", "unlocked_at",
-            "last_audit_log",  # <-- ADDED
+            "last_audit_log", "lifecycle_state",
         ]
 
     def get_last_audit_log(self, obj):
-        """Return the most recent audit log entry for this result."""
-        log = obj.audit_logs.select_related("performed_by").first()
+        log = obj.audit_logs.order_by('-timestamp').first()
         if log:
-            return {
-                "id": log.id,
-                "action": log.action,
-                "performed_by_name": log.performed_by.get_full_name() if log.performed_by else None,
-                "timestamp": log.timestamp,
-                "notes": log.notes,
-            }
+            return ResultAuditLogSerializer(log).data
         return None
+
+
+class TermResultListSerializer(TermResultSerializer):
+    """
+    Lightweight serializer for listing TermResults.
+    Omits `subject_results` to drastically reduce payload size and loading time.
+    """
+    subject_results = None
+
+    class Meta(TermResultSerializer.Meta):
+        fields = [f for f in TermResultSerializer.Meta.fields if f != "subject_results"]
 
 
 class HomeroomRemarksSerializer(serializers.ModelSerializer):
@@ -112,17 +116,32 @@ class AnnualSubjectResultSerializer(serializers.ModelSerializer):
         model = AnnualSubjectResult
         fields = [
             "id", "annual_result", "subject", "subject_name",
-            "first_term", "second_term", "third_term",
+            "first_term", "first_term_status",
+            "second_term", "second_term_status",
+            "third_term", "third_term_status",
             "annual_average", "grade", "grade_point", "is_pass",
+            "position_in_subject"
         ]
         read_only_fields = fields[1:]  # entirely computed by PromotionService
 
+
+from ..models import PromotionDecision
+
+class PromotionDecisionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PromotionDecision
+        fields = [
+            "id", "status", "reasons", "failed_subjects_count",
+            "is_overridden", "overridden_by", "overridden_at",
+            "override_reason", "promoted_to"
+        ]
 
 class AnnualResultSerializer(serializers.ModelSerializer):
     subjects = AnnualSubjectResultSerializer(many=True, read_only=True)
     student_name = serializers.CharField(source="student.full_name", read_only=True)
     classroom_name = serializers.StringRelatedField(source="classroom", read_only=True)
     academic_year_name = serializers.StringRelatedField(source="academic_year", read_only=True)
+    promotion_decision = PromotionDecisionSerializer(read_only=True)
 
     class Meta:
         model = AnnualResult
@@ -131,13 +150,68 @@ class AnnualResultSerializer(serializers.ModelSerializer):
             "grading_scheme", "total_marks", "average_percentage", "grade", "gpa",
             "position_in_class", "total_students", "is_promoted", "promoted_to",
             "promotion_reason", "computed_at", "computed_by",
-            "is_published", "published_at", "subjects",
+            "is_published", "published_at", "subjects", "lifecycle_state",
+            "promotion_decision"
         ]
         read_only_fields = [
             "total_marks", "average_percentage", "grade", "gpa",
             "position_in_class", "total_students", "is_promoted",
             "promoted_to", "promotion_reason", "computed_at", "computed_by",
+            "lifecycle_state"
         ]
+
+
+class AnnualResultListSerializer(AnnualResultSerializer):
+    """
+    Lightweight serializer for listing AnnualResults.
+    Omits `subjects` to reduce payload size.
+    """
+    subjects = None
+
+    class Meta(AnnualResultSerializer.Meta):
+        fields = [f for f in AnnualResultSerializer.Meta.fields if f != "subjects"]
+
+from ..models import CumulativeResult, CumulativeSubjectResult, AcademicTranscript, ResultAmendmentRequest
+
+class CumulativeSubjectResultSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    
+    class Meta:
+        model = CumulativeSubjectResult
+        fields = ["id", "subject", "subject_name", "cumulative_average", "grade", "grade_point"]
+
+class CumulativeResultSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    academic_year_name = serializers.CharField(source="academic_year.name", read_only=True)
+    subjects = CumulativeSubjectResultSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = CumulativeResult
+        fields = [
+            "id", "student", "student_name", "academic_year", "academic_year_name",
+            "total_marks", "cumulative_average", "cumulative_gpa", "grade",
+            "lifecycle_state", "computed_at", "computed_by", "subjects"
+        ]
+
+class AcademicTranscriptSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    
+    class Meta:
+        model = AcademicTranscript
+        fields = ["id", "student", "student_name", "date_generated", "generated_by", "history_snapshot", "pdf_document"]
+
+class ResultAmendmentRequestSerializer(serializers.ModelSerializer):
+    requested_by_name = serializers.CharField(source="requested_by.get_full_name", read_only=True)
+    resolved_by_name = serializers.CharField(source="resolved_by.get_full_name", read_only=True)
+    
+    class Meta:
+        model = ResultAmendmentRequest
+        fields = [
+            "id", "term_result", "annual_result", "requested_by", "requested_by_name",
+            "reason", "status", "resolved_by", "resolved_by_name", "resolved_at",
+            "resolution_notes", "created_at"
+        ]
+
 
 class ReportCardSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="term_result.student.full_name", read_only=True)

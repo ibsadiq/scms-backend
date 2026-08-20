@@ -2,6 +2,8 @@
 from rest_framework import serializers
 from decimal import Decimal
 from .models import (
+    OptionalService,
+    ServiceSubscription,
     FeeStructure,
     StudentFeeAssignment,
     FeeAdjustment,
@@ -15,6 +17,23 @@ from .models import (
 # from administration.models import Term, AcademicYear
 # from academic.models import GradeLevel, ClassLevel
 
+
+
+class OptionalServiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OptionalService
+        fields = '__all__'
+
+
+class ServiceSubscriptionSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_admission_number = serializers.CharField(source='student.admission_number', read_only=True)
+    service_name = serializers.CharField(source='service.name', read_only=True)
+    fee_type = serializers.CharField(source='service.fee_type', read_only=True)
+
+    class Meta:
+        model = ServiceSubscription
+        fields = '__all__'
 
 
 class FeeStructureSerializer(serializers.ModelSerializer):
@@ -47,6 +66,7 @@ class FeeStructureSerializer(serializers.ModelSerializer):
             'grade_level_names',
             'class_levels',
             'class_level_names',
+            'optional_service',
             'is_mandatory',
             'due_date',
             'created_at',
@@ -357,3 +377,19 @@ class ReminderSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReminderSetting
         fields = '__all__'
+
+class FinanceAuditLogSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    target_student_name = serializers.CharField(source='target_student.full_name', read_only=True)
+    target_student_admission_number = serializers.CharField(source='target_student.admission_number', read_only=True)
+
+    class Meta:
+        from finance.models import FinanceAuditLog
+        model = FinanceAuditLog
+        fields = [
+            'id', 'timestamp', 'user', 'user_name', 'user_email',
+            'action', 'target_student', 'target_student_name', 
+            'target_student_admission_number', 'description', 'metadata'
+        ]
+        read_only_fields = fields

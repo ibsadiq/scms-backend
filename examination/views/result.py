@@ -7,8 +7,8 @@ from academic.models import ClassRoom, Student
 from administration.models import Term, AcademicYear
 from ..models import TermResult, AnnualResult, ReportCard
 from ..serializers.result import (
-    TermResultSerializer, HomeroomRemarksSerializer, AdminRemarksSerializer,
-    AnnualResultSerializer, ReportCardSerializer, ResultAuditLogSerializer
+    TermResultSerializer, TermResultListSerializer, HomeroomRemarksSerializer, AdminRemarksSerializer,
+    AnnualResultSerializer, AnnualResultListSerializer, ReportCardSerializer, ResultAuditLogSerializer
 )
 from ..permissions import (
     IsAdmin, CanComputeResults, CanHomeroomApprove, CanApproveResults, CanPublishResults,
@@ -78,13 +78,18 @@ def _term_results_for_user(user):
 
 
 class TermResultViewSet(viewsets.ModelViewSet):
-    serializer_class = TermResultSerializer
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return TermResultListSerializer
+        return TermResultSerializer
 
     def get_queryset(self):
         qs = _term_results_for_user(self.request.user).select_related(
             "student", "term", "academic_year", "classroom", "grading_scheme"
-        ).prefetch_related("subject_results")
-
+        )
+        if self.action != 'list':
+            qs = qs.prefetch_related("subject_results")
+        
         p = self.request.query_params
         student_param = p.get("student") or p.get("student_id")
         if student_param:
@@ -424,11 +429,16 @@ class TermResultViewSet(viewsets.ModelViewSet):
 
 
 class AnnualResultViewSet(viewsets.ModelViewSet):
-    serializer_class = AnnualResultSerializer
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return AnnualResultListSerializer
+        return AnnualResultSerializer
 
     def get_queryset(self):
         user = self.request.user
-        qs = AnnualResult.objects.select_related("student", "academic_year", "classroom").prefetch_related("subjects")
+        qs = AnnualResult.objects.select_related("student", "academic_year", "classroom")
+        if self.action != 'list':
+            qs = qs.prefetch_related("subjects")
         if not user.is_authenticated:
             return qs.none()
         if user.is_admin or (user.is_teacher and hasattr(user, "teacher")):

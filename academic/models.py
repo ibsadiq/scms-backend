@@ -204,6 +204,53 @@ class StandardClassCode(models.TextChoices):
     SS_2 = 'SS_2', _('SS 2')
     SS_3 = 'SS_3', _('SS 3')
 
+class SchoolSection(models.Model):
+    """
+    Configuration for School Sections (e.g. Primary, Secondary).
+    Allows schools to set custom aliases for their sections.
+    """
+    system_code = models.CharField(
+        max_length=20, 
+        choices=SectionType.choices, 
+        unique=True,
+        help_text="Internal code for data analysis. Cannot be changed."
+    )
+    default_name = models.CharField(max_length=100, help_text="Standard Universal Name")
+    alias = models.CharField(
+        max_length=100, 
+        blank=True, 
+        help_text="School-specific name (e.g., 'Nursery' instead of 'Pre-Primary'). Admin editable."
+    )
+    sequence_order = models.PositiveIntegerField(help_text="Order for display (1, 2, 3...)")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("sequence_order",)
+        verbose_name = "School Section"
+
+    def __str__(self):
+        return self.alias if self.alias else self.default_name
+
+    @classmethod
+    def initialize_defaults(cls):
+        defaults = [
+            {'code': SectionType.PRE_PRIMARY, 'name': 'Pre-Primary / Nursery', 'order': 1},
+            {'code': SectionType.PRIMARY, 'name': 'Primary', 'order': 2},
+            {'code': SectionType.JUNIOR_SECONDARY, 'name': 'Junior Secondary (JSS)', 'order': 3},
+            {'code': SectionType.SENIOR_SECONDARY, 'name': 'Senior Secondary (SSS)', 'order': 4},
+        ]
+        for item in defaults:
+            obj, created = cls.objects.update_or_create(
+                system_code=item['code'],
+                defaults={
+                    'default_name': item['name'],
+                    'sequence_order': item['order'],
+                }
+            )
+            if created and not obj.alias:
+                obj.alias = item['name']
+                obj.save()
+
 class GradeLevel(models.Model):
     """
     The Master Configuration for Classes.

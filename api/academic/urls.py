@@ -13,6 +13,8 @@ from academic.views import (
     ClassLevelDetailView,
     GradeLevelListCreateView,
     GradeLevelDetailView,
+    SchoolSectionListView,
+    SchoolSectionDetailView,
     ClassYearListCreateView,
     ClassYearDetailView,
     ReasonLeftListCreateView,
@@ -84,6 +86,17 @@ urlpatterns = [
         "class-levels/<int:pk>/",
         ClassLevelDetailView.as_view(),
         name="class-level-detail",
+    ),
+    # SchoolSection URLs
+    path(
+        "school-sections/",
+        SchoolSectionListView.as_view(),
+        name="school-section-list",
+    ),
+    path(
+        "school-sections/<int:pk>/",
+        SchoolSectionDetailView.as_view(),
+        name="school-section-detail",
     ),
     # GradeLevel URLs
     path(
