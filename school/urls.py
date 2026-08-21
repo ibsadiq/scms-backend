@@ -69,6 +69,7 @@ urlpatterns = [
     path("api/sis/", include("api.sis.urls")),
     path("api/core/", include("api.core.urls")),
     path("api/tenants/", include("api.tenants.urls")),
+    path("api/ai-tutor/", include("ai_tutor.urls")),
 
     # Admission management
     path("api/admissions/", include("api.admissions_admin.urls")),
