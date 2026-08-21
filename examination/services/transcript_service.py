@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from ..models import (
     AcademicTranscript, CumulativeResult, LifecycleState
 )
@@ -45,12 +46,38 @@ class TranscriptService:
                 
             history_snapshot["records"].append(record)
             
-        transcript, created = AcademicTranscript.objects.update_or_create(
+        import json
+        import hashlib
+        
+        snapshot_str = json.dumps(history_snapshot, sort_keys=True)
+        snapshot_hash = hashlib.sha256(snapshot_str.encode('utf-8')).hexdigest()
+        history_snapshot["verification_hash"] = snapshot_hash
+        
+        # Determine next version with concurrency safety
+        latest_transcript = AcademicTranscript.objects.select_for_update().filter(student=student).order_by('-version').first()
+        next_version = (latest_transcript.version + 1) if latest_transcript else 1
+        
+        serial_number = f"TR-{student.admission_number}-{next_version:03d}"
+        
+        metadata = {
+            "generated_at": timezone.now().isoformat(),
+            "total_records": len(cumulatives),
+        }
+            
+        transcript = AcademicTranscript.objects.create(
             student=student,
-            defaults={
-                "generated_by": user,
-                "history_snapshot": history_snapshot
-            }
+            version=next_version,
+            serial_number=serial_number,
+            status=AcademicTranscript.Status.CURRENT,
+            generated_by=user,
+            history_snapshot=history_snapshot,
+            metadata=metadata
         )
+        
+        # Mark all previous transcripts as SUPERSEDED
+        AcademicTranscript.objects.filter(
+            student=student, 
+            status=AcademicTranscript.Status.CURRENT
+        ).exclude(id=transcript.id).update(status=AcademicTranscript.Status.SUPERSEDED)
         
         return transcript

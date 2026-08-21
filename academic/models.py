@@ -442,24 +442,71 @@ class ClassRoom(models.Model):
 
 
 class Topic(models.Model):
-    name = models.CharField(max_length=255, blank=True, null=True)
-    class_level = models.ForeignKey(
-        ClassLevel, on_delete=models.CASCADE, blank=True, null=True
-    )
-    subject = models.ForeignKey(
-        Subject, on_delete=models.CASCADE, blank=True, null=True
+    name = models.CharField(max_length=255)
+
+    grade_level = models.ForeignKey(
+        GradeLevel,
+        on_delete=models.CASCADE,
+        related_name="topics",
     )
 
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="topics",
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["grade_level__sequence_order", "subject__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["grade_level", "subject", "name"],
+                name="unique_topic_per_grade_subject",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["grade_level", "subject"]
+            ),
+        ]
+
     def __str__(self):
-        return self.name
+        return f"{self.name} - {self.subject.name} ({self.grade_level})"
 
 
 class SubTopic(models.Model):
-    name = models.CharField(max_length=255, blank=True, null=True)
-    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, blank=True, null=True)
+    name = models.CharField(max_length=255)
+
+    topic = models.ForeignKey(
+        Topic,
+        on_delete=models.CASCADE,
+        related_name="subtopics",
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["topic__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "name"],
+                name="unique_subtopic_per_topic",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["topic"]),
+        ]
 
     def __str__(self):
-        return self.name
+        return f"{self.name} - {self.topic.name}"
 
 
 class AllocatedSubject(models.Model):

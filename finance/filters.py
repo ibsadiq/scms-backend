@@ -1,6 +1,6 @@
 import django_filters
 from django.db.models import F
-from .models import StudentFeeAssignment
+from .models import StudentFeeAssignment, FinanceAuditLog
 
 class StudentFeeAssignmentFilter(django_filters.FilterSet):
     payment_status = django_filters.CharFilter(method='filter_payment_status')
@@ -20,3 +20,17 @@ class StudentFeeAssignmentFilter(django_filters.FilterSet):
         elif value == 'Unpaid':
             return qs.filter(amount_paid=0, balance_calc__gt=0)
         return queryset
+
+
+class FinanceAuditLogFilter(django_filters.FilterSet):
+    start_date = django_filters.DateFilter(field_name='timestamp', lookup_expr='date__gte')
+    end_date = django_filters.DateFilter(field_name='timestamp', lookup_expr='date__lte')
+    date = django_filters.DateFilter(field_name='timestamp', lookup_expr='date')
+    action = django_filters.CharFilter(field_name='action', lookup_expr='exact')
+    user = django_filters.NumberFilter(field_name='user_id', lookup_expr='exact')
+    target_student = django_filters.NumberFilter(field_name='target_student_id', lookup_expr='exact')
+
+    class Meta:
+        model = FinanceAuditLog
+        fields = ['action', 'user', 'target_student', 'start_date', 'end_date', 'date']
+

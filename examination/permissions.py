@@ -101,8 +101,25 @@ class CanPublishResults(IsAdmin):
     pass
 
 
-class CanLockResults(IsAdmin):
-    pass
+class CanLockResults(BasePermission):
+    """
+    Homeroom teacher may lock their own class's results once computed.
+    Admin may also lock any results.
+    """
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_admin or hasattr(request.user, "teacher"))
+        )
+
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_admin:
+            return True
+        teacher = getattr(request.user, "teacher", None)
+        if not teacher or not obj.classroom:
+            return False
+        return obj.classroom.class_teacher_id == teacher.id
 
 
 class CanGenerateReports(IsAdmin):

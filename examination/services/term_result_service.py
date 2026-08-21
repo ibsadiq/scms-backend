@@ -6,26 +6,16 @@ from django.utils import timezone
 from academic.models import StudentClassEnrollment
 from ..models import (
     AssessmentEntry, AssessmentScore,
-    TermResult, SubjectResult, GradeRule
+    TermResult, SubjectResult, GradeRule, LifecycleState
 )
 from .grading_engine import GradingSchemeResolver
 
 logger = logging.getLogger(__name__)
 
+from .grade_resolver import GradeResolver
+
 class TermResultService:
-    @staticmethod
-    def _get_grade_resolver(scheme):
-        rules = list(GradeRule.objects.filter(scheme=scheme))
-        def resolve(percentage):
-            dec_pct = Decimal(str(percentage))
-            for rule in rules:
-                if rule.min_score <= dec_pct <= rule.max_score:
-                    return rule
-            for rule in rules:
-                if (rule.min_score - Decimal("0.05")) <= dec_pct <= (rule.max_score + Decimal("0.05")):
-                    return rule
-            raise ValidationError(f"No grade rule covers {percentage}% in scheme {scheme.name}.")
-        return resolve
+
 
     @staticmethod
     @transaction.atomic
@@ -50,11 +40,13 @@ class TermResultService:
             raise ValidationError("No active grading scheme found for this class.")
 
         if not grade_resolver:
-            grade_resolver = TermResultService._get_grade_resolver(scheme)
+            grade_resolver = GradeResolver(scheme).resolve
 
         entries = pre_fetched_entries
         if entries is None:
-            entries = list(AssessmentEntry.objects.filter(student=enrollment).select_related(
+            entries = list(AssessmentEntry.objects.filter(
+                student=enrollment, term=term
+            ).select_related(
                 "component", "subject", "component__scheme"
             ))
             
@@ -87,9 +79,7 @@ class TermResultService:
                 "gpa": Decimal("0"),
                 "computed_date": timezone.now(),
                 "computed_by": user,
-                "admin_approved": False, "admin_approved_by": None, "admin_approved_at": None,
-                "homeroom_approved": False, "homeroom_approved_by": None, "homeroom_approved_at": None,
-                "is_published": False, "published_date": None,
+                "lifecycle_state": LifecycleState.COMPUTED,
             },
         )
         term_result.subject_results.all().delete()
@@ -117,6 +107,14 @@ class TermResultService:
             is_pass = percentage >= Decimal(str(promotion_rule.minimum_subject_pass if promotion_rule else 40))
             overall_pass = overall_pass and is_pass
 
+            statuses = [e.status for e in subject_entries]
+            if all(s == AssessmentEntry.EntryStatus.EXEMPTED for s in statuses):
+                subject_status = SubjectResult.SubjectResultStatus.EXCUSED
+            elif all(s in [AssessmentEntry.EntryStatus.MISSING, AssessmentEntry.EntryStatus.ABSENT] for s in statuses):
+                subject_status = SubjectResult.SubjectResultStatus.MISSING
+            else:
+                subject_status = SubjectResult.SubjectResultStatus.COMPLETE
+
             subject_result = SubjectResult(
                 term_result=term_result,
                 subject_id=subject_id,
@@ -125,6 +123,7 @@ class TermResultService:
                 grade=grade_rule.grade,
                 grade_point=grade_rule.grade_point,
                 is_pass=is_pass,
+                status=subject_status,
                 grading_scheme_name=scheme.name,
                 grading_rule_snapshot={
                     "min_score": str(grade_rule.min_score),

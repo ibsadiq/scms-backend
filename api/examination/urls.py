@@ -10,7 +10,7 @@ from examination.views.assessment import (
     AssessmentSessionViewSet, AssessmentEntryViewSet, MarkedScriptViewSet,
 )
 from examination.views.result import (
-    TermResultViewSet, AnnualResultViewSet, ReportCardViewSet
+    TermResultViewSet, AnnualResultViewSet, ReportCardViewSet, ResultAuditLogViewSet
 )
 from examination.views.cumulative import (
     CumulativeResultViewSet, AcademicTranscriptViewSet, ResultAmendmentViewSet
@@ -36,6 +36,7 @@ router.register(r"report-cards", ReportCardViewSet, basename="report-card")
 router.register(r"cumulative-results", CumulativeResultViewSet, basename="cumulative-result")
 router.register(r"transcripts", AcademicTranscriptViewSet, basename="transcript")
 router.register(r"amendments", ResultAmendmentViewSet, basename="result-amendment")
+router.register(r"audit-logs", ResultAuditLogViewSet, basename="result-audit-log")
 
 urlpatterns = [
     path("", include(router.urls)),

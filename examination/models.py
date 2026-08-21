@@ -355,6 +355,40 @@ class CumulativePolicy(models.Model):
     def __str__(self):
         return f"Cumulative Policy for {self.scheme.name}"
 
+class AnnualWeightConfig(models.Model):
+    cumulative_policy = models.ForeignKey(
+        CumulativePolicy,
+        related_name="annual_weights",
+        on_delete=models.CASCADE
+    )
+    grade_level = models.ForeignKey(
+        GradeLevel,
+        on_delete=models.CASCADE,
+        help_text="The grade level this weight applies to (e.g. JSS 1)"
+    )
+    weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Weight percentage (e.g. 30.00 for 30%)"
+    )
+
+    class Meta:
+        unique_together = ("cumulative_policy", "grade_level")
+
+    def __str__(self):
+        return f"{self.grade_level.name}: {self.weight}%"
+
+    def clean(self):
+        if self.weight < 0 or self.weight > 100:
+            raise ValidationError("Weight must be between 0 and 100.")
+            
+        # Optional: ensure total weights for the policy do not exceed 100
+        existing_weights = self.cumulative_policy.annual_weights.exclude(id=self.id)
+        total = sum(w.weight for w in existing_weights) + self.weight
+        if total > 100:
+            raise ValidationError(f"Total weights for this policy cannot exceed 100%. Current total would be {total}%.")
+
+
 
 class AssessmentType(models.TextChoices):
     ASSIGNMENT = "ASSIGNMENT"
@@ -370,6 +404,18 @@ class AssessmentSession(models.Model):
         choices=AssessmentType.choices
     )
     name = models.CharField(max_length=100)
+    term = models.ForeignKey(
+        Term,
+        on_delete=models.CASCADE,
+        related_name="assessment_sessions",
+        null=True, blank=True
+    )
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        related_name="assessment_sessions",
+        null=True, blank=True
+    )
     start_date = models.DateField()
     ends_date = models.DateField()
     out_of = models.IntegerField()
@@ -405,6 +451,27 @@ class AssessmentEntry(models.Model):
         related_name="entries"
     )
 
+    session = models.ForeignKey(
+        AssessmentSession,
+        on_delete=models.CASCADE,
+        related_name="entries",
+        null=True, blank=True
+    )
+
+    term = models.ForeignKey(
+        Term,
+        on_delete=models.CASCADE,
+        related_name="assessment_entries",
+        null=True, blank=True
+    )
+
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        related_name="assessment_entries",
+        null=True, blank=True
+    )
+
     student = models.ForeignKey(
         StudentClassEnrollment,
         on_delete=models.CASCADE,
@@ -419,7 +486,42 @@ class AssessmentEntry(models.Model):
 
     score = models.DecimalField(
         max_digits=6,
-        decimal_places=2
+        decimal_places=2,
+        null=True,
+        blank=True
+    )
+
+    class EntryStatus(models.TextChoices):
+        COMPLETE = "COMPLETE", "Complete"
+        INCOMPLETE = "INCOMPLETE", "Incomplete"
+        PENDING = "PENDING", "Pending"
+        MISSING = "MISSING", "Missing"
+        ABSENT = "ABSENT", "Absent"
+        EXEMPTED = "EXEMPTED", "Exempted"
+        NOT_OFFERED = "NOT_OFFERED", "Not Offered"
+
+    status = models.CharField(
+        max_length=20,
+        choices=EntryStatus.choices,
+        default=EntryStatus.COMPLETE
+    )
+
+    class EntrySource(models.TextChoices):
+        MANUAL = "MANUAL", "Manual"
+        CBT = "CBT", "CBT"
+        IMPORT = "IMPORT", "Import"
+        API = "API", "API"
+
+    source = models.CharField(
+        max_length=20,
+        choices=EntrySource.choices,
+        default=EntrySource.MANUAL
+    )
+
+    source_reference = models.CharField(
+        max_length=100,
+        null=True, blank=True, unique=True,
+        help_text="External reference ID (e.g. CBT Attempt ID) for traceability."
     )
 
     entered_by = models.ForeignKey(
@@ -466,14 +568,33 @@ class AssessmentEntry(models.Model):
 
         errors = {}
 
+        if self.session:
+            if self.term and self.session.term and self.term != self.session.term:
+                errors["term"] = "Term must match the assessment session's term."
+            if self.academic_year and self.session.academic_year and self.academic_year != self.session.academic_year:
+                errors["academic_year"] = "Academic year must match the assessment session's academic year."
+            
+            # Inherit if not explicitly set
+            if not self.term and self.session.term:
+                self.term = self.session.term
+            if not self.academic_year and self.session.academic_year:
+                self.academic_year = self.session.academic_year
+
+        if not self.term:
+            errors["term"] = "Assessment entry must be tied to a specific term."
+
+        if not self.academic_year:
+            errors["academic_year"] = "Assessment entry must be tied to a specific academic year."
+
         # score validation
-        if self.score < 0:
+        if self.score is not None and self.score < 0:
             errors["score"] = (
                 "Score cannot be negative."
             )
 
         if (
             self.component and
+            self.score is not None and
             self.score >
             self.component.max_score
         ):
@@ -772,25 +893,8 @@ class TermResult(models.Model):
         return True
     
     def homeroom_approve(self, user, delegated=False):
-        if self.is_locked:
-            raise ValidationError("Result is locked.")
-
-        if self.homeroom_approved:
-            raise ValidationError(
-                "Result has already been approved by the class teacher."
-            )
-
-        self.homeroom_approved = True
-        self.homeroom_approved_by = user
-        self.homeroom_approved_at = timezone.now()
-        self.homeroom_approval_delegated = delegated
-
-        self.save(update_fields=[
-            "homeroom_approved",
-            "homeroom_approved_by",
-            "homeroom_approved_at",
-            "homeroom_approval_delegated",
-        ])
+        from .services.result_lifecycle_service import ResultLifecycleService
+        ResultLifecycleService.homeroom_approve(self, user, delegated=delegated)
         self.audit_logs.create(
             action=ResultAuditLog.Action.HOMEROOM_APPROVED,
             performed_by=user,
@@ -798,82 +902,28 @@ class TermResult(models.Model):
         )
 
     def approve(self, user):
-        if self.admin_approved:
-            raise ValidationError(
-                "Result has already been approved by the administrator."
-            )
-        if not self.homeroom_approved:
-            raise ValidationError("Homeroom teacher must approve before admin approval.")
-        if self.is_locked:
-            raise ValidationError("Result is locked.")
-        
-        self.admin_approved = True
-        self.admin_approved_by = user
-        self.admin_approved_at = timezone.now()
-        self.save(update_fields=["admin_approved", "admin_approved_by", "admin_approved_at"])
+        from .services.result_lifecycle_service import ResultLifecycleService
+        ResultLifecycleService.admin_approve(self, user)
         self.audit_logs.create(action=ResultAuditLog.Action.ADMIN_APPROVED, performed_by=user)
 
     def lock(self, user):
-        if self.is_locked:
-            raise ValidationError("Result is already locked.")
-        self.is_locked = True
-        self.locked_by = user
-        self.locked_at = timezone.now()
-        self.save(update_fields=[
-            "is_locked",
-            "locked_by",
-            "locked_at",
-        ])
+        from .services.result_lifecycle_service import ResultLifecycleService
+        ResultLifecycleService.lock(self, user)
         self.audit_logs.create(action=ResultAuditLog.Action.LOCKED, performed_by=user)
 
     def unlock(self, user, reason=""): 
-        if not self.is_locked:
-            raise ValidationError("Result is not locked.")       
-        self.is_locked = False
-        self.locked_by = None
-        self.locked_at = None
-        self.unlock_reason = reason
-        self.unlocked_by = user
-        self.unlocked_at = timezone.now()
-        self.save(update_fields=[
-            "is_locked",
-            "locked_by",
-            "locked_at",
-            "unlock_reason",
-            "unlocked_by",
-            "unlocked_at",
-        ])
+        from .services.result_lifecycle_service import ResultLifecycleService
+        ResultLifecycleService.unlock_for_amendment(self, user, None, reason)
         self.audit_logs.create(action=ResultAuditLog.Action.UNLOCKED, performed_by=user, notes=reason)
 
     def publish(self, published_by=None):
-        if self.is_published:
-            raise ValidationError("Result has already been published.")
-        if not self.admin_approved:
-            raise ValidationError("Result must be approved first.")
-
-        if not self.is_locked:
-            raise ValidationError(
-                "Lock the result before publishing."
-            )
-        self.is_published = True
-        self.published_date = timezone.now()
-        self.published_by = published_by
-        self.save(update_fields=[
-            "is_published",
-            "published_date",
-            "published_by",
-        ])
+        from .services.result_lifecycle_service import ResultLifecycleService
+        ResultLifecycleService.publish(self, published_by)
         self.audit_logs.create(action=ResultAuditLog.Action.PUBLISHED, performed_by=published_by)
 
     def unpublish(self, user=None):
-        self.is_published = False
-        self.published_date = None
-        self.published_by = None
-        self.save(update_fields=[
-            "is_published",
-            "published_date",
-            "published_by"
-        ])
+        from .services.result_lifecycle_service import ResultLifecycleService
+        ResultLifecycleService.unpublish(self, user)
         self.audit_logs.create(action=ResultAuditLog.Action.UNPUBLISHED, performed_by=user)
 
 
@@ -936,6 +986,17 @@ class SubjectResult(models.Model):
         decimal_places=2,
         help_text="Grade point (0.00 - 4.00)"
     )
+    class SubjectResultStatus(models.TextChoices):
+        COMPLETE = "COMPLETE", "Complete"
+        MISSING = "MISSING", "Missing"
+        EXCUSED = "EXCUSED", "Excused"
+
+    status = models.CharField(
+        max_length=20,
+        choices=SubjectResultStatus.choices,
+        default=SubjectResultStatus.COMPLETE
+    )
+    
     teacher_comment = models.TextField(
         blank=True
     )
@@ -1020,7 +1081,13 @@ class PromotionDecision(models.Model):
 
     reasons = models.TextField(
         blank=True,
-        help_text="Automated reasons for this decision"
+        help_text="Automated human-readable reasons for this decision"
+    )
+    
+    structured_reasons = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Structured decision payload for programmatic checks"
     )
     
     failed_subjects_count = models.PositiveIntegerField(default=0)
@@ -1107,22 +1174,23 @@ class AnnualResult(models.Model):
         blank=True
     )
 
-    is_promoted = models.BooleanField(
-        default=True,
-        help_text="Legacy field. Use promotion_decision instead."
-    )
+    @property
+    def is_promoted(self):
+        if hasattr(self, 'promotion_decision'):
+            return self.promotion_decision.status == PromotionDecision.Status.PROMOTED
+        return False
 
-    promoted_to = models.ForeignKey(
-        GradeLevel,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="legacy_promoted_students"
-    )
+    @property
+    def promoted_to(self):
+        if hasattr(self, 'promotion_decision'):
+            return self.promotion_decision.promoted_to
+        return None
 
-    promotion_reason = models.TextField(
-        blank=True
-    )
+    @property
+    def promotion_reason(self):
+        if hasattr(self, 'promotion_decision'):
+            return self.promotion_decision.reasons
+        return ""
 
     computed_at = models.DateTimeField(
         default=timezone.now
@@ -1185,6 +1253,39 @@ class CumulativeResult(models.Model):
         default=LifecycleState.COMPUTED
     )
     
+    is_locked = models.BooleanField(
+        default=False,
+        help_text="If true, modifications are blocked without an amendment."
+    )
+    
+    homeroom_approved = models.BooleanField(default=False)
+    homeroom_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="homeroom_approved_cumulative_results"
+    )
+    homeroom_approved_at = models.DateTimeField(null=True, blank=True)
+
+    admin_approved = models.BooleanField(default=False)
+    admin_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="admin_approved_cumulative_results"
+    )
+    admin_approved_at = models.DateTimeField(null=True, blank=True)
+
+    is_published = models.BooleanField(default=False)
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="published_cumulative_results"
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    
     student = models.ForeignKey(
         Student,
         on_delete=models.CASCADE,
@@ -1215,6 +1316,11 @@ class CumulativeResult(models.Model):
         on_delete=models.SET_NULL,
     )
 
+    policy_snapshot = models.JSONField(
+        null=True, blank=True,
+        help_text="Snapshot of the cumulative policy at the time of computation"
+    )
+
     class Meta:
         unique_together = ("student", "academic_year")
 
@@ -1237,6 +1343,12 @@ class CumulativeSubjectResult(models.Model):
     cumulative_average = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     grade = models.CharField(max_length=20, blank=True)
     grade_point = models.DecimalField(max_digits=4, decimal_places=2, default=0)
+    
+    annual_subject_results = models.ManyToManyField(
+        'AnnualSubjectResult',
+        blank=True,
+        related_name="cumulative_subject_results"
+    )
 
     class Meta:
         unique_together = ("cumulative_result", "subject")
@@ -1295,10 +1407,24 @@ class ResultAmendmentRequest(models.Model):
             raise ValidationError("Amendment cannot be for both term and annual result simultaneously.")
 
 class AcademicTranscript(models.Model):
-    student = models.OneToOneField(
+    class Status(models.TextChoices):
+        CURRENT = "CURRENT", "Current"
+        SUPERSEDED = "SUPERSEDED", "Superseded"
+        REVOKED = "REVOKED", "Revoked"
+
+    student = models.ForeignKey(
         Student,
         on_delete=models.CASCADE,
-        related_name="academic_transcript"
+        related_name="academic_transcripts"
+    )
+    
+    version = models.PositiveIntegerField(default=1)
+    serial_number = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.CURRENT
     )
     
     date_generated = models.DateTimeField(auto_now_add=True)
@@ -1307,6 +1433,8 @@ class AcademicTranscript(models.Model):
         null=True, blank=True,
         on_delete=models.SET_NULL
     )
+    
+    metadata = models.JSONField(default=dict, blank=True)
     
     # Stores a JSON snapshot of the student's entire finalized academic history
     # This ensures that even if models change, the generated transcript remains intact.
@@ -1469,7 +1597,8 @@ class AssessmentScore(models.Model):
 class ReportCardStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
     GENERATING = "GENERATING", "Generating"
-    COMPLETED = "COMPLETED", "Completed"
+    CURRENT = "CURRENT", "Current"
+    SUPERSEDED = "SUPERSEDED", "Superseded"
     FAILED = "FAILED", "Failed"
 
 
@@ -1478,12 +1607,13 @@ class ReportCard(models.Model):
     Stores generated report card PDFs for term results.
     Allows caching of generated PDFs and tracking of downloads.
     """
-    term_result = models.OneToOneField(
+    term_result = models.ForeignKey(
         TermResult,
         on_delete=models.CASCADE,
-        related_name='report_card',
+        related_name='report_cards',
         help_text="Associated term result"
     )
+    version = models.PositiveIntegerField(default=1)
     pdf_file = models.FileField(
         upload_to='report_cards/%Y/%m/',
         storage=get_pdf_storage,
@@ -1514,7 +1644,7 @@ class ReportCard(models.Model):
     status = models.CharField(
         max_length=20,
         choices=ReportCardStatus.choices,
-        default=ReportCardStatus.COMPLETED,
+        default=ReportCardStatus.CURRENT,
         help_text="Generation status"
     )
     error_message = models.TextField(

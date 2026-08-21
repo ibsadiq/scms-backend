@@ -61,7 +61,8 @@ class ResultComputationService:
 
         # Pre-fetch assessment entries for all enrollments
         entries = list(AssessmentEntry.objects.filter(
-            student__in=enrollments
+            student__in=enrollments,
+            term=term
         ).select_related("component", "subject", "component__scheme"))
         entries_by_enrollment = {}
         for entry in entries:

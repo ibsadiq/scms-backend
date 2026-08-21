@@ -211,6 +211,7 @@ class ClassroomStudentsView(APIView):
                 'photo': student['image'] if student['image'] else None,
                 'status': 'active',
                 'grade_level_name': classroom.name.name if classroom.name else '',
+                'classroom_name': getattr(classroom, 'name_display', None) or (classroom.name.name if classroom.name else str(classroom)),
                 'score': score_data['score'],
                 'remarks': score_data['remarks']
             })

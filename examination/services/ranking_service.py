@@ -4,18 +4,31 @@ from ..models import TermResult, SubjectResult, AnnualResult, AnnualSubjectResul
 
 
 class RankingService:
+    @staticmethod
+    def _apply_ranking(results, value_attr, rank_attr, total_students=None):
+        current_rank = 0
+        previous_val = None
+        for position, result in enumerate(results, start=1):
+            val = getattr(result, value_attr)
+            if val == previous_val:
+                setattr(result, rank_attr, current_rank)
+            else:
+                current_rank = position
+                setattr(result, rank_attr, current_rank)
+                previous_val = val
+            
+            if total_students is not None:
+                result.total_students = total_students
 
     @staticmethod
     def rank_class(classroom, term, academic_year):
         results = list(
             TermResult.objects.filter(
                 classroom=classroom, term=term, academic_year=academic_year
-            ).order_by("-average_percentage")
+            ).order_by("-average_percentage", "student__id")
         )
         total = len(results)
-        for position, result in enumerate(results, start=1):
-            result.position_in_class = position
-            result.total_students = total
+        RankingService._apply_ranking(results, "average_percentage", "position_in_class", total)
         TermResult.objects.bulk_update(results, ["position_in_class", "total_students"])
         return results
 
@@ -27,7 +40,7 @@ class RankingService:
                 term_result__term=term,
                 term_result__academic_year=academic_year,
                 subject=subject,
-            ).order_by("-percentage")
+            ).order_by("-percentage", "term_result__student__id")
         )
         total = len(subject_results)
         if not subject_results:
@@ -37,9 +50,9 @@ class RankingService:
         lowest = subject_results[-1].percentage
         average = sum(r.percentage for r in subject_results) / total
 
-        for position, result in enumerate(subject_results, start=1):
-            result.position_in_subject = position
-            result.total_students = total
+        RankingService._apply_ranking(subject_results, "percentage", "position_in_subject", total)
+
+        for result in subject_results:
             result.highest_score = highest
             result.lowest_score = lowest
             result.class_average = round(average, 2)
@@ -55,20 +68,10 @@ class RankingService:
         results = list(
             AnnualResult.objects.filter(
                 classroom=classroom, academic_year=academic_year
-            ).order_by("-average_percentage")
+            ).order_by("-average_percentage", "student__id")
         )
         total = len(results)
-        # Handle ties: identical averages should get same rank
-        current_rank = 0
-        previous_avg = None
-        for position, result in enumerate(results, start=1):
-            if result.average_percentage == previous_avg:
-                result.position_in_class = current_rank
-            else:
-                current_rank = position
-                result.position_in_class = current_rank
-                previous_avg = result.average_percentage
-            result.total_students = total
+        RankingService._apply_ranking(results, "average_percentage", "position_in_class", total)
         AnnualResult.objects.bulk_update(results, ["position_in_class", "total_students"])
         return results
 
@@ -79,23 +82,12 @@ class RankingService:
                 annual_result__classroom=classroom,
                 annual_result__academic_year=academic_year,
                 subject=subject,
-            ).order_by("-annual_average")
+            ).order_by("-annual_average", "annual_result__student__id")
         )
         total = len(subject_results)
         if not subject_results:
             return []
 
-        # Handle ties
-        current_rank = 0
-        previous_avg = None
-        for position, result in enumerate(subject_results, start=1):
-            if result.annual_average == previous_avg:
-                result.position_in_subject = current_rank
-            else:
-                current_rank = position
-                result.position_in_subject = current_rank
-                previous_avg = result.annual_average
-        
-        # Note: Ensure AnnualSubjectResult has position_in_subject field
+        RankingService._apply_ranking(subject_results, "annual_average", "position_in_subject")
         AnnualSubjectResult.objects.bulk_update(subject_results, ["position_in_subject"])
         return subject_results

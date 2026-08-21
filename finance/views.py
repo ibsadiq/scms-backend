@@ -70,12 +70,12 @@ class ServiceSubscriptionViewSet(viewsets.ModelViewSet):
         Bulk subscribe multiple students to a service.
         Body: { "service": 1, "student_ids": [10, 15, 20] }
         """
-        service_id = request.data.get('service')
+        service_id = request.data.get('service') or request.data.get('service_id')
         student_ids = request.data.get('student_ids', [])
         
         if not service_id or not student_ids:
             return Response(
-                {"error": "service and student_ids are required"},
+                {"error": "service (or service_id) and student_ids are required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
@@ -1157,12 +1157,13 @@ class FinanceAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     from finance.models import FinanceAuditLog
     from finance.serializers import FinanceAuditLogSerializer
+    from finance.filters import FinanceAuditLogFilter
     queryset = FinanceAuditLog.objects.select_related('user', 'target_student').all()
     serializer_class = FinanceAuditLogSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['action', 'user', 'target_student']
-    search_fields = ['description', 'target_student__first_name', 'target_student__last_name', 'user__first_name', 'user__last_name']
+    filterset_class = FinanceAuditLogFilter
+    search_fields = ['description', 'target_student__first_name', 'target_student__last_name', 'user__first_name', 'user__last_name', 'user__email']
     ordering_fields = ['timestamp']
     ordering = ['-timestamp']
 

@@ -2,7 +2,7 @@
 from rest_framework import serializers
 from ..models import (
     AssessmentScore, SubjectResult, TermResult,
-    AnnualSubjectResult, AnnualResult, ReportCard, ResultAuditLog
+    AnnualSubjectResult, AnnualResult, ReportCard, ResultAuditLog, PromotionDecision
 )
 
 
@@ -125,7 +125,6 @@ class AnnualSubjectResultSerializer(serializers.ModelSerializer):
         read_only_fields = fields[1:]  # entirely computed by PromotionService
 
 
-from ..models import PromotionDecision
 
 class PromotionDecisionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -198,7 +197,7 @@ class AcademicTranscriptSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = AcademicTranscript
-        fields = ["id", "student", "student_name", "date_generated", "generated_by", "history_snapshot", "pdf_document"]
+        fields = ["id", "student", "student_name", "version", "serial_number", "status", "date_generated", "generated_by", "metadata", "history_snapshot"]
 
 class ResultAmendmentRequestSerializer(serializers.ModelSerializer):
     requested_by_name = serializers.CharField(source="requested_by.get_full_name", read_only=True)
@@ -223,12 +222,12 @@ class ReportCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReportCard
         fields = [
-            "id", "term_result", "student_name", "term_name", "classroom_name", "academic_year_name",
+            "id", "term_result", "version", "student_name", "term_name", "classroom_name", "academic_year_name",
             "pdf_file", "pdf_url", "generated_date", "generated_by",
             "download_count", "last_downloaded", "status", "error_message",
         ]
         read_only_fields = [
-            "pdf_file", "generated_date", "generated_by",
+            "version", "pdf_file", "generated_date", "generated_by",
             "download_count", "last_downloaded", "status", "error_message",
         ]
 
@@ -241,7 +240,30 @@ class ReportCardSerializer(serializers.ModelSerializer):
 
 class ResultAuditLogSerializer(serializers.ModelSerializer):
     performed_by_name = serializers.CharField(source="performed_by.get_full_name", read_only=True)
-    
+    performed_by_email = serializers.CharField(source="performed_by.email", read_only=True, allow_null=True)
+    student_name = serializers.CharField(source="term_result.student.full_name", read_only=True)
+    student_admission_number = serializers.CharField(source="term_result.student.admission_number", read_only=True)
+    classroom_name = serializers.SerializerMethodField()
+    term_name = serializers.CharField(source="term_result.term.name", read_only=True)
+
     class Meta:
         model = ResultAuditLog
-        fields = ["id", "action", "performed_by_name", "timestamp", "notes"]
+        fields = [
+            "id",
+            "term_result",
+            "action",
+            "performed_by",
+            "performed_by_name",
+            "performed_by_email",
+            "student_name",
+            "student_admission_number",
+            "classroom_name",
+            "term_name",
+            "timestamp",
+            "notes",
+        ]
+
+    def get_classroom_name(self, obj):
+        if obj.term_result and obj.term_result.classroom:
+            return getattr(obj.term_result.classroom, 'name_display', None) or (obj.term_result.classroom.name.name if obj.term_result.classroom.name else str(obj.term_result.classroom))
+        return None

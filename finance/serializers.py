@@ -20,20 +20,39 @@ from .models import (
 
 
 class OptionalServiceSerializer(serializers.ModelSerializer):
+    subscribers_count = serializers.SerializerMethodField()
+    active_subscribers_count = serializers.SerializerMethodField()
+
     class Meta:
         model = OptionalService
         fields = '__all__'
+
+    def get_subscribers_count(self, obj):
+        return obj.subscriptions.count()
+
+    def get_active_subscribers_count(self, obj):
+        return obj.subscriptions.filter(is_active=True).count()
 
 
 class ServiceSubscriptionSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.full_name', read_only=True)
     student_admission_number = serializers.CharField(source='student.admission_number', read_only=True)
+    student_classroom_name = serializers.SerializerMethodField()
     service_name = serializers.CharField(source='service.name', read_only=True)
     fee_type = serializers.CharField(source='service.fee_type', read_only=True)
 
     class Meta:
         model = ServiceSubscription
         fields = '__all__'
+
+    def get_student_classroom_name(self, obj):
+        if not obj.student:
+            return None
+        if hasattr(obj.student, 'classroom') and obj.student.classroom:
+            return getattr(obj.student.classroom, 'name_display', None) or (obj.student.classroom.name.name if obj.student.classroom.name else str(obj.student.classroom))
+        if hasattr(obj.student, 'class_level') and obj.student.class_level:
+            return obj.student.class_level.name
+        return None
 
 
 class FeeStructureSerializer(serializers.ModelSerializer):

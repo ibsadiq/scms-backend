@@ -72,13 +72,14 @@ class ReportCardGenerator:
         self.generated_by = generated_by
         self.font_config = FontConfiguration()
 
-    def generate_pdf(self, regenerate=False, allow_unpublished=False) -> 'ReportCard':
+    def generate_pdf(self, regenerate=False, allow_unpublished=False, target_report_card=None) -> 'ReportCard':
         """
         Generate PDF report card and save to database.
 
         Args:
             regenerate: If True, regenerate even if PDF already exists
             allow_unpublished: If True, generate even if result is not published yet
+            target_report_card: If provided, saves PDF to this instance instead of looking it up.
 
         Returns:
             ReportCard instance with generated PDF
@@ -87,17 +88,24 @@ class ReportCardGenerator:
             from django.core.exceptions import ValidationError
             raise ValidationError("Cannot generate report card for unpublished result.")
 
-        from examination.models import ReportCard
+        from examination.models import ReportCard, ReportCardStatus
 
-        # Check if report card already exists
-        try:
-            report_card = ReportCard.objects.get(term_result=self.term_result)
-            if not regenerate and report_card.pdf_file:
-                return report_card
-        except ReportCard.DoesNotExist:
+        if target_report_card:
+            report_card = target_report_card
+        else:
+            # Determine if we should reuse the current active report card with concurrency safety
+            latest_report_card = ReportCard.objects.select_for_update().filter(term_result=self.term_result).order_by('-version').first()
+            
+            if latest_report_card and not regenerate and latest_report_card.pdf_file:
+                return latest_report_card
+                
+            next_version = (latest_report_card.version + 1) if latest_report_card else 1
+
             report_card = ReportCard(
                 term_result=self.term_result,
-                generated_by=self.generated_by
+                generated_by=self.generated_by,
+                version=next_version,
+                status=ReportCardStatus.GENERATING
             )
 
         # Generate PDF content
@@ -113,8 +121,14 @@ class ReportCardGenerator:
             save=False
         )
         report_card.generated_by = self.generated_by
-        report_card.generated_date = timezone.now()
+        report_card.status = ReportCardStatus.CURRENT
         report_card.save()
+        
+        # Mark all previous report cards as SUPERSEDED
+        ReportCard.objects.filter(
+            term_result=self.term_result,
+            status=ReportCardStatus.CURRENT
+        ).exclude(id=report_card.id).update(status=ReportCardStatus.SUPERSEDED)
 
         return report_card
 

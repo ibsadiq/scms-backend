@@ -20,7 +20,7 @@ from ..services.promotion_service import PromotionService
 from ..services.report_card_generator import ReportCardGenerator
 from ..tasks import generate_report_card_task, generate_bulk_report_cards_task, compute_class_results_task
 from ..models import ReportCardStatus
-from django.db import connection
+from django.db import connection, transaction
 from django.http import HttpResponse
 
 
@@ -257,6 +257,11 @@ class TermResultViewSet(viewsets.ModelViewSet):
         if not term_id or not classroom_id or not academic_year_id:
             return Response({"detail": "term, classroom, and academic_year are required."}, status=status.HTTP_400_BAD_REQUEST)
         
+        if not request.user.is_admin:
+            teacher = getattr(request.user, "teacher", None)
+            if not teacher or not ClassRoom.objects.filter(id=classroom_id, class_teacher=teacher).exists():
+                return Response({"detail": "Only the homeroom teacher of this classroom or an administrator can lock results."}, status=status.HTTP_403_FORBIDDEN)
+
         results = TermResult.objects.filter(
             term_id=term_id,
             classroom_id=classroom_id,
@@ -361,13 +366,19 @@ class TermResultViewSet(viewsets.ModelViewSet):
         allow_unpublished = request.data.get("allow_unpublished", False) and request.user.is_admin
         regenerate = request.data.get("regenerate", False)
         
-        report_card, _ = ReportCard.objects.get_or_create(
-            term_result=result,
-            defaults={'status': ReportCardStatus.PENDING}
-        )
-        if regenerate:
-            report_card.status = ReportCardStatus.PENDING
-            report_card.save(update_fields=['status'])
+        with transaction.atomic():
+            latest_report_card = ReportCard.objects.select_for_update().filter(term_result=result).order_by('-version').first()
+            if regenerate or not latest_report_card:
+                next_version = (latest_report_card.version + 1) if latest_report_card else 1
+                report_card = ReportCard.objects.create(
+                    term_result=result,
+                    version=next_version,
+                    status=ReportCardStatus.PENDING
+                )
+            else:
+                report_card = latest_report_card
+                report_card.status = ReportCardStatus.PENDING
+                report_card.save(update_fields=['status'])
             
         generate_report_card_task.delay(
             schema_name=_get_schema_name(request),
@@ -597,3 +608,38 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
             return response
         except Exception as e:
             return Response({"detail": f"Failed to retrieve PDF file: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ResultAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing examination and result audit logs across the school.
+    """
+    from examination.models import ResultAuditLog
+    from examination.serializers.result import ResultAuditLogSerializer
+    from examination.filters import ResultAuditLogFilter
+    from rest_framework.permissions import IsAuthenticated
+    from django_filters.rest_framework import DjangoFilterBackend
+    from rest_framework.filters import SearchFilter, OrderingFilter
+
+    queryset = ResultAuditLog.objects.select_related(
+        "performed_by",
+        "term_result",
+        "term_result__student",
+        "term_result__classroom",
+        "term_result__term"
+    ).all()
+    serializer_class = ResultAuditLogSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = ResultAuditLogFilter
+    search_fields = [
+        "notes",
+        "term_result__student__first_name",
+        "term_result__student__last_name",
+        "term_result__student__admission_number",
+        "performed_by__first_name",
+        "performed_by__last_name",
+        "performed_by__email",
+    ]
+    ordering_fields = ["timestamp"]
+    ordering = ["-timestamp"]

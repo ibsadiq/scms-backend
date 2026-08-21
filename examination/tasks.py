@@ -7,6 +7,7 @@ Handles asynchronous operations like:
 - Bulk report card PDF generation
 """
 from celery import shared_task
+from django.db import transaction
 from django_tenants.utils import schema_context
 from django.core.exceptions import ValidationError as DjangoValidationError
 from examination.models import ReportCard, ReportCardStatus, TermResult
@@ -60,30 +61,37 @@ def generate_report_card_task(self, schema_name, term_result_id, user_id, regene
     Async task for generating a single report card PDF.
     """
     with schema_context(schema_name):
+        report_card = None
         try:
             # Fetch resources
             term_result = TermResult.objects.get(id=term_result_id)
             user = CustomUser.objects.filter(id=user_id).first() if user_id else None
 
-            # Get or create the ReportCard record
-            report_card, _ = ReportCard.objects.get_or_create(
-                term_result=term_result,
-                defaults={'generated_by': user, 'status': ReportCardStatus.GENERATING}
-            )
-            
-            # If not creating a new one, update the status to GENERATING
-            if report_card.status != ReportCardStatus.GENERATING:
-                report_card.status = ReportCardStatus.GENERATING
-                report_card.error_message = ""
-                report_card.save(update_fields=['status', 'error_message'])
+            # Get the latest report card or create a new generating placeholder
+            with transaction.atomic():
+                latest_report_card = ReportCard.objects.select_for_update().filter(term_result=term_result).order_by('-version').first()
+                if regenerate or not latest_report_card:
+                    next_version = (latest_report_card.version + 1) if latest_report_card else 1
+                    report_card = ReportCard.objects.create(
+                        term_result=term_result,
+                        generated_by=user,
+                        version=next_version,
+                        status=ReportCardStatus.GENERATING
+                    )
+                else:
+                    report_card = latest_report_card
+                    if report_card.status != ReportCardStatus.GENERATING:
+                        report_card.status = ReportCardStatus.GENERATING
+                        report_card.error_message = ""
+                        report_card.save(update_fields=['status', 'error_message'])
 
             # Generate the PDF
             generator = ReportCardGenerator(term_result, generated_by=user)
-            generator.generate_pdf(regenerate=regenerate, allow_unpublished=allow_unpublished)
-
-            # Update status to COMPLETED
-            report_card.status = ReportCardStatus.COMPLETED
-            report_card.save(update_fields=['status'])
+            # We don't need the generator to create another one, but generator.generate_pdf currently creates one if regenerate=True!
+            # We need to tell the generator to use this report_card, or just let generator do everything!
+            # Wait, since the generator does everything, we can just call it.
+            # But the UI polls the database. So creating it here is good.
+            generator.generate_pdf(regenerate=regenerate, allow_unpublished=allow_unpublished, target_report_card=report_card)
 
             return {
                 'status': 'success',
@@ -92,13 +100,10 @@ def generate_report_card_task(self, schema_name, term_result_id, user_id, regene
 
         except Exception as e:
             logger.exception(f"Failed to generate report card for TermResult {term_result_id}")
-            try:
-                report_card = ReportCard.objects.get(term_result_id=term_result_id)
+            if report_card:
                 report_card.status = ReportCardStatus.FAILED
                 report_card.error_message = str(e)
                 report_card.save(update_fields=['status', 'error_message'])
-            except ReportCard.DoesNotExist:
-                pass
             
             return {
                 'status': 'failed',
@@ -134,15 +139,22 @@ def generate_bulk_report_cards_task(self, schema_name, term_id, classroom_id, us
             
             results['total'] = term_results.count()
             
-            # Initialize ReportCard records as PENDING to show in UI
             for term_result in term_results:
-                report_card, created = ReportCard.objects.get_or_create(
-                    term_result=term_result,
-                    defaults={'generated_by': user, 'status': ReportCardStatus.PENDING}
-                )
-                if regenerate and not created:
-                    report_card.status = ReportCardStatus.PENDING
-                    report_card.save(update_fields=['status'])
+                with transaction.atomic():
+                    latest_rc = ReportCard.objects.select_for_update().filter(term_result=term_result).order_by('-version').first()
+                    if regenerate or not latest_rc:
+                        next_version = (latest_rc.version + 1) if latest_rc else 1
+                        report_card = ReportCard.objects.create(
+                            term_result=term_result,
+                            generated_by=user,
+                            version=next_version,
+                            status=ReportCardStatus.PENDING
+                        )
+                    else:
+                        report_card = latest_rc
+                        if report_card.status != ReportCardStatus.PENDING:
+                            report_card.status = ReportCardStatus.PENDING
+                            report_card.save(update_fields=['status'])
 
             for i, term_result in enumerate(term_results):
                 self.update_state(
@@ -150,16 +162,20 @@ def generate_bulk_report_cards_task(self, schema_name, term_id, classroom_id, us
                     meta={'current': i, 'total': results['total'], 'status': f'Generating for {term_result.student.full_name}'}
                 )
                 
+                report_card = ReportCard.objects.filter(
+                    term_result=term_result, 
+                    status=ReportCardStatus.PENDING
+                ).order_by('-version').first()
+                
+                if not report_card:
+                    continue
+                    
                 try:
-                    report_card = ReportCard.objects.get(term_result=term_result)
                     report_card.status = ReportCardStatus.GENERATING
                     report_card.save(update_fields=['status'])
 
                     generator = ReportCardGenerator(term_result, generated_by=user)
-                    generator.generate_pdf(regenerate=regenerate, allow_unpublished=False)
-                    
-                    report_card.status = ReportCardStatus.COMPLETED
-                    report_card.save(update_fields=['status'])
+                    generator.generate_pdf(regenerate=regenerate, allow_unpublished=False, target_report_card=report_card)
                     
                     results['success'] += 1
                 except Exception as e:
@@ -167,13 +183,9 @@ def generate_bulk_report_cards_task(self, schema_name, term_id, classroom_id, us
                     results['failed'] += 1
                     results['errors'].append({'student': term_result.student.full_name, 'error': str(e)})
                     
-                    try:
-                        report_card = ReportCard.objects.get(term_result=term_result)
-                        report_card.status = ReportCardStatus.FAILED
-                        report_card.error_message = str(e)
-                        report_card.save(update_fields=['status', 'error_message'])
-                    except ReportCard.DoesNotExist:
-                        pass
+                    report_card.status = ReportCardStatus.FAILED
+                    report_card.error_message = str(e)
+                    report_card.save(update_fields=['status', 'error_message'])
                         
             return results
 

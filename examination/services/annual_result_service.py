@@ -5,6 +5,7 @@ from ..models import (
     TermResult, AnnualResult, AnnualSubjectResult, PromotionRule,
     TermWeightConfig
 )
+from .grade_resolver import GradeResolver
 from .term_result_service import TermResultService
 
 
@@ -25,6 +26,13 @@ class AnnualResultService:
         rule = getattr(scheme, "promotion_rule", None)
         if not rule:
             raise ValidationError("No promotion rule configured for this grading scheme.")
+
+        existing_result = AnnualResult.objects.filter(
+            student=student, academic_year=academic_year
+        ).first()
+        
+        if existing_result and existing_result.is_locked:
+            raise ValidationError(f"Annual result for student '{getattr(student, 'full_name', str(student))}' is locked. Unlock result first to re-compute.")
 
         annual_result, _ = AnnualResult.objects.update_or_create(
             student=student, academic_year=academic_year,
@@ -54,11 +62,11 @@ class AnnualResultService:
             for sr in term_result.subject_results.select_related("subject"):
                 bucket = by_subject.setdefault(sr.subject_id, {})
                 if term_num == 1:
-                    bucket["first_term"] = sr.percentage
+                    bucket["first_term"] = sr
                 elif term_num == 2:
-                    bucket["second_term"] = sr.percentage
+                    bucket["second_term"] = sr
                 elif term_num == 3:
-                    bucket["third_term"] = sr.percentage
+                    bucket["third_term"] = sr
                 bucket["latest"] = sr
 
         method = rule.annual_computation_method
@@ -80,15 +88,18 @@ class AnnualResultService:
             grade_point = bucket["latest"].grade_point
             
             # Helper to handle missing
-            def handle_missing(score):
-                if score is not None:
-                    return score, True
+            def handle_missing(sr_obj):
+                if sr_obj is not None:
+                    if hasattr(sr_obj, 'status') and sr_obj.status == "EXCUSED":
+                        # Excused terms are unconditionally dropped from the annual average
+                        return None, False
+                    return sr_obj.percentage, True
                 if missing_policy == PromotionRule.MissingTermPolicy.TREAT_AS_ZERO:
                     return Decimal("0.00"), True
                 return None, False
 
             if method == PromotionRule.AnnualComputationMethod.FINAL_TERM_ONLY:
-                annual_avg = t3 if t3 is not None else Decimal("0.00")
+                annual_avg = t3.percentage if t3 is not None else Decimal("0.00")
             
             elif method == PromotionRule.AnnualComputationMethod.WEIGHTED_TERMS:
                 total_weight = Decimal("0")
@@ -123,28 +134,33 @@ class AnnualResultService:
                     annual_avg = round(sum(scores) / len(scores), 2)
             
             # Re-resolve grade for annual average
-            grade_resolver = TermResultService._get_grade_resolver(annual_result.grading_scheme)
-            try:
-                annual_grade_rule = grade_resolver(annual_avg)
-                grade = annual_grade_rule.grade
-                grade_point = annual_grade_rule.grade_point
-                is_pass = annual_avg >= Decimal(str(rule.minimum_subject_pass))
-            except ValidationError:
-                pass # Fallback to latest
+            grade_resolver = GradeResolver(annual_result.grading_scheme).resolve
+            annual_grade_rule = grade_resolver(annual_avg)
+            grade = annual_grade_rule.grade
+            grade_point = annual_grade_rule.grade_point
+            is_pass = annual_avg >= Decimal(str(rule.minimum_subject_pass))
                 
             if missing_policy == PromotionRule.MissingTermPolicy.FAIL_SUBJECT:
-                if t1 is None or t2 is None or t3 is None:
+                # If any of the expected terms are None OR explicitly marked MISSING, then fail
+                has_missing = False
+                for term_sr in [t1, t2, t3]:
+                    if term_sr is None:
+                        has_missing = True
+                    elif hasattr(term_sr, 'status') and term_sr.status == "MISSING":
+                        has_missing = True
+                
+                if has_missing:
                     is_pass = False
 
             AnnualSubjectResult.objects.update_or_create(
                 annual_result=annual_result, subject_id=subject_id,
                 defaults={
-                    "first_term": t1 or Decimal("0"),
-                    "second_term": t2 or Decimal("0"),
-                    "third_term": t3 or Decimal("0"),
-                    "first_term_status": "AVAILABLE" if t1 is not None else "MISSING",
-                    "second_term_status": "AVAILABLE" if t2 is not None else "MISSING",
-                    "third_term_status": "AVAILABLE" if t3 is not None else "MISSING",
+                    "first_term": t1.percentage if t1 else Decimal("0"),
+                    "second_term": t2.percentage if t2 else Decimal("0"),
+                    "third_term": t3.percentage if t3 else Decimal("0"),
+                    "first_term_status": t1.status if hasattr(t1, 'status') and t1 else ("MISSING" if t1 is None else "AVAILABLE"),
+                    "second_term_status": t2.status if hasattr(t2, 'status') and t2 else ("MISSING" if t2 is None else "AVAILABLE"),
+                    "third_term_status": t3.status if hasattr(t3, 'status') and t3 else ("MISSING" if t3 is None else "AVAILABLE"),
                     "annual_average": annual_avg,
                     "grade": grade,
                     "grade_point": grade_point,
@@ -161,13 +177,10 @@ class AnnualResultService:
         total_marks = sum(sr.annual_average for sr in subject_results)
         average = round(total_marks / len(subject_results), 2)
         
-        grade_resolver = TermResultService._get_grade_resolver(scheme)
-        try:
-            overall_rule = grade_resolver(average)
-            annual_result.grade = overall_rule.grade
-            annual_result.gpa = overall_rule.grade_point
-        except ValidationError:
-            pass
+        grade_resolver = GradeResolver(scheme).resolve
+        overall_rule = grade_resolver(average)
+        annual_result.grade = overall_rule.grade
+        annual_result.gpa = overall_rule.grade_point
 
         annual_result.total_marks = total_marks
         annual_result.average_percentage = average

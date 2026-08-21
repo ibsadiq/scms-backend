@@ -40,13 +40,15 @@ class AmendmentService:
         request.save()
         
         if status == ResultAmendmentRequest.Status.APPROVED:
-            # Unlock the result
+            # Unlock the result atomically via LifecycleService
             result = request.term_result or request.annual_result
             if result:
-                result.lifecycle_state = LifecycleState.COMPUTED
-                if hasattr(result, 'is_published'):
-                    result.is_published = False
-                result.save()
-                # Audit log should be triggered via signals or explicitly
+                from .result_lifecycle_service import ResultLifecycleService
+                ResultLifecycleService.unlock_for_amendment(
+                    result=result,
+                    user=user,
+                    amendment_request=request,
+                    reason=request.reason
+                )
                 
         return request
