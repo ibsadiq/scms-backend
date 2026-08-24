@@ -3,26 +3,22 @@
 from django.db import migrations, models
 
 
-def create_school_section_table(apps, schema_editor):
-    # SeparateDatabaseAndState runs database operations against the state from
-    # the previous migration, where SchoolSection does not exist yet.
-    from academic.models import SchoolSection
+class CreateModelIfNotExists(migrations.CreateModel):
+    """Create the historical model while tolerating a pre-existing table."""
 
-    table_name = "academic_schoolsection"
-    with schema_editor.connection.cursor() as cursor:
-        existing_tables = schema_editor.connection.introspection.table_names(cursor)
-    if table_name not in existing_tables:
-        schema_editor.create_model(SchoolSection)
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        model = to_state.apps.get_model(app_label, self.name)
+        with schema_editor.connection.cursor() as cursor:
+            tables = schema_editor.connection.introspection.table_names(cursor)
+        if model._meta.db_table not in tables:
+            schema_editor.create_model(model)
 
-
-def drop_school_section_table(apps, schema_editor):
-    from academic.models import SchoolSection
-
-    table_name = "academic_schoolsection"
-    with schema_editor.connection.cursor() as cursor:
-        existing_tables = schema_editor.connection.introspection.table_names(cursor)
-    if table_name in existing_tables:
-        schema_editor.delete_model(SchoolSection)
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        model = from_state.apps.get_model(app_label, self.name)
+        with schema_editor.connection.cursor() as cursor:
+            tables = schema_editor.connection.introspection.table_names(cursor)
+        if model._meta.db_table in tables:
+            schema_editor.delete_model(model)
 
 
 class Migration(migrations.Migration):
@@ -33,14 +29,63 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunPython(
-                    create_school_section_table,
-                    reverse_code=drop_school_section_table,
-                ),
-            ],
             state_operations=[
                 migrations.CreateModel(
+                    name="SchoolSection",
+                    fields=[
+                        (
+                            "id",
+                            models.BigAutoField(
+                                auto_created=True,
+                                primary_key=True,
+                                serialize=False,
+                                verbose_name="ID",
+                            ),
+                        ),
+                        (
+                            "system_code",
+                            models.CharField(
+                                choices=[
+                                    ("PRE_PRIMARY", "Pre-Primary Education"),
+                                    ("PRIMARY", "Primary Education"),
+                                    ("JSS", "Junior Secondary School"),
+                                    ("SSS", "Senior Secondary School"),
+                                ],
+                                help_text="Internal code for data analysis. Cannot be changed.",
+                                max_length=20,
+                                unique=True,
+                            ),
+                        ),
+                        (
+                            "default_name",
+                            models.CharField(
+                                help_text="Standard Universal Name", max_length=100
+                            ),
+                        ),
+                        (
+                            "alias",
+                            models.CharField(
+                                blank=True,
+                                help_text="School-specific name (e.g., 'Nursery' instead of 'Pre-Primary'). Admin editable.",
+                                max_length=100,
+                            ),
+                        ),
+                        (
+                            "sequence_order",
+                            models.PositiveIntegerField(
+                                help_text="Order for display (1, 2, 3...)"
+                            ),
+                        ),
+                        ("updated_at", models.DateTimeField(auto_now=True)),
+                    ],
+                    options={
+                        "verbose_name": "School Section",
+                        "ordering": ("sequence_order",),
+                    },
+                ),
+            ],
+            database_operations=[
+                CreateModelIfNotExists(
                     name="SchoolSection",
                     fields=[
                         (
