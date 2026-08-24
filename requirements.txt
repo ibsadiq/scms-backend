@@ -16,7 +16,7 @@ psycopg2-binary==2.9.10
 PyJWT==2.9.0
 python-decouple==3.8
 sqlparse==0.5.1
-typing_extensions==4.12.2
+typing_extensions>=4.13.0
 tzdata==2024.1
 ua-parser==1.0.0
 ua-parser-builtins==0.18.0.post1
@@ -32,5 +32,10 @@ gunicorn==21.2.0
 flower==2.0.1
 django-environ==0.11.2
 whitenoise>=6.12.0
-cloudinary==1.44.2
-django-cloudinary-storage==0.3.0
+django-storages[s3]>=1.14
+boto3>=1.35
+cloudinary>=1.44.2
+django-cloudinary-storage>=0.3.0
+google-genai>=1.67.0
+google-generativeai>=0.8.6
+pypdf>=6.16.1
