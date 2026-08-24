@@ -5,6 +5,7 @@ from django.db.models import Max
 from ..models import (
     Question,
     QuestionVersion,
+    QuestionLearningObjective,
     QuestionOption,
     QuestionStatus,
     QuestionType,
@@ -19,6 +20,7 @@ from ..models import (
     MatchingPair,
     QuestionReview,
 )
+from .question_curriculum_service import QuestionCurriculumService
 
 
 class QuestionBankService:
@@ -82,6 +84,16 @@ class QuestionBankService:
         question.save()
 
         question.grade_levels.set(grade_levels)
+
+        QuestionCurriculumService.validate_question_grade_scope(
+            question=question,
+            grade_levels=grade_levels,
+        )
+
+        QuestionCurriculumService.validate_bank_grade_scope(
+            question=question,
+            grade_levels=grade_levels,
+        )
 
         version = QuestionBankService._create_version(
             question=question,
@@ -850,20 +862,34 @@ class QuestionBankService:
         user,
         comments="",
     ):
+        if not user:
+            raise ValidationError("Actor is required to approve a question.")
+
         if question.status != QuestionStatus.IN_REVIEW:
             raise ValidationError(
                 "Only questions under review can be approved."
             )
+
+        from academic.models import AcademicWorkflow
+        from academic.services.academic_authority_service import AcademicAuthorityService
+
+        AcademicAuthorityService.require_approval_authority(
+            actor=user,
+            workflow=AcademicWorkflow.QUESTION_BANK,
+            subject=question.subject,
+            creator=question.created_by,
+        )
 
         QuestionBankService.validate_question(
             question
         )
 
         version = question.current_version
+        reviewer = AcademicAuthorityService.get_teacher(user)
 
         QuestionReview.objects.create(
             question_version=version,
-            reviewed_by=user,
+            reviewed_by=reviewer,
             decision=QuestionReview.Decision.APPROVED,
             comments=comments,
         )
@@ -886,10 +912,23 @@ class QuestionBankService:
         user,
         comments="",
     ):
+        if not user:
+            raise ValidationError("Actor is required to reject a question.")
+
         if question.status != QuestionStatus.IN_REVIEW:
             raise ValidationError(
                 "Only questions under review can be rejected."
             )
+
+        from academic.models import AcademicWorkflow
+        from academic.services.academic_authority_service import AcademicAuthorityService
+
+        AcademicAuthorityService.require_approval_authority(
+            actor=user,
+            workflow=AcademicWorkflow.QUESTION_BANK,
+            subject=question.subject,
+            creator=question.created_by,
+        )
 
         version = question.current_version
 
@@ -898,9 +937,11 @@ class QuestionBankService:
                 "Question has no active version."
             )
 
+        reviewer = AcademicAuthorityService.get_teacher(user)
+
         QuestionReview.objects.create(
             question_version=version,
-            reviewed_by=user,
+            reviewed_by=reviewer,
             decision=QuestionReview.Decision.REJECTED,
             comments=comments,
         )
@@ -937,3 +978,53 @@ class QuestionBankService:
         )
 
         return question
+
+    @staticmethod
+    @transaction.atomic
+    def align_learning_objective(
+        *,
+        question_version,
+        learning_objective,
+        is_primary=False,
+    ):
+        """
+        Aligns a QuestionVersion with a LearningObjective, validating curriculum scope.
+        Safely unsets any existing primary alignment if is_primary is True.
+        """
+        QuestionCurriculumService.validate_objective(
+            question_version=question_version,
+            learning_objective=learning_objective,
+        )
+
+        if is_primary:
+            question_version.objective_alignments.filter(
+                is_primary=True
+            ).update(is_primary=False)
+
+        alignment, _ = (
+            QuestionLearningObjective.objects
+            .update_or_create(
+                question_version=question_version,
+                learning_objective=learning_objective,
+                defaults={
+                    "is_primary": is_primary,
+                },
+            )
+        )
+
+        return alignment
+
+    @staticmethod
+    @transaction.atomic
+    def remove_learning_objective(
+        *,
+        question_version,
+        learning_objective,
+    ):
+        """
+        Removes a learning objective alignment from a QuestionVersion.
+        """
+        return QuestionLearningObjective.objects.filter(
+            question_version=question_version,
+            learning_objective=learning_objective,
+        ).delete()

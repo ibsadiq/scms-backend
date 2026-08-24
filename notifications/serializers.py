@@ -196,8 +196,8 @@ class NotificationTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 class DirectMessageSerializer(serializers.ModelSerializer):
-    sender_name = serializers.CharField(source='sender.get_full_name', read_only=True)
-    recipient_name = serializers.CharField(source='recipient.get_full_name', read_only=True)
+    sender_name = serializers.SerializerMethodField()
+    recipient_name = serializers.SerializerMethodField()
     student_name = serializers.CharField(source='student.full_name', read_only=True, allow_null=True)
 
     class Meta:
@@ -209,11 +209,72 @@ class DirectMessageSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'sender', 'created_at', 'is_read']
 
+    @staticmethod
+    def _display_name(user):
+        name = " ".join(filter(None, (user.first_name, user.last_name))).strip()
+        if name:
+            return name
+        if user.is_admin or user.is_superuser:
+            return "School Administrator"
+        for flag, label in (
+            ("is_teacher", "Teacher"), ("is_parent", "Parent"),
+            ("is_student", "Student"), ("is_accountant", "Accountant"),
+        ):
+            if getattr(user, flag, False):
+                return label
+        return "Staff"
+
+    def get_sender_name(self, obj):
+        return self._display_name(obj.sender)
+
+    def get_recipient_name(self, obj):
+        return self._display_name(obj.recipient)
+
 class DirectMessageCreateSerializer(serializers.ModelSerializer):
+    recipient = serializers.IntegerField()
+    student = serializers.IntegerField(required=False, allow_null=True)
+    parent_message = serializers.IntegerField(required=False, allow_null=True)
+
     class Meta:
         model = DirectMessage
         fields = ['recipient', 'student', 'subject', 'body', 'parent_message']
 
     def validate(self, data):
-        # Additional validation can be placed here
+        from rest_framework.exceptions import PermissionDenied
+        from academic.models import Student
+        from users.models import CustomUser
+        from .messaging_policy import MessagingPolicy
+        from .models import DirectMessage
+
+        sender = self.context['request'].user
+        recipient = CustomUser.objects.filter(pk=data['recipient']).first()
+        student_id = data.get('student')
+        student = Student.objects.filter(pk=student_id).first() if student_id else None
+        parent_id = data.get('parent_message')
+        parent_message = DirectMessage.objects.filter(pk=parent_id).first() if parent_id else None
+        if not recipient or (student_id and not student) or (parent_id and not parent_message):
+            raise PermissionDenied("This recipient or conversation context is not available.")
+        data['recipient'] = recipient
+        if student_id:
+            data['student'] = student
+        if parent_id:
+            data['parent_message'] = parent_message
+
+        if parent_message:
+            if not MessagingPolicy.can_access_thread(sender, parent_message):
+                raise PermissionDenied("You cannot reply to this message.")
+            participants = {parent_message.sender_id, parent_message.recipient_id}
+            if recipient.pk not in participants or sender.pk not in participants or recipient.pk == sender.pk:
+                raise PermissionDenied("Replies must retain the original participants.")
+            if parent_message.student_id:
+                if student and student.pk != parent_message.student_id:
+                    raise PermissionDenied("Replies must retain the original student context.")
+                data['student'] = parent_message.student
+            elif student:
+                raise PermissionDenied("A reply cannot introduce a new student context.")
+
+        if not MessagingPolicy.can_sender_contact_recipient(
+            sender, recipient, data.get('student')
+        ):
+            raise PermissionDenied("This recipient or student context is not available.")
         return data

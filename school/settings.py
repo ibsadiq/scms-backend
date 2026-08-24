@@ -102,6 +102,8 @@ TENANT_APPS = [
     "sis.apps.SisConfig",
     "cbt.apps.CbtConfig",
     "ai_tutor.apps.AiTutorConfig",
+    "idcards.apps.IdcardsConfig",
+    "api.jobs.apps.JobsConfig",
 ]
 
 # ==============================================================================
@@ -209,6 +211,13 @@ else:
         }
     }
 
+RFID_DEVICE_BURST_LIMIT = env.int("RFID_DEVICE_BURST_LIMIT", default=30)
+RFID_DEVICE_BURST_WINDOW = env.int("RFID_DEVICE_BURST_WINDOW", default=10)
+RFID_DEVICE_SUSTAINED_LIMIT = env.int("RFID_DEVICE_SUSTAINED_LIMIT", default=600)
+RFID_DEVICE_SUSTAINED_WINDOW = env.int("RFID_DEVICE_SUSTAINED_WINDOW", default=60)
+RFID_DEVICE_STALE_SECONDS = env.int("RFID_DEVICE_STALE_SECONDS", default=600)
+RFID_DEVICE_OFFLINE_SECONDS = env.int("RFID_DEVICE_OFFLINE_SECONDS", default=1800)
+
 
 # Password validation
 # https://docs.djangoproject.com/en/3.1/ref/settings/#auth-password-validators
@@ -308,14 +317,19 @@ REST_FRAMEWORK = {
     # or allow read-only access for unauthenticated users.
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "users.authentication.TenantBoundJWTAuthentication",
     ),
     "EXCEPTION_HANDLER": "api.exceptions.custom_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
+    "DEFAULT_THROTTLE_RATES": {
+        "public_admission_track": "10/hour",
+        "direct_message_create": "30/hour",
+        "background_job_create": "20/hour",
+    },
 
 }
 
@@ -339,8 +353,8 @@ SIMPLE_JWT = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Your API',
-    'DESCRIPTION': 'Your API description',
+    'TITLE': 'SSync API',
+    'DESCRIPTION': 'Tenant-aware school management API.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     # Add these to help with schema generation

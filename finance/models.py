@@ -1,4 +1,4 @@
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.db.models import Sum
@@ -244,58 +244,9 @@ class FeeStructure(models.Model):
         For mandatory fees, assigns to all applicable students.
         For optional fees linked to a service, assigns to subscribed students.
         """
-        if not self.is_mandatory and not self.optional_service:
-            return 0
+        from finance.services.fee_assignment_service import FeeAssignmentService
 
-        assigned_count = 0
-        
-        if self.is_mandatory:
-            students = Student.objects.filter(is_active=True)
-        else:
-            subscribed_student_ids = ServiceSubscription.objects.filter(
-                service=self.optional_service,
-                is_active=True
-            ).values_list('student_id', flat=True)
-            students = Student.objects.filter(id__in=subscribed_student_ids, is_active=True)
-
-        # Filter by grade levels if specified
-        grade_levels_list = list(self.grade_levels.all())
-        if grade_levels_list:
-            students = students.filter(classroom__class_level__grade_level__in=grade_levels_list)
-
-        # Filter by class levels if specified
-        class_levels_list = list(self.class_levels.all())
-        if class_levels_list:
-            students = students.filter(classroom__class_level__in=class_levels_list)
-
-        # Determine which term(s) to assign
-        terms_to_assign = []
-        if self.term:
-            terms_to_assign = [self.term]
-        elif term:
-            terms_to_assign = [term]
-        else:
-            # Annual fee (term is None): Assign only to the first chronological term of the year
-            first_term = Term.objects.filter(academic_year=self.academic_year).first()
-            if first_term:
-                terms_to_assign = [first_term]
-
-        for student in students:
-            for assignment_term in terms_to_assign:
-                if self.applies_to_student(student, assignment_term):
-                    _, created = StudentFeeAssignment.objects.get_or_create(
-                        student=student,
-                        fee_structure=self,
-                        term=assignment_term,
-                        defaults={
-                            'amount_owed': self.amount,
-                            'amount_paid': Decimal('0.00'),
-                        }
-                    )
-                    if created:
-                        assigned_count += 1
-
-        return assigned_count
+        return FeeAssignmentService.assign_fee(fee_structure=self, term=term)
 
 
 class StudentFeeAssignment(models.Model):
@@ -354,6 +305,11 @@ class StudentFeeAssignment(models.Model):
     class Meta:
         unique_together = ('student', 'fee_structure', 'term')
         ordering = ['-term', 'fee_structure__fee_type', 'student']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount_owed__gte=0), name='finance_assignment_owed_nonnegative'),
+            models.CheckConstraint(condition=models.Q(amount_paid__gte=0), name='finance_assignment_paid_nonnegative'),
+            models.CheckConstraint(condition=models.Q(amount_paid__lte=models.F('amount_owed')), name='finance_assignment_paid_lte_owed'),
+        ]
         indexes = [
             models.Index(fields=['student', 'term']),
             models.Index(fields=['is_waived']),
@@ -526,6 +482,9 @@ class Receipt(models.Model):
 
     class Meta:
         ordering = ['-date', '-receipt_number']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name='finance_receipt_amount_positive'),
+        ]
         indexes = [
             models.Index(fields=['student', 'term']),
             models.Index(fields=['receipt_number']),
@@ -540,18 +499,45 @@ class Receipt(models.Model):
             raise ValidationError("Amount must be a positive value.")
 
     def save(self, *args, **kwargs):
-        # Auto-generate receipt number
-        if not self.receipt_number:
-            with transaction.atomic():
-                last_receipt = (
-                    Receipt.objects.select_for_update()
-                    .order_by("-receipt_number")
-                    .first()
+        if self.receipt_number:
+            return super().save(*args, **kwargs)
+
+        # Lock a stable PostgreSQL advisory key because an empty queryset has
+        # no row for select_for_update() to lock.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    [f"{connection.schema_name}:finance:receipt-number"],
                 )
+            if not self.receipt_number:
+                last_receipt = Receipt.objects.order_by("-receipt_number").first()
                 self.receipt_number = (
                     (last_receipt.receipt_number + 1) if last_receipt else 1
                 )
-        super().save(*args, **kwargs)
+            return super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        locked_receipt = Receipt.objects.select_for_update().get(pk=self.pk)
+        assignment_ids = list(
+            locked_receipt.fee_allocations.order_by()
+            .values_list("fee_assignment_id", flat=True)
+            .distinct()
+        )
+        assignments = list(
+            StudentFeeAssignment.objects.select_for_update()
+            .filter(pk__in=assignment_ids)
+            .order_by("pk")
+        )
+        for assignment in assignments:
+            allocated = locked_receipt.fee_allocations.filter(
+                fee_assignment=assignment
+            ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+            assignment.amount_paid -= allocated
+            assignment.full_clean()
+            assignment.save(update_fields=("amount_paid",))
+        return super().delete(*args, **kwargs)
 
     @property
     def allocated_amount(self):
@@ -597,6 +583,9 @@ class FeePaymentAllocation(models.Model):
 
     class Meta:
         ordering = ['-allocated_date']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name='finance_allocation_amount_positive'),
+        ]
         indexes = [
             models.Index(fields=['receipt', 'fee_assignment']),
         ]
@@ -623,12 +612,41 @@ class FeePaymentAllocation(models.Model):
                 f"Cannot allocate ₦{self.amount} - only ₦{self.receipt.amount - current_allocated} remaining"
             )
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
-        self.full_clean()
-        super().save(*args, **kwargs)
+        if self.pk:
+            original = FeePaymentAllocation.objects.get(pk=self.pk)
+            immutable = ("receipt_id", "fee_assignment_id", "amount")
+            if any(getattr(original, field) != getattr(self, field) for field in immutable):
+                raise ValidationError("Posted fee allocations are immutable; reverse and recreate the allocation.")
+            return super().save(*args, **kwargs)
 
-        # Apply payment to fee assignment
-        self.fee_assignment.apply_payment(self.amount)
+        receipt = Receipt.objects.select_for_update().get(pk=self.receipt_id)
+        assignment = StudentFeeAssignment.objects.select_for_update().get(pk=self.fee_assignment_id)
+        self.receipt = receipt
+        self.fee_assignment = assignment
+
+        if receipt.student_id and receipt.student_id != assignment.student_id:
+            raise ValidationError("A receipt can only be allocated to fees for the same student.")
+
+        self.full_clean()
+        result = super().save(*args, **kwargs)
+        assignment.amount_paid += self.amount
+        assignment.last_payment_date = timezone.now()
+        assignment.full_clean()
+        assignment.save(update_fields=("amount_paid", "last_payment_date"))
+        return result
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        allocation = FeePaymentAllocation.objects.select_for_update().get(pk=self.pk)
+        assignment = StudentFeeAssignment.objects.select_for_update().get(
+            pk=allocation.fee_assignment_id
+        )
+        assignment.amount_paid -= allocation.amount
+        assignment.full_clean()
+        assignment.save(update_fields=("amount_paid",))
+        return super().delete(*args, **kwargs)
 
 
 # ============================================================================
@@ -699,6 +717,9 @@ class Payment(models.Model):
 
     class Meta:
         ordering = ['-date', '-payment_number']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name='finance_payment_amount_positive'),
+        ]
         indexes = [
             models.Index(fields=['date']),
             models.Index(fields=['category']),
@@ -712,13 +733,21 @@ class Payment(models.Model):
             raise ValidationError("Amount must be a positive value.")
 
     def save(self, *args, **kwargs):
-        if not self.payment_number:
-            last_payment = Payment.objects.order_by("-payment_number").first()
-            self.payment_number = (
-                (last_payment.payment_number + 1) if last_payment else 1
-            )
+        if self.payment_number:
+            return super().save(*args, **kwargs)
 
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    [f"{connection.schema_name}:finance:payment-number"],
+                )
+            if not self.payment_number:
+                last_payment = Payment.objects.order_by("-payment_number").first()
+                self.payment_number = (
+                    (last_payment.payment_number + 1) if last_payment else 1
+                )
+            return super().save(*args, **kwargs)
 
 
 # ============================================================================

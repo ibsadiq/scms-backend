@@ -7,6 +7,7 @@ from ..models import AssessmentEntry
 class AssessmentService:
 
     @staticmethod
+    @transaction.atomic
     def record_score(*, component, student, subject, score, teacher, term, academic_year, session=None, status="COMPLETE", source="MANUAL", remarks=""):
         """
         Create or update a single score entry.
@@ -14,7 +15,7 @@ class AssessmentService:
         this just ensures clean() actually runs before save.
         """
         from academic.models import StudentClassEnrollment, AcademicYear
-        enrollment = StudentClassEnrollment.objects.filter(
+        enrollment = StudentClassEnrollment.objects.select_for_update().filter(
             student_id=student,
             academic_year=academic_year,
             is_active=True
@@ -24,13 +25,12 @@ class AssessmentService:
             raise ValidationError(f"Student ID {student} is not actively enrolled in the given academic year.")
 
         from ..models import TermResult, Term
-        locked = TermResult.objects.filter(
+        term_result = TermResult.objects.select_for_update().filter(
             student_id=student,
             term=term,
             academic_year=academic_year,
-            is_locked=True
-        ).exists()
-        if locked:
+        ).first()
+        if term_result and term_result.is_locked:
             raise ValidationError(f"Term result for this student is locked. Unlock result to modify scores.")
 
         entry, created = AssessmentEntry.objects.update_or_create(
@@ -67,7 +67,7 @@ class AssessmentService:
         if existing:
             return existing
             
-        enrollment = StudentClassEnrollment.objects.filter(
+        enrollment = StudentClassEnrollment.objects.select_for_update().filter(
             student_id=student,
             academic_year=academic_year,
             is_active=True
@@ -77,7 +77,7 @@ class AssessmentService:
             raise ValidationError(f"Student ID {student} is not actively enrolled in the given academic year.")
             
         # Verify target result is not locked
-        term_result = TermResult.objects.filter(
+        term_result = TermResult.objects.select_for_update().filter(
             student_id=student,
             term=term,
             academic_year=academic_year

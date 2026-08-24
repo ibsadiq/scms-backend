@@ -1,5 +1,5 @@
 from rest_framework.views import APIView
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -11,9 +11,11 @@ from .serializers import (
     StudentAttendanceSerializer,
     PeriodAttendanceSerializer,
 )
+from .permissions import CanReadAssignedAttendance, is_attendance_admin, teacher_classroom_ids
 
 
 class TeacherAttendanceListView(APIView):
+    permission_classes = [CanReadAssignedAttendance]
 
     queryset = TeachersAttendance.objects.all()
     serializer_class = TeacherAttendanceSerializer
@@ -23,53 +25,53 @@ class TeacherAttendanceListView(APIView):
 
     def get(self, request):
         attendances = TeachersAttendance.objects.all()
+        if not is_attendance_admin(request.user):
+            attendances = attendances.filter(teacher=getattr(request.user, "teacher", None))
         serializer = TeacherAttendanceSerializer(attendances, many=True)
         return Response(serializer.data)
 
-    def post(self, request):
-        serializer = TeacherAttendanceSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
-class TeacherAttendanceDetailView(RetrieveUpdateDestroyAPIView):
+class TeacherAttendanceDetailView(RetrieveAPIView):
     """
     API View to handle retrieve, update, and delete operations for a single TeacherAttendance record.
     """
     serializer_class = TeacherAttendanceSerializer
     queryset = TeachersAttendance.objects.all()
+    permission_classes = [CanReadAssignedAttendance]
     lookup_field = 'pk'
 
-class StudentAttendanceListView(ListCreateAPIView):
-    """
-    API View to handle listing and creating StudentAttendance records.
-    """
-    serializer_class = StudentAttendanceSerializer
-    queryset = StudentAttendance.objects.all()
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if is_attendance_admin(self.request.user):
+            return queryset
+        return queryset.filter(teacher=getattr(self.request.user, "teacher", None))
 
-class StudentAttendanceDetailView(RetrieveUpdateDestroyAPIView):
-    """
-    API View to handle retrieve, update, and delete operations for a single StudentAttendance record.
-    """
-    serializer_class = StudentAttendanceSerializer
-    queryset = StudentAttendance.objects.all()
-    lookup_field = 'pk'
-
-
-class PeriodAttendanceListView(ListCreateAPIView):
+class PeriodAttendanceListView(ListAPIView):
     """
     API View to handle listing and creating PeriodAttendance records.
     """
     serializer_class = PeriodAttendanceSerializer
     queryset = PeriodAttendance.objects.all()
+    permission_classes = [CanReadAssignedAttendance]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if is_attendance_admin(self.request.user):
+            return queryset
+        return queryset.filter(student__classroom_id__in=teacher_classroom_ids(self.request.user))
 
 
-class PeriodAttendanceDetailView(RetrieveUpdateDestroyAPIView):
+class PeriodAttendanceDetailView(RetrieveAPIView):
     """
     API View to handle retrieve, update, and delete operations for a single PeriodAttendance record.
     """
     serializer_class = PeriodAttendanceSerializer
     queryset = PeriodAttendance.objects.all()
+    permission_classes = [CanReadAssignedAttendance]
     lookup_field = 'pk'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if is_attendance_admin(self.request.user):
+            return queryset
+        return queryset.filter(student__classroom_id__in=teacher_classroom_ids(self.request.user))

@@ -13,7 +13,9 @@ from .serializers import (
     PeriodSlotSerializer, RoomSerializer, TeacherAvailabilitySerializer,
     TimetableEntryListSerializer, TimetableEntryWriteSerializer,
     BulkCopyTimetableSerializer, BulkActivitySerializer,
+    GenerateTimetableRequestSerializer, GenerateTimetableResponseSerializer,
 )
+from drf_spectacular.utils import extend_schema
 from academic.models import ClassRoom
 
 
@@ -310,6 +312,12 @@ class TimetableEntryViewSet(viewsets.ModelViewSet):
 class GenerateTimetableView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        request=GenerateTimetableRequestSerializer,
+        responses={200: GenerateTimetableResponseSerializer,
+                   400: GenerateTimetableResponseSerializer,
+                   500: GenerateTimetableResponseSerializer},
+    )
     def post(self, request, *args, **kwargs):
         if not is_user_admin(request.user):
             return Response({"error": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
@@ -340,5 +348,8 @@ class GenerateTimetableView(APIView):
             })
         except CommandError as e:
             return Response({"status": "error", "message": str(e)}, status=400)
-        except Exception as e:
-            return Response({"status": "error", "message": str(e)}, status=500)
+        except Exception:
+            return Response(
+                {"status": "error", "message": "Timetable generation failed."},
+                status=500,
+            )

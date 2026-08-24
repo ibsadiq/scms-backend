@@ -1,106 +1,87 @@
-# signals.py
-from django.db import models
+from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
-from decimal import Decimal
+
 from academic.models import Student
 from administration.models import Term
-from .models import FeeStructure, StudentFeeAssignment
+
+from .models import FeeStructure
 
 
 @receiver(post_save, sender=FeeStructure)
-def auto_assign_mandatory_fees(sender, instance, created, **kwargs):
-    """
-    When a mandatory fee structure is created, automatically assign it
-    to all applicable students.
-    """
+def schedule_mandatory_fee_assignment(sender, instance, created, **kwargs):
     if created and instance.is_mandatory:
-        assigned_count = instance.auto_assign_to_students()
-        print(f"Auto-assigned {assigned_count} students to {instance.name}")
+        fee_id = instance.pk
+        transaction.on_commit(lambda: _assign_fee(fee_id))
+
+
+@receiver(pre_save, sender=Student)
+def capture_previous_student_fee_status(sender, instance, **kwargs):
+    previous = (
+        Student.objects.filter(pk=instance.pk).values_list(
+            "is_active", "graduation_date", "date_dismissed"
+        ).first() if instance.pk else None
+    )
+    instance._previous_fee_active = bool(
+        previous and previous[0] and not previous[1] and not previous[2]
+    )
 
 
 @receiver(post_save, sender=Student)
-def assign_fees_to_new_student(sender, instance, created, **kwargs):
-    """
-    When a new student is created or their grade/class changes,
-    assign all applicable mandatory fees.
-    """
-    if instance.status != 'Active':
-        return
-
-    # Get current/active term
-    try:
-        current_term = Term.objects.filter(
-            academic_year__active_year=True,
-            start_date__lte=timezone.now().date(),
-            end_date__gte=timezone.now().date()
-        ).first()
-    except:
-        current_term = None
-
-    if not current_term:
-        return
-
-    # Find all mandatory fees that apply to this student
-    mandatory_fees = FeeStructure.objects.filter(
-        is_mandatory=True,
-        academic_year=current_term.academic_year
+def schedule_fees_for_student(sender, instance, created, **kwargs):
+    became_active = instance.status == "Active" and (
+        created or not getattr(instance, "_previous_fee_active", False)
     )
-
-    assigned_count = 0
-    for fee_structure in mandatory_fees:
-        if fee_structure.applies_to_student(instance, current_term):
-            _, fee_created = StudentFeeAssignment.objects.get_or_create(
-                student=instance,
-                fee_structure=fee_structure,
-                term=current_term,
-                defaults={
-                    'amount_owed': fee_structure.amount,
-                    'amount_paid': Decimal('0.00'),
-                }
-            )
-            if fee_created:
-                assigned_count += 1
-
-    if assigned_count > 0:
-        print(f"Assigned {assigned_count} fees to {instance.full_name}")
+    if not became_active:
+        return
+    current_term = Term.objects.filter(
+        academic_year__active_year=True,
+        start_date__lte=timezone.localdate(),
+        end_date__gte=timezone.localdate(),
+    ).first()
+    if current_term:
+        student_id, term_id = instance.pk, current_term.pk
+        transaction.on_commit(lambda: _assign_student(student_id, term_id))
 
 
 @receiver(post_save, sender=Term)
-def assign_fees_for_new_term(sender, instance, created, **kwargs):
-    """
-    When a new term is created, assign all mandatory fees for that term
-    to applicable students.
-    """
+def schedule_fees_for_term(sender, instance, created, **kwargs):
     if not created:
         return
-
-    # Find all mandatory fees for this academic year that apply to this term
-    mandatory_fees = FeeStructure.objects.filter(
-        is_mandatory=True,
-        academic_year=instance.academic_year
-    ).filter(
-        models.Q(term=instance) | models.Q(term__isnull=True)
+    fee_ids = list(
+        FeeStructure.objects.filter(
+            academic_year=instance.academic_year,
+            is_mandatory=True,
+        ).filter(term=instance).values_list("pk", flat=True)
+    ) + list(
+        FeeStructure.objects.filter(
+            academic_year=instance.academic_year,
+            is_mandatory=True,
+            term__isnull=True,
+        ).values_list("pk", flat=True)
     )
-
-    total_assigned = 0
-    for fee_structure in mandatory_fees:
-        assigned = fee_structure.auto_assign_to_students(term=instance)
-        total_assigned += assigned
-
-    if total_assigned > 0:
-        print(f"Assigned {total_assigned} fee assignments for new term: {instance.name}")
+    term_id = instance.pk
+    transaction.on_commit(lambda: _assign_fees(fee_ids, term_id))
 
 
-# Add this to your app's apps.py:
-"""
-from django.apps import AppConfig
+def _assign_fee(fee_id, term_id=None):
+    from finance.services import FeeAssignmentService
 
-class FinancialConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'financial'
+    fee = FeeStructure.objects.get(pk=fee_id)
+    term = Term.objects.get(pk=term_id) if term_id else None
+    FeeAssignmentService.assign_fee(fee_structure=fee, term=term)
 
-    def ready(self):
-        import financial.signals  # noqa
-"""
+
+def _assign_fees(fee_ids, term_id):
+    for fee_id in fee_ids:
+        _assign_fee(fee_id, term_id)
+
+
+def _assign_student(student_id, term_id):
+    from finance.services import FeeAssignmentService
+
+    FeeAssignmentService.assign_current_fees_to_student(
+        student=Student.objects.get(pk=student_id),
+        term=Term.objects.get(pk=term_id),
+    )

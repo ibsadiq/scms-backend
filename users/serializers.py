@@ -1,9 +1,210 @@
 from django.db import transaction
 from django.contrib.auth.models import Group
 from rest_framework import serializers
-from rest_framework_simplejwt.tokens import RefreshToken
+
+
+class RoleChoiceSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(
+        choices=["admin", "teacher", "parent", "student", "accountant", "staff", "inspector"]
+    )
+
+
+TENANT_ROLE_CHOICES = ["admin", "teacher", "parent", "student", "accountant", "staff"]
+
+
+class RoleStateSerializer(serializers.Serializer):
+    available_roles = serializers.ListField(
+        child=serializers.ChoiceField(choices=TENANT_ROLE_CHOICES), required=False
+    )
+    active_role = serializers.ChoiceField(choices=TENANT_ROLE_CHOICES, allow_null=True)
+    available_roles_display = serializers.ListField(required=False)
+    message = serializers.CharField(required=False)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    frontend_url = serializers.URLField(required=False)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+
+class SuccessMessageSerializer(serializers.Serializer):
+    success = serializers.BooleanField(required=False)
+    message = serializers.CharField()
+
+
+class BulkTeacherUploadRequestSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
+
+class BulkTeacherUploadResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    not_created = serializers.ListField(child=serializers.JSONField())
+
+
+class TeacherDashboardStatsSerializer(serializers.Serializer):
+    totalClasses = serializers.IntegerField()
+    totalStudents = serializers.IntegerField()
+    todaysClasses = serializers.IntegerField()
+    pendingGrades = serializers.IntegerField()
+
+
+class TeacherScheduleItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    subject_name = serializers.CharField()
+    classroom_name = serializers.CharField()
+    start_time = serializers.CharField()
+    end_time = serializers.CharField()
+    status = serializers.ChoiceField(choices=("completed", "ongoing", "upcoming"))
+
+
+class TeacherClassItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    subject = serializers.CharField()
+    student_count = serializers.IntegerField()
+
+
+class TeacherActivitySerializer(serializers.Serializer):
+    id = serializers.CharField()
+    type = serializers.CharField()
+    icon = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField()
+    time = serializers.CharField()
+
+
+class TeacherAssessmentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    type = serializers.CharField()
+    subject = serializers.CharField()
+    classroom = serializers.CharField()
+    date = serializers.DateField()
+
+
+class HomeroomStudentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    name = serializers.CharField()
+    classroom_id = serializers.IntegerField(allow_null=True)
+    classroom_name = serializers.CharField()
+    parent_id = serializers.IntegerField(allow_null=True)
+    parent_name = serializers.CharField()
+
+
+class HomeroomClassSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class TeacherDashboardSerializer(serializers.Serializer):
+    stats = TeacherDashboardStatsSerializer()
+    todaysSchedule = TeacherScheduleItemSerializer(many=True)
+    myClasses = TeacherClassItemSerializer(many=True)
+    recentActivities = TeacherActivitySerializer(many=True)
+    upcomingAssessments = TeacherAssessmentSerializer(many=True)
+    homeroomStudents = HomeroomStudentSerializer(many=True)
+    homeroomClasses = HomeroomClassSerializer(many=True)
+
+
+class ParentChildPerformanceSerializer(serializers.Serializer):
+    average_grade = serializers.CharField()
+    position = serializers.CharField()
+
+
+class ParentChildAttendanceSerializer(serializers.Serializer):
+    rate = serializers.IntegerField()
+    present = serializers.IntegerField()
+    absent = serializers.IntegerField()
+    late = serializers.IntegerField()
+    total = serializers.IntegerField()
+
+
+class ParentChildFeeSummarySerializer(serializers.Serializer):
+    total = serializers.FloatField()
+    paid = serializers.FloatField()
+    balance = serializers.FloatField()
+    status = serializers.ChoiceField(choices=("Paid", "Partial", "Unpaid"))
+
+
+class ParentHomeroomTeacherSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+
+
+class ParentDashboardChildSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    admission_number = serializers.CharField()
+    class_name = serializers.CharField()
+    homeroom_teacher = ParentHomeroomTeacherSerializer(allow_null=True)
+    status = serializers.ChoiceField(choices=("active", "inactive"))
+    performance = ParentChildPerformanceSerializer()
+    attendance = ParentChildAttendanceSerializer()
+    fees = ParentChildFeeSummarySerializer()
+
+
+class ParentSchoolAdminSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    role_label = serializers.CharField()
+
+
+class ParentEventSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    event_type = serializers.CharField()
+    date = serializers.CharField()
+    start_date = serializers.DateField()
+    end_date = serializers.DateField(allow_null=True)
+    description = serializers.CharField()
+
+
+class ParentRecentPaymentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    receipt_number = serializers.CharField()
+    child_name = serializers.CharField()
+    fee_type = serializers.CharField()
+    amount = serializers.FloatField()
+    date = serializers.DateField()
+    formatted_date = serializers.CharField()
+    status = serializers.CharField()
+    paid_through = serializers.CharField()
+
+
+class ParentDashboardSerializer(serializers.Serializer):
+    children = ParentDashboardChildSerializer(many=True)
+    school_admins = ParentSchoolAdminSerializer(many=True)
+    upcomingEvents = ParentEventSerializer(many=True)
+    recentPayments = ParentRecentPaymentSerializer(many=True)
+
+
+class ParentChildSummarySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    full_name = serializers.CharField()
+    admission_number = serializers.CharField()
+    class_name = serializers.CharField()
+    classroom_name = serializers.CharField()
+    gender = serializers.CharField()
+    date_of_birth = serializers.DateField(allow_null=True)
+    status = serializers.ChoiceField(choices=("active", "inactive"))
 from academic.models import Teacher, Subject, Parent
 from .models import CustomUser, UserInvitation
+from .tokens import tenant_refresh_token_for_user
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -17,6 +218,17 @@ class UserSerializer(serializers.ModelSerializer):
     isStudent        = serializers.SerializerMethodField(read_only=True)
     isInspector      = serializers.SerializerMethodField(read_only=True)
     inspector_details = serializers.SerializerMethodField(read_only=True)
+    active_role = serializers.ChoiceField(
+        source="get_effective_role",
+        choices=TENANT_ROLE_CHOICES,
+        allow_null=True,
+        read_only=True,
+    )
+    available_roles = serializers.ListField(
+        source="get_available_roles",
+        child=serializers.ChoiceField(choices=TENANT_ROLE_CHOICES),
+        read_only=True,
+    )
 
     class Meta:
         model = CustomUser
@@ -36,6 +248,8 @@ class UserSerializer(serializers.ModelSerializer):
             "parent_details",
             "isInspector",
             "inspector_details",
+            "active_role",
+            "available_roles",
         ]
 
     def get_isStudent(self, obj):
@@ -90,10 +304,27 @@ class UserSerializerWithToken(UserSerializer):
 
     def get_token(self, obj):
         try:
-            token = RefreshToken.for_user(obj)
+            token = tenant_refresh_token_for_user(obj)
             return str(token.access_token)
         except Exception:
             return None
+
+
+class LoginResponseSerializer(UserSerializer):
+    access = serializers.CharField(read_only=True)
+    refresh = serializers.CharField(read_only=True)
+    token = serializers.CharField(read_only=True, allow_null=True)
+    tenant_slug = serializers.CharField(read_only=True)
+    isSuperAdmin = serializers.BooleanField(read_only=True)
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + [
+            "access",
+            "refresh",
+            "token",
+            "tenant_slug",
+            "isSuperAdmin",
+        ]
 
 
 class TeacherSerializer(serializers.ModelSerializer):

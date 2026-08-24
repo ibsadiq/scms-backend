@@ -16,10 +16,15 @@ from notifications.services import NotificationService
 from users.models import CustomUser
 from tenants.models import Client
 from django_tenants.utils import schema_context
+from api.jobs.services import BackgroundJobService
+from api.jobs.tasks import TenantBackgroundJobTask
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-@shared_task(name='finance.send_fee_reminders')
-def send_fee_reminders():
+@shared_task(base=TenantBackgroundJobTask, name='finance.send_fee_reminders')
+def send_fee_reminders(schema_name=None, job_public_id=None):
     """
     Send fee payment reminders to parents based on configurable ReminderSettings.
     """
@@ -31,9 +36,15 @@ def send_fee_reminders():
         'errors': []
     }
 
-    active_tenants = Client.objects.exclude(schema_name='public')
-    for tenant in active_tenants:
-        with schema_context(tenant.schema_name):
+    tenant_schema_names = (
+        [schema_name]
+        if schema_name
+        else Client.objects.exclude(schema_name='public').values_list('schema_name', flat=True)
+    )
+    for tenant_schema_name in tenant_schema_names:
+        with schema_context(tenant_schema_name):
+            if job_public_id:
+                BackgroundJobService.mark_started(job_public_id)
             from finance.models import ReminderSetting
             active_rules = ReminderSetting.objects.filter(is_active=True)
 
@@ -113,17 +124,32 @@ def send_fee_reminders():
                                     priority=priority,
                                     send_email=True,
                                     send_sms=send_sms,
-                                    related_student=assignment.student
+                                    related_student=assignment.student,
+                                    idempotency_key=(
+                                        f"fee-reminder:{job_public_id}:{rule.id}:{assignment.id}"
+                                        if job_public_id
+                                        else f"fee-reminder:scheduled:{today.isoformat()}:{rule.id}:{assignment.id}"
+                                    ),
                                 )
                                 results['sent'] += 1
                             except Exception as e:
-                                results['errors'].append(f"[{tenant.schema_name}] Rule {rule.name} - Student {assignment.student.id}: {str(e)}")
+                                logger.exception(
+                                    "Fee reminder delivery failed",
+                                    extra={"job_id": job_public_id, "student_id": assignment.student.id},
+                                )
+                                results['errors'].append("DELIVERY_FAILED")
+
+            if job_public_id:
+                BackgroundJobService.mark_success(
+                    job_public_id,
+                    {"sent": results["sent"], "failed": len(results["errors"])},
+                )
 
     return results
 
 
-@shared_task(name='finance.send_custom_fee_reminder')
-def send_custom_fee_reminder(schema_name, fee_structure_id, message=None):
+@shared_task(base=TenantBackgroundJobTask, name='finance.send_custom_fee_reminder')
+def send_custom_fee_reminder(schema_name, fee_structure_id, message=None, job_public_id=None):
     """
     Send a custom reminder for a specific fee structure.
 
@@ -144,6 +170,8 @@ def send_custom_fee_reminder(schema_name, fee_structure_id, message=None):
     }
 
     with schema_context(schema_name):
+        if job_public_id:
+            BackgroundJobService.mark_started(job_public_id)
         try:
             fee_structure = FeeStructure.objects.get(id=fee_structure_id)
 
@@ -179,16 +207,31 @@ def send_custom_fee_reminder(schema_name, fee_structure_id, message=None):
                                 priority='normal',
                                 send_email=True,
                                 send_sms=False,
-                                related_student=assignment.student
+                                related_student=assignment.student,
+                                idempotency_key=(
+                                    f"custom-fee-reminder:{job_public_id}:{assignment.id}"
+                                    if job_public_id else None
+                                ),
                             )
                             results['sent'] += 1
-                        except Exception as e:
-                            results['errors'].append(f"Student {assignment.student.id}: {str(e)}")
+                        except Exception:
+                            logger.exception(
+                                "Custom fee reminder delivery failed",
+                                extra={"job_id": job_public_id, "student_id": assignment.student.id},
+                            )
+                            results['errors'].append("DELIVERY_FAILED")
 
+            if job_public_id:
+                BackgroundJobService.mark_success(
+                    job_public_id,
+                    {"sent": results["sent"], "failed": len(results["errors"])},
+                )
             return results
 
         except FeeStructure.DoesNotExist:
-            results['errors'].append(f"FeeStructure {fee_structure_id} not found")
+            if job_public_id:
+                BackgroundJobService.mark_failure(job_public_id, "FEE_STRUCTURE_NOT_FOUND")
+            results['errors'].append("FEE_STRUCTURE_NOT_FOUND")
             return results
 
 
@@ -476,4 +519,3 @@ def generate_receipt_pdf_task(self, schema_name, receipt_id):
             'receipt_number': receipt.receipt_number,
             'pdf_size': len(pdf_bytes)
         }
-

@@ -266,3 +266,24 @@ link.click();
 - Support for custom report templates
 - Email delivery of reports
 - More export formats (XLSX, ODS)
+## Phase 4A.3 secured report contracts
+
+The reports API is role-separated. These contract changes must be reflected in
+the frontend and reconciled in the Phase 4B schema pass.
+
+- `GET /api/reports/students/`: school-admin-only paginated identity and
+  enrollment report. The former attendance, examination, and finance fields
+  were removed.
+- `GET /api/reports/academic/`: school admins see the tenant; teachers see only
+  students in classrooms assigned through the canonical classroom/allocation
+  relationships. It contains attendance and result summaries, never finance.
+- `GET /api/reports/attendance/`: school-admin tenant scope or teacher assigned
+  classroom scope.
+- `GET /api/reports/financial/`: school admins and accountants only. Student
+  identity is limited to admission number, name, and class.
+- Student exports are school-admin-only and use the administrative student
+  scope. Finance exports are school-admin/accountant-only and use the finance
+  report scope. There is no teacher tenant-wide export.
+
+Student and academic list responses use `count`, `next`, `previous`, and
+`results`; the administrative student response additionally includes `summary`.

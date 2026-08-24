@@ -11,7 +11,9 @@ from ..services.transcript_service import TranscriptService
 from ..services.amendment_service import AmendmentService
 from ..permissions import IsAdmin, CanComputeResults
 from academic.models import Student
+from academic.services.academic_authority_service import AcademicAuthorityService
 from administration.models import AcademicYear
+from .result import _require_compute_scope, _term_results_for_user
 
 class CumulativeResultViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CumulativeResultSerializer
@@ -21,16 +23,11 @@ class CumulativeResultViewSet(viewsets.ReadOnlyModelViewSet):
         qs = CumulativeResult.objects.select_related("student", "academic_year", "grading_scheme").prefetch_related("subjects__subject")
         user = self.request.user
         
-        # Access control
-        if not (getattr(user, "is_admin", False) or getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)):
-            if getattr(user, "is_parent", False):
-                parent = getattr(user, "parent", None)
-                if parent:
-                    qs = qs.filter(student__parent_guardian=parent, lifecycle_state="PUBLISHED")
-            elif getattr(user, "is_student", False):
-                student = getattr(user, "student_profile", None) or getattr(user, "student", None)
-                if student:
-                    qs = qs.filter(student=student, lifecycle_state="PUBLISHED")
+        if not AcademicAuthorityService.is_school_admin(user):
+            allowed_students = _term_results_for_user(user).values("student_id")
+            qs = qs.filter(student_id__in=allowed_students)
+            if getattr(user, "is_parent", False) or getattr(user, "is_student", False):
+                qs = qs.filter(lifecycle_state="PUBLISHED")
         
         p = self.request.query_params
         if p.get("student_id"):
@@ -51,6 +48,7 @@ class CumulativeResultViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             student = Student.objects.get(id=student_id)
             year = AcademicYear.objects.get(id=year_id)
+            _require_compute_scope(request.user, student.classroom)
             result = CumulativeResultService.compute_cumulative_result(student, year, request.user)
             if not result:
                 return Response({"error": "Could not compute cumulative result (no valid annual results found)."}, status=status.HTTP_400_BAD_REQUEST)
@@ -68,15 +66,8 @@ class AcademicTranscriptViewSet(viewsets.ReadOnlyModelViewSet):
         qs = AcademicTranscript.objects.select_related("student")
         user = self.request.user
         
-        if not (getattr(user, "is_admin", False) or getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)):
-            if getattr(user, "is_parent", False):
-                parent = getattr(user, "parent", None)
-                if parent:
-                    qs = qs.filter(student__parent_guardian=parent)
-            elif getattr(user, "is_student", False):
-                student = getattr(user, "student_profile", None) or getattr(user, "student", None)
-                if student:
-                    qs = qs.filter(student=student)
+        if not AcademicAuthorityService.is_school_admin(user):
+            qs = qs.filter(student_id__in=_term_results_for_user(user).values("student_id"))
                     
         p = self.request.query_params
         if p.get("student_id"):

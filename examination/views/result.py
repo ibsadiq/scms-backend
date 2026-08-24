@@ -1,9 +1,12 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
+from django.db.models import F, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from academic.models import ClassRoom, Student
+from rest_framework.exceptions import PermissionDenied
+from api.jobs.throttles import BackgroundJobCreateThrottle
+from academic.models import AllocatedSubject, ClassRoom, Student
+from academic.services.academic_authority_service import AcademicAuthorityService
 from administration.models import Term, AcademicYear
 from ..models import TermResult, AnnualResult, ReportCard
 from ..serializers.result import (
@@ -22,6 +25,8 @@ from ..tasks import generate_report_card_task, generate_bulk_report_cards_task, 
 from ..models import ReportCardStatus
 from django.db import connection, transaction
 from django.http import HttpResponse
+from api.jobs.serializers import BackgroundJobSerializer
+from api.jobs.services import BackgroundJobService
 
 
 def _get_schema_name(request):
@@ -30,11 +35,28 @@ def _get_schema_name(request):
     return connection.schema_name
 
 
+def _can_compute_for_classroom(user, classroom):
+    if AcademicAuthorityService.is_school_admin(user):
+        return True
+    teacher = getattr(user, "teacher", None)
+    if not teacher or not classroom:
+        return False
+    return bool(
+        classroom.class_teacher_id == teacher.id
+        or AllocatedSubject.objects.filter(teacher_name=teacher, class_room=classroom).exists()
+    )
+
+
+def _require_compute_scope(user, classroom):
+    if not _can_compute_for_classroom(user, classroom):
+        raise PermissionDenied("You are not authorized to compute results for this classroom.")
+
+
 def _term_results_for_user(user):
     if not user.is_authenticated:
         return TermResult.objects.none()
 
-    if getattr(user, "is_admin", False) or getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+    if AcademicAuthorityService.is_school_admin(user):
         return TermResult.objects.all()
 
     role = getattr(user, "active_role", None)
@@ -54,7 +76,7 @@ def _term_results_for_user(user):
             return TermResult.objects.filter(
                 Q(classroom__class_teacher=teacher) | Q(subject_results__teacher=teacher)
             ).distinct()
-        return TermResult.objects.all()
+        return TermResult.objects.none()
 
     if role == "parent" or getattr(user, "is_parent", False):
         parent = getattr(user, "parent", None)
@@ -151,6 +173,7 @@ class TermResultViewSet(viewsets.ModelViewSet):
             student = Student.objects.get(id=request.data.get("student"))
             term = Term.objects.get(id=request.data.get("term"))
             academic_year = AcademicYear.objects.get(id=request.data.get("academic_year"))
+            _require_compute_scope(request.user, student.classroom)
             result = ResultComputationService.compute_student_term_result(
                 student=student, term=term, academic_year=academic_year, user=request.user
             )
@@ -161,7 +184,12 @@ class TermResultViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         return Response(TermResultSerializer(result).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=False, methods=["post"], url_path="compute-class")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="compute-class",
+        throttle_classes=[BackgroundJobCreateThrottle],
+    )
     def compute_class(self, request):
         try:
             classroom = ClassRoom.objects.get(id=request.data.get("classroom"))
@@ -170,17 +198,23 @@ class TermResultViewSet(viewsets.ModelViewSet):
         except (ClassRoom.DoesNotExist, Term.DoesNotExist, AcademicYear.DoesNotExist):
             return Response({"detail": "Invalid classroom, term, or academic year."}, status=status.HTTP_404_NOT_FOUND)
 
+        _require_compute_scope(request.user, classroom)
+
         use_async = request.data.get("async", False) or request.data.get("use_celery", False)
         if use_async:
-            task = compute_class_results_task.delay(
-                schema_name=_get_schema_name(request),
-                classroom_id=classroom.id,
-                term_id=term.id,
-                academic_year_id=academic_year.id,
-                user_id=request.user.id,
+            job = BackgroundJobService.create_and_dispatch(
+                task=compute_class_results_task,
+                job_type="EXAMINATION_CLASS_RESULT_COMPUTATION",
+                created_by=request.user,
+                task_kwargs={
+                    "classroom_id": classroom.id,
+                    "term_id": term.id,
+                    "academic_year_id": academic_year.id,
+                    "user_id": request.user.id,
+                },
             )
             return Response(
-                {"detail": "Class result computation scheduled via Celery.", "task_id": task.id},
+                BackgroundJobSerializer(job).data,
                 status=status.HTTP_202_ACCEPTED
             )
 
@@ -452,8 +486,17 @@ class AnnualResultViewSet(viewsets.ModelViewSet):
             qs = qs.prefetch_related("subjects")
         if not user.is_authenticated:
             return qs.none()
-        if user.is_admin or (user.is_teacher and hasattr(user, "teacher")):
+        if AcademicAuthorityService.is_school_admin(user):
             pass
+        elif user.is_teacher and hasattr(user, "teacher"):
+            teacher = user.teacher
+            qs = qs.filter(
+                Q(classroom__class_teacher=teacher)
+                | Q(
+                    student__term_results__academic_year=F("academic_year"),
+                    student__term_results__subject_results__teacher=teacher,
+                )
+            ).distinct()
         elif user.is_parent and user.active_role == "parent" and hasattr(user, "parent"):
             qs = qs.filter(student__parent_guardian=user.parent, is_published=True)
         elif user.is_student and user.active_role == "student" and hasattr(user, "student_profile"):
@@ -482,6 +525,7 @@ class AnnualResultViewSet(viewsets.ModelViewSet):
         try:
             student = Student.objects.get(id=request.data.get("student"))
             academic_year = AcademicYear.objects.get(id=request.data.get("academic_year"))
+            _require_compute_scope(request.user, student.classroom)
         except (Student.DoesNotExist, AcademicYear.DoesNotExist):
             return Response({"detail": "Invalid student or academic year."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -500,6 +544,8 @@ class AnnualResultViewSet(viewsets.ModelViewSet):
             academic_year = AcademicYear.objects.get(id=request.data.get("academic_year"))
         except (ClassRoom.DoesNotExist, AcademicYear.DoesNotExist):
             return Response({"detail": "Invalid classroom or academic year."}, status=status.HTTP_404_NOT_FOUND)
+
+        _require_compute_scope(request.user, classroom)
 
         summary = {"computed": 0, "failed": 0, "errors": []}
         for student in classroom.students.filter(is_active=True):
@@ -617,7 +663,7 @@ class ResultAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     from examination.models import ResultAuditLog
     from examination.serializers.result import ResultAuditLogSerializer
     from examination.filters import ResultAuditLogFilter
-    from rest_framework.permissions import IsAuthenticated
+    from examination.permissions import IsAdmin
     from django_filters.rest_framework import DjangoFilterBackend
     from rest_framework.filters import SearchFilter, OrderingFilter
 
@@ -629,7 +675,7 @@ class ResultAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         "term_result__term"
     ).all()
     serializer_class = ResultAuditLogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = ResultAuditLogFilter
     search_fields = [

@@ -8,6 +8,33 @@ from rest_framework import serializers
 from .models import Client, Domain, Inspector
 
 
+class TenantBrandingSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    logo_url = serializers.CharField(allow_null=True)
+    primary_color = serializers.CharField()
+    motto = serializers.CharField(allow_null=True)
+    onboarding_completed = serializers.BooleanField()
+
+
+class SchoolSettingsSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False)
+    contact_phone = serializers.CharField(required=False, allow_blank=True)
+    website = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    logo = serializers.ImageField(required=False, write_only=True)
+    logo_url = serializers.CharField(read_only=True, allow_null=True)
+    primary_color = serializers.CharField(required=False)
+    motto = serializers.CharField(required=False, allow_blank=True)
+    onboarding_completed = serializers.BooleanField(required=False)
+
+
+class SchoolSearchResultSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    subdomain = serializers.CharField(allow_null=True)
+    logo_url = serializers.CharField(allow_null=True)
+    primary_color = serializers.CharField()
+
+
 class SchoolSignupSerializer(serializers.Serializer):
     """Serializer for school registration"""
     school_name = serializers.CharField(

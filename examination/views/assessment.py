@@ -4,9 +4,10 @@ from django.http import FileResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from ..models import AssessmentSession, AssessmentEntry, MarkedScript
 from ..serializers.assessments import AssessmentSessionSerializer, AssessmentEntrySerializer, MarkedScriptSerializer
-from ..permissions import CanEnterScores, CanUploadMarkedScript, CanViewMarkedScript
+from ..permissions import IsAdmin, CanEnterScores, CanUploadMarkedScript, CanViewMarkedScript
 from ..services.assessment_service import AssessmentService
 
 
@@ -16,8 +17,8 @@ class AssessmentSessionViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("create", "update", "partial_update", "destroy"):
-            return [CanEnterScores()]
-        return super().get_permissions()
+            return [IsAdmin()]
+        return [IsAuthenticated()]
 
     def perform_create(self, serializer):
         # Allow admins to create without teacher profile
@@ -78,7 +79,7 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ("create", "update", "partial_update", "destroy", "bulk_upload", "toggle_visibility"):
             return [CanUploadMarkedScript()]
-        return super().get_permissions()
+        return [CanViewMarkedScript()]
 
     def get_queryset(self):
         user = self.request.user
@@ -111,6 +112,8 @@ class MarkedScriptViewSet(viewsets.ModelViewSet):
             else:
                 qs = qs.filter(student__parent_guardian__user=user, visible_to_parent=True).distinct()
         elif not user.is_authenticated:
+            return qs.none()
+        elif not getattr(user, "is_admin", False) and not getattr(user, "is_staff", False):
             return qs.none()
 
         # Query param filtering

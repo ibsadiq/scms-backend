@@ -10,13 +10,14 @@ from rest_framework.filters import SearchFilter
 from rest_framework import viewsets, views
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, generics
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from drf_spectacular.utils import extend_schema
 from django.utils import timezone
 from django.db.models import Sum, Count
 
@@ -27,6 +28,7 @@ from academic.models import StudentClassEnrollment, Teacher, Subject, Parent, Al
 from examination.models import AssessmentSession, AssessmentEntry
 from schedule.models import PeriodSlot, TimetableEntry
 from .models import CustomUser, CustomUser as User, UserInvitation
+from .tokens import TENANT_CLAIM, current_tenant_schema, tenant_refresh_token_for_user
 from .serializers import (
     UserSerializer,
     UserSerializerWithToken,
@@ -35,6 +37,16 @@ from .serializers import (
     UserInvitationSerializer,
     AcceptInvitationSerializer,
     AccountantSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    RoleChoiceSerializer,
+    RoleStateSerializer,
+    BulkTeacherUploadRequestSerializer,
+    BulkTeacherUploadResponseSerializer,
+    ParentChildSummarySerializer,
+    ParentDashboardSerializer,
+    TeacherDashboardSerializer,
+    LoginResponseSerializer,
 )
 
 
@@ -53,11 +65,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        try:
-            from django.db import connection
-            token['tenant_slug'] = connection.schema_name or settings.BASE_DOMAIN
-        except Exception:
-            token['tenant_slug'] = settings.BASE_DOMAIN
+        token[TENANT_CLAIM] = current_tenant_schema()
         return token
 
     def validate(self, attrs):
@@ -123,8 +131,10 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
+@extend_schema(responses={200: LoginResponseSerializer})
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+    permission_classes = [AllowAny]
 
 
 # Token refresh with tenant validation
@@ -133,34 +143,31 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
 class MyTokenRefreshSerializer(TokenRefreshSerializer):
     def validate(self, attrs):
-        request = self.context.get('request')
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        token = RefreshToken(attrs['refresh'])
+        token_schema = token.get(TENANT_CLAIM)
+        current_schema = current_tenant_schema()
+        if not token_schema:
+            raise drf_serializers.ValidationError(
+                {'refresh': 'Token is not bound to a tenant. Please sign in again.'}
+            )
+        if token_schema != current_schema:
+            raise drf_serializers.ValidationError(
+                {'refresh': 'Token tenant does not match the requested tenant.'}
+            )
+
         data = super().validate(attrs)
-
-        # verify tenant slug header matches the one stored in refresh token
-        tenant_in_header = None
-        if request is not None:
-            tenant_in_header = request.headers.get('X-Tenant-Slug')
-        try:
-            from rest_framework_simplejwt.tokens import RefreshToken
-            token = RefreshToken(attrs['refresh'])
-            tenant_in_token = token.get('tenant_slug')
-            if tenant_in_header and tenant_in_token and tenant_in_header != tenant_in_token:
-                raise drf_serializers.ValidationError('Tenant slug mismatch')
-        except Exception:
-            pass
-
-        # echo back tenant_slug if present
-        if tenant_in_header:
-            data['tenant_slug'] = tenant_in_header
-        elif 'tenant_slug' in token:
-            data['tenant_slug'] = token['tenant_slug']
+        data['tenant_slug'] = token_schema
 
         return data
 
 class MyTokenRefreshView(TokenRefreshView):
     serializer_class = MyTokenRefreshSerializer
+    permission_classes = [AllowAny]
 
 
+@extend_schema(responses={200: UserSerializer})
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def getUserProfile(request):
@@ -169,6 +176,7 @@ def getUserProfile(request):
     return Response(serializer.data)
 
 
+@extend_schema(responses={200: RoleStateSerializer})
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def getUserRoles(request):
@@ -176,10 +184,7 @@ def getUserRoles(request):
     user = request.user
     available_roles = user.get_available_roles()
 
-    # If no active role set, default to first available role
-    if not user.active_role and available_roles:
-        user.active_role = available_roles[0]
-        user.save(update_fields=['active_role'])
+    active_role = user.ensure_active_role()
 
     role_labels = {
         'admin': 'Admin',
@@ -187,16 +192,18 @@ def getUserRoles(request):
         'parent': 'Parent',
         'student': 'Student',
         'accountant': 'Accountant',
+        'staff': 'Staff',
         'inspector': 'Inspector',
     }
 
     return Response({
         'available_roles': available_roles,
-        'active_role': user.active_role,
+        'active_role': active_role,
         'available_roles_display': [{'value': r, 'label': role_labels.get(r, r.capitalize())} for r in available_roles]
     })
 
 
+@extend_schema(request=RoleChoiceSerializer, responses={200: RoleStateSerializer})
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def switchUserRole(request):
@@ -294,6 +301,7 @@ class UserListView(generics.ListCreateAPIView):
 
 class UserDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
 
     def get_object(self, pk):
         try:
@@ -483,6 +491,7 @@ class ParentListView(generics.ListCreateAPIView):
 
 class ParentDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = ParentSerializer
 
     def get_object(self, pk):
         return get_object_or_404(Parent, pk=pk)
@@ -576,6 +585,7 @@ class TeacherListView(generics.ListCreateAPIView):
 
 class TeacherDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = TeacherSerializer
 
     def get_object(self, pk):
         return get_object_or_404(Teacher, pk=pk)
@@ -644,6 +654,10 @@ class BulkUploadTeachersView(APIView):
 
     parser_classes = (MultiPartParser, FormParser)
 
+    @extend_schema(
+        request=BulkTeacherUploadRequestSerializer,
+        responses={201: BulkTeacherUploadResponseSerializer},
+    )
     def post(self, request, *args, **kwargs):
         file = request.FILES.get("file")
         if not file:
@@ -786,6 +800,7 @@ class TeacherDashboardView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses={200: TeacherDashboardSerializer})
     def get(self, request):
         from django.core.cache import cache
         from django.db import connection
@@ -990,6 +1005,7 @@ class ParentDashboardView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses={200: ParentDashboardSerializer})
     def get(self, request):
         from django.core.cache import cache
         from django.db import connection
@@ -1192,7 +1208,7 @@ class ParentDashboardView(APIView):
         # ===== SCHOOL ADMINISTRATORS FOR MESSAGING =====
         school_admins_list = []
         admin_users = CustomUser.objects.filter(
-            Q(is_admin=True) | Q(is_superuser=True) | Q(active_role='admin') | Q(is_staff=True),
+            Q(is_admin=True) | Q(is_superuser=True),
             is_active=True
         ).distinct()
         for au in admin_users:
@@ -1224,6 +1240,7 @@ class ParentChildrenView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses={200: ParentChildSummarySerializer(many=True)})
     def get(self, request):
         try:
             parent = Parent.objects.get(user=request.user)
@@ -1300,7 +1317,8 @@ class ValidateInvitationView(APIView):
     GET /api/users/invitations/validate/{token}/
     Returns invitation details if valid
     """
-    permission_classes = []  # Public endpoint
+    permission_classes = [AllowAny]  # Public endpoint
+    serializer_class = UserInvitationSerializer
 
     def get(self, request, token):
         try:
@@ -1332,7 +1350,8 @@ class AcceptInvitationView(APIView):
     POST /api/users/invitations/accept/
     Body: { token, password, password_confirm }
     """
-    permission_classes = []  # Public endpoint
+    permission_classes = [AllowAny]  # Public endpoint
+    serializer_class = AcceptInvitationSerializer
 
     def post(self, request):
         serializer = AcceptInvitationSerializer(data=request.data)
@@ -1341,8 +1360,7 @@ class AcceptInvitationView(APIView):
             user = serializer.save()
 
             # Generate tokens for the new user
-            from rest_framework_simplejwt.tokens import RefreshToken
-            refresh = RefreshToken.for_user(user)
+            refresh = tenant_refresh_token_for_user(user)
 
             return Response({
                 "message": "Account created successfully",
@@ -1362,6 +1380,7 @@ class ResendInvitationView(APIView):
     POST /api/users/invitations/{id}/resend/
     """
     permission_classes = [IsAuthenticated]
+    serializer_class = UserInvitationSerializer
 
     def post(self, request, pk):
         try:
@@ -1413,6 +1432,7 @@ class ResendInvitationView(APIView):
 
 class AccountantListView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = AccountantSerializer
 
     def get(self, request):
         from django.db.models import Q
@@ -1437,6 +1457,7 @@ class AccountantListView(APIView):
 
 class AccountantDetailView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = AccountantSerializer
 
     def get_object(self, pk):
         return get_object_or_404(User, pk=pk, is_accountant=True)
@@ -1456,7 +1477,8 @@ class AccountantDetailView(APIView):
 
 
 class PasswordResetRequestView(APIView):
-    permission_classes = []
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetRequestSerializer
 
     def post(self, request):
         email = request.data.get('email')
@@ -1490,7 +1512,8 @@ class PasswordResetRequestView(APIView):
 
 
 class PasswordResetConfirmView(APIView):
-    permission_classes = []
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
 
     def post(self, request):
         from django.contrib.auth.tokens import default_token_generator

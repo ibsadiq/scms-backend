@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from django.http import JsonResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from api.celery_views import TaskStatusView, CeleryHealthView
+from api.celery_views import CeleryHealthView
 
 
 
@@ -70,6 +70,8 @@ urlpatterns = [
     path("api/core/", include("api.core.urls")),
     path("api/tenants/", include("api.tenants.urls")),
     path("api/ai-tutor/", include("ai_tutor.urls")),
+    path("api/cbt/", include("cbt.urls")),
+    path("api/idcards/", include("idcards.urls")),
 
     # Admission management
     path("api/admissions/", include("api.admissions_admin.urls")),
@@ -80,8 +82,8 @@ urlpatterns = [
     # Reports
     path("api/reports/", include("api.reports.urls")),
 
-    # Celery task monitoring
-    path("api/tasks/<str:task_id>/", TaskStatusView.as_view(), name="task-status"),
+    # Application-owned background jobs and operator-only Celery monitoring
+    path("api/jobs/", include("api.jobs.urls")),
     path("api/celery/health/", CeleryHealthView.as_view(), name="celery-health"),
 ]
 

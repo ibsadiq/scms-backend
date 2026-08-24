@@ -5,7 +5,7 @@ No authentication required.
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from academic.views_admission_public import (
+from academic.views import (
     PublicAdmissionSessionViewSet,
     PublicAdmissionFeeStructureViewSet,
     PublicAdmissionApplicationViewSet,
@@ -49,7 +49,7 @@ urlpatterns = [
         name='public-admission-documents'
     ),
     path(
-        'documents/<int:pk>/',
+        'applications/<str:tracking_token>/documents/<uuid:document_public_id>/',
         PublicAdmissionDocumentViewSet.as_view({
             'delete': 'destroy'
         }),

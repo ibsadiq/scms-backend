@@ -1,67 +1,30 @@
 """
 API views for Celery task monitoring and status checking.
 """
+import logging
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from celery.result import AsyncResult
+from rest_framework.permissions import BasePermission
+from drf_spectacular.utils import extend_schema
 from school.celery import app as celery_app
 
 
-class TaskStatusView(APIView):
-    """
-    Check the status of a Celery task.
+logger = logging.getLogger(__name__)
 
-    GET /api/tasks/<task_id>/
 
-    Returns:
-        - state: Task state (PENDING, STARTED, SUCCESS, FAILURE, etc.)
-        - result: Task result if completed
-        - progress: Progress information if available
-    """
-    permission_classes = [IsAuthenticated]
+class IsPlatformOperator(BasePermission):
+    """Infrastructure details are restricted to superusers on the public schema."""
 
-    def get(self, request, task_id):
-        """Get task status by task ID."""
-        try:
-            task = AsyncResult(task_id, app=celery_app)
-
-            response_data = {
-                'task_id': task_id,
-                'state': task.state,
-                'ready': task.ready(),
-                'successful': task.successful() if task.ready() else None,
-            }
-
-            if task.state == 'PENDING':
-                response_data['status'] = 'Task is waiting to be executed'
-
-            elif task.state == 'STARTED':
-                response_data['status'] = 'Task has been started'
-
-            elif task.state == 'PROGRESS':
-                # Get progress information
-                response_data['progress'] = task.info
-
-            elif task.state == 'SUCCESS':
-                response_data['result'] = task.result
-                response_data['status'] = 'Task completed successfully'
-
-            elif task.state == 'FAILURE':
-                response_data['error'] = str(task.info)
-                response_data['status'] = 'Task failed'
-
-            else:
-                response_data['status'] = task.state
-
-            return Response(response_data)
-
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+    def has_permission(self, request, view):
+        tenant = getattr(request, "tenant", None)
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.is_superuser
+            and getattr(tenant, "schema_name", None) == "public"
+        )
 
 
 class CeleryHealthView(APIView):
@@ -70,8 +33,9 @@ class CeleryHealthView(APIView):
 
     GET /api/celery/health/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPlatformOperator]
 
+    @extend_schema(exclude=True)
     def get(self, request):
         """Check Celery worker health."""
         try:
@@ -101,11 +65,12 @@ class CeleryHealthView(APIView):
                 'registered_tasks': registered_tasks
             })
 
-        except Exception as e:
+        except Exception:
+            logger.exception("Celery health inspection failed")
             return Response(
                 {
                     'status': 'error',
-                    'message': str(e)
+                    'message': 'Celery health inspection failed.'
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

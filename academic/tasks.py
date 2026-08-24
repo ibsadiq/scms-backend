@@ -134,16 +134,10 @@ def bulk_upload_students_task(self, schema_name, file_content, academic_year_id,
                         student.save()
 
                         # Create enrollment
-                        StudentClassEnrollment.objects.create(
-                            student=student,
-                            classroom=classroom,
-                            academic_year=academic_year,
-                            enrollment_date=academic_year.start_date
+                        from academic.services.enrollment_service import EnrollmentService
+                        EnrollmentService.enroll(
+                            student=student, classroom=classroom, academic_year=academic_year
                         )
-
-                        # Update classroom occupied seats
-                        classroom.occupied_sits += 1
-                        classroom.save()
 
                         results['created'] += 1
 

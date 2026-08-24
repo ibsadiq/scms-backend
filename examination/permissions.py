@@ -4,7 +4,12 @@ from rest_framework.permissions import BasePermission
 class IsAdmin(BasePermission):
     """Compute, approve, publish, lock/unlock, generate reports, manage grading schemes."""
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_admin)
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and AcademicAuthorityService.is_school_admin(request.user)
+        )
 
 
 class IsTeacher(BasePermission):
@@ -186,17 +191,27 @@ class CanViewOwnStudentResult(BasePermission):
 
 
 class CanViewMarkedScript(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
     def has_object_permission(self, request, view, obj):
         user = request.user
 
         if not user or not user.is_authenticated:
             return False
 
-        if user.is_student and user.active_role == "student":
+        if user.is_admin or user.is_superuser or user.is_staff:
+            return True
+
+        teacher = getattr(user, "teacher", None)
+        if teacher:
+            return obj.uploaded_by_id == teacher.id
+
+        if user.is_student and (user.active_role == "student" or not user.active_role):
             profile = getattr(user, "student_profile", None)
             return bool(profile) and obj.student_id == profile.id and obj.visible_to_student
 
-        if user.is_parent and user.active_role == "parent":
+        if user.is_parent and (user.active_role == "parent" or not user.active_role):
             parent = getattr(user, "parent", None)
             return bool(parent) and obj.student.parent_guardian_id == parent.id and obj.visible_to_parent
 

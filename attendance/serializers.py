@@ -4,6 +4,7 @@ from .models import (
     AttendanceStatus,
     StudentAttendance,
     PeriodAttendance,
+    StudentTermAttendanceSummary,
 )
 
 
@@ -60,7 +61,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
             'id', 'student_id', 'student', 'first_name', 'last_name',
             'admission_number', 'date', 'ClassRoom', 'term', 
             'status', 'remarks', 'notes', 'marked_by', 'marked_by_name',
-            'created_at', 'updated_at'
+            'time_in', 'time_out', 'created_at', 'updated_at'
         ]
 
 
@@ -82,7 +83,7 @@ class StudentAttendanceListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'student_id', 'first_name', 'last_name',
             'admission_number', 'date', 'ClassRoom', 'term',
-            'status', 'remarks'
+            'status', 'remarks', 'time_in', 'time_out'
         ]
 
 class PeriodAttendanceSerializer(serializers.ModelSerializer):
@@ -101,3 +102,48 @@ class PeriodAttendanceSerializer(serializers.ModelSerializer):
             "reason_for_absence",
             "notes",
         ]
+
+
+class StudentTermAttendanceSummarySerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    term_name = serializers.CharField(source="term.name", read_only=True)
+    entered_by_name = serializers.CharField(source="entered_by.get_full_name", read_only=True)
+    attendance_percentage = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = StudentTermAttendanceSummary
+        fields = [
+            "id", "student", "student_name", "term", "term_name", "school_days",
+            "days_present", "days_absent", "times_late", "attendance_percentage",
+            "source", "entered_by", "entered_by_name", "notes", "created_at", "updated_at",
+        ]
+        read_only_fields = ["source", "entered_by", "created_at", "updated_at"]
+        validators = []
+
+    def validate(self, attrs):
+        instance = self.instance
+        school_days = attrs.get("school_days", getattr(instance, "school_days", None))
+        days_present = attrs.get("days_present", getattr(instance, "days_present", None))
+        days_absent = attrs.get("days_absent", getattr(instance, "days_absent", None))
+        times_late = attrs.get("times_late", getattr(instance, "times_late", 0))
+        errors = {}
+        for field, value in {
+            "school_days": school_days, "days_present": days_present,
+            "days_absent": days_absent, "times_late": times_late,
+        }.items():
+            if value is not None and value < 0:
+                errors[field] = "Attendance counts cannot be negative."
+        if school_days is not None and days_present is not None and days_present > school_days:
+            errors["days_present"] = "Days present cannot exceed school days."
+        if school_days is not None and days_absent is not None and days_absent > school_days:
+            errors["days_absent"] = "Days absent cannot exceed school days."
+        if None not in (school_days, days_present, days_absent) and days_present + days_absent > school_days:
+            errors["days_absent"] = "Present and absent days combined cannot exceed school days."
+        if instance:
+            if "student" in attrs and attrs["student"] != instance.student:
+                errors["student"] = "The student cannot be changed after creation."
+            if "term" in attrs and attrs["term"] != instance.term:
+                errors["term"] = "The term cannot be changed after creation."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs

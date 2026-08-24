@@ -8,7 +8,7 @@ Handles:
 - User notification preferences
 - Notification history and tracking
 """
-from django.db import models
+from django.db import models, transaction
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
@@ -136,6 +136,7 @@ class Notification(models.Model):
         blank=True,
         help_text="When this notification expires (optional)"
     )
+    idempotency_key = models.CharField(max_length=255, unique=True, null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -442,18 +443,31 @@ class DirectMessage(models.Model):
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         super().save(*args, **kwargs)
-        
+
         if is_new:
-            # Create a notification for the recipient
-            from django.contrib.contenttypes.models import ContentType
-            from .models import Notification
-            
-            Notification.objects.create(
-                recipient=self.recipient,
-                notification_type='direct_message',
-                priority='normal',
-                title=f"New Message from {self.sender.get_full_name() or self.sender.email}",
-                message=self.body[:100] + ('...' if len(self.body) > 100 else ''),
-                content_type=ContentType.objects.get_for_model(self),
-                object_id=self.pk,
-            )
+            message_id = self.pk
+            recipient_id = self.recipient_id
+            sender_name = " ".join(filter(None, (
+                self.sender.first_name, self.sender.last_name,
+            ))).strip()
+            if not sender_name:
+                sender_name = "School user"
+            preview = self.body[:100] + ('...' if len(self.body) > 100 else '')
+
+            def create_recipient_notification():
+                from django.contrib.contenttypes.models import ContentType
+
+                Notification.objects.get_or_create(
+                    idempotency_key=f"direct-message:{message_id}",
+                    defaults={
+                        "recipient_id": recipient_id,
+                        "notification_type": "direct_message",
+                        "priority": "normal",
+                        "title": f"New Message from {sender_name}",
+                        "message": preview,
+                        "content_type": ContentType.objects.get_for_model(DirectMessage),
+                        "object_id": message_id,
+                    },
+                )
+
+            transaction.on_commit(create_recipient_notification)

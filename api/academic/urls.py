@@ -25,25 +25,28 @@ from academic.views import (
     StudentClassDetailView,
     BulkUploadStudentClassView,
     BulkUploadStudentsProfileView,
-)
-from academic.teacher_views import (
     TeacherMyClassesView,
     ClassroomStudentsView,
     TeacherMyScheduleView,
-)
-from academic.views_allocation import AllocatedSubjectViewSet
-from academic.views_promotions import (
+    AllocatedSubjectViewSet,
     PromotionRuleViewSet,
-    StudentPromotionViewSet
-)
-from academic.views_class_advancement import (
+    StudentPromotionViewSet,
     ClassAdvancementViewSet,
     StreamAssignmentViewSet,
-    StudentEnrollmentViewSet
-)
-from academic.views_student_portal import (
+    StudentEnrollmentViewSet,
     StudentAuthViewSet,
-    StudentPortalViewSet
+    StudentPortalViewSet,
+    CurriculumViewSet,
+    CurriculumSubjectViewSet,
+    CurriculumTopicViewSet,
+    TopicViewSet,
+    SubTopicViewSet,
+    LearningObjectiveViewSet,
+    SchemeOfWorkViewSet,
+    SchemeOfWorkItemViewSet,
+    LessonPlanViewSet,
+    LessonPlanMaterialViewSet,
+    StaffViewSet,
 )
 
 # Router for promotion and class advancement endpoints (Phase 2.1 & 2.2)
@@ -57,6 +60,21 @@ router.register(r'enrollments', StudentEnrollmentViewSet, basename='enrollments'
 # Phase 1.6: Student Portal
 router.register(r'students/auth', StudentAuthViewSet, basename='student-auth')
 router.register(r'students/portal', StudentPortalViewSet, basename='student-portal')
+
+# Phase F3.2: Curriculum, Scheme of Work, and Lesson Plans
+router.register(r'curricula', CurriculumViewSet, basename='curriculum')
+router.register(r'curriculum-subjects', CurriculumSubjectViewSet, basename='curriculum-subject')
+router.register(r'curriculum-topics', CurriculumTopicViewSet, basename='curriculum-topic')
+router.register(r'topics', TopicViewSet, basename='topic')
+router.register(r'subtopics', SubTopicViewSet, basename='subtopic')
+router.register(r'learning-objectives', LearningObjectiveViewSet, basename='learning-objective')
+router.register(r'schemes-of-work', SchemeOfWorkViewSet, basename='scheme-of-work')
+router.register(r'scheme-of-work-items', SchemeOfWorkItemViewSet, basename='scheme-of-work-item')
+router.register(r'lesson-plans', LessonPlanViewSet, basename='lesson-plan')
+router.register(r'lesson-plan-materials', LessonPlanMaterialViewSet, basename='lesson-plan-material')
+
+# Phase F3.3: Canonical Staff Read Endpoint
+router.register(r'staff', StaffViewSet, basename='staff')
 
 # AllocatedSubject management
 router.register(r'allocated-subjects', AllocatedSubjectViewSet, basename='allocated-subjects')

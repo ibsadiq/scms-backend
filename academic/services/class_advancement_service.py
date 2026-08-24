@@ -357,17 +357,11 @@ class ClassAdvancementService:
                             results['classrooms_created'].append(str(target_classroom))
 
                         if target_classroom:
-                            # Update student classroom
-                            student.classroom = target_classroom
-                            student.class_level = target_class_level
-                            student.save()
-
-                            # Create enrollment record
-                            StudentClassEnrollment.objects.create(
-                                student=student,
-                                classroom=target_classroom,
+                            from academic.services.enrollment_service import EnrollmentService
+                            EnrollmentService.enroll(
+                                student=student, classroom=target_classroom,
                                 academic_year=new_academic_year,
-                                notes=f"Promoted from {promotion.from_class}"
+                                notes=f"Promoted from {promotion.from_class}",
                             )
                             results['enrollments_created'] += 1
                             results[status] += 1
@@ -376,15 +370,10 @@ class ClassAdvancementService:
 
                 elif status == 'repeated':
                     # Stay in same class
-                    student.classroom = promotion.from_class
-                    student.save()
-
-                    # Create enrollment record
-                    StudentClassEnrollment.objects.create(
-                        student=student,
-                        classroom=promotion.from_class,
-                        academic_year=new_academic_year,
-                        notes="Repeated year"
+                    from academic.services.enrollment_service import EnrollmentService
+                    EnrollmentService.enroll(
+                        student=student, classroom=promotion.from_class,
+                        academic_year=new_academic_year, notes="Repeated year",
                     )
                     results['enrollments_created'] += 1
                     results['repeated'] += 1

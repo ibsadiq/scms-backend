@@ -45,6 +45,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
             ('parent', 'Parent'),
             ('student', 'Student'),
             ('accountant', 'Accountant'),
+            ('staff', 'Staff'),
         ],
         help_text="Currently active role for users with multiple roles"
     )
@@ -79,7 +80,52 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
             roles.append('student')
         if self.is_accountant:
             roles.append('accountant')
+        if not roles and self.has_ordinary_staff_identity():
+            roles.append('staff')
         return roles
+
+    def has_ordinary_staff_identity(self):
+        """Return whether this user is an active, non-specialist tenant staff member."""
+        from django.db import connection
+        from django_tenants.utils import get_public_schema_name
+
+        if not self.pk or any((
+            self.is_admin,
+            self.is_teacher,
+            self.is_accountant,
+            self.is_parent,
+            self.is_student,
+        )):
+            return False
+
+        # Staff identities are tenant-local. The academic Staff table is not
+        # part of the public schema and platform users must never resolve to a
+        # tenant staff role.
+        if connection.schema_name == get_public_schema_name():
+            return False
+
+        from academic.models import Staff
+
+        return Staff.objects.filter(
+            user_id=self.pk,
+            is_active=True,
+            role=Staff.Role.OTHER,
+        ).exists()
+
+    def get_effective_role(self):
+        """Resolve the current role without granting authority from Django is_staff."""
+        available_roles = self.get_available_roles()
+        if self.active_role in available_roles:
+            return self.active_role
+        return available_roles[0] if available_roles else None
+
+    def ensure_active_role(self):
+        """Persist a valid default role when the stored selection is absent or stale."""
+        effective_role = self.get_effective_role()
+        if effective_role != self.active_role:
+            self.active_role = effective_role
+            self.save(update_fields=['active_role'])
+        return effective_role
 
     def set_active_role(self, role):
         """Set the active role for this user"""

@@ -270,55 +270,22 @@ class ReportCardGenerator:
         return context
 
     def _get_attendance_stats(self) -> Optional[dict]:
-        """
-        Get attendance statistics for the student if available.
+        from attendance.services import AttendanceSummaryService
 
-        Returns:
-            Dictionary with attendance stats or None
-        """
-        try:
-            from attendance.models import StudentAttendance
-
-            term = self.term_result.term
-            student = self.term_result.student
-
-            filters = {'student': student}
-            if term:
-                if getattr(term, 'id', None):
-                    filters['term'] = term
-                elif getattr(term, 'start_date', None) and getattr(term, 'end_date', None):
-                    filters['date__gte'] = term.start_date
-                    filters['date__lte'] = term.end_date
-
-            attendances = StudentAttendance.objects.filter(**filters).select_related('status')
-
-            total_days = attendances.count()
-            if total_days == 0 and term and getattr(term, 'start_date', None) and getattr(term, 'end_date', None):
-                attendances = StudentAttendance.objects.filter(
-                    student=student,
-                    date__gte=term.start_date,
-                    date__lte=term.end_date
-                ).select_related('status')
-                total_days = attendances.count()
-
-            if total_days == 0:
-                return None
-
-            absent_days = attendances.filter(status__absent=True).count()
-            late_days = attendances.filter(status__late=True).count()
-            present_days = total_days - absent_days
-
-            attendance_percentage = (present_days / total_days) * 100 if total_days > 0 else 0
-
-            return {
-                'total_days': total_days,
-                'present': present_days,
-                'absent': absent_days,
-                'late': late_days,
-                'percentage': round(attendance_percentage, 1)
-            }
-        except Exception:
+        summary = AttendanceSummaryService.get_for_report_card(
+            student=self.term_result.student,
+            term=self.term_result.term,
+        )
+        if summary is None:
             return None
+        return {
+            'total_days': summary.school_days,
+            'present': summary.days_present,
+            'absent': summary.days_absent,
+            'late': summary.times_late,
+            'percentage': summary.attendance_percentage,
+            'source': summary.source,
+        }
 
     def _generate_filename(self) -> str:
         """

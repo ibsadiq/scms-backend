@@ -13,8 +13,11 @@ from .serializers import (
     CarouselImageSerializer,
     SchoolEventSerializer,
     SchoolEventBulkUploadSerializer,
+    AdministrationDashboardSerializer,
 )
+from drf_spectacular.utils import extend_schema
 from .permissions import IsAdminOrReadOnly
+from academic.permissions import IsAcademicAdminOrReadOnly, IsSchoolAdmin
 
 
 from rest_framework.permissions import IsAuthenticated
@@ -59,7 +62,7 @@ class CarouselImageDetailView(generics.RetrieveUpdateDestroyAPIView):
 class AcademicYearListCreateView(generics.ListCreateAPIView):
     queryset = AcademicYear.objects.all()
     serializer_class = AcademicYearSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAcademicAdminOrReadOnly]
 
     def create(self, request, *args, **kwargs):
         print(request.data)
@@ -69,13 +72,13 @@ class AcademicYearListCreateView(generics.ListCreateAPIView):
 class AcademicYearDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = AcademicYear.objects.all()
     serializer_class = AcademicYearSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAcademicAdminOrReadOnly]
 
 
 # Term Views
 class TermListCreateView(generics.ListCreateAPIView):
     serializer_class = TermSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAcademicAdminOrReadOnly]
 
     def get_queryset(self):
         queryset = Term.objects.all()
@@ -92,7 +95,7 @@ class TermListCreateView(generics.ListCreateAPIView):
 class TermDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Term.objects.all()
     serializer_class = TermSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAcademicAdminOrReadOnly]
 
 
 from django.utils.dateparse import parse_date
@@ -218,8 +221,9 @@ class DashboardStatsView(APIView):
     Comprehensive, high-performance admin dashboard stats endpoint.
     GET /api/administration/dashboard/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSchoolAdmin]
 
+    @extend_schema(responses={200: AdministrationDashboardSerializer})
     def get(self, request):
         from django.core.cache import cache
         from django.db import connection

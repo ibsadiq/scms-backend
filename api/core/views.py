@@ -26,6 +26,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from .serializers import (
+    StudentLookupResponseSerializer,
+    TransferCompleteRequestSerializer,
+    TransferCompleteResponseSerializer,
+)
 
 
 class StudentLookupView(APIView):
@@ -43,6 +49,10 @@ class StudentLookupView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", str, required=True)],
+        responses={200: StudentLookupResponseSerializer},
+    )
     def get(self, request):
         student_id = request.query_params.get('id', '').strip().upper()
         if not student_id:
@@ -166,6 +176,10 @@ class TransferCompleteView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=TransferCompleteRequestSerializer,
+        responses={200: TransferCompleteResponseSerializer},
+    )
     def post(self, request):
         student_id = request.data.get('student_id', '').strip().upper()
         notes      = request.data.get('notes', '')

@@ -1,4 +1,4 @@
-from django_tenants.test.cases import TenantTestCase as TestCase
+from school.testcases import TenantTestCase as TestCase
 from django.contrib.auth import get_user_model
 from administration.models import AcademicYear, Term
 from academic.models import Student, ClassRoom, GradeLevel, Subject, StudentClassEnrollment, ClassLevel, Teacher

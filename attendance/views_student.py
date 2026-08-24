@@ -3,12 +3,14 @@ Student Attendance Views
 Provides endpoints for student attendance tracking and summaries.
 """
 from rest_framework import viewsets, status
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.utils.dateparse import parse_date, parse_time
 
 
 from django.db.models import Count, Q
@@ -16,6 +18,22 @@ from datetime import datetime,date
 
 from .models import StudentAttendance, AttendanceStatus
 from .serializers import StudentAttendanceSerializer, StudentAttendanceListSerializer
+from .schema_serializers import (
+    AttendanceClassSummarySerializer,
+    BulkAttendanceRequestSerializer,
+    BulkAttendanceResponseSerializer,
+)
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from .services import StudentAttendanceService
+from .permissions import (
+    AttendanceRecordPermission,
+    CanReadAssignedAttendance,
+    can_access_classroom,
+    can_access_student,
+    is_attendance_admin,
+    student_ids_for_user,
+    teacher_classroom_ids,
+)
 from academic.models import ClassRoom, Teacher, AcademicYear, AllocatedSubject, Term
 from academic.models import Student
 
@@ -44,9 +62,9 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
     ViewSet for student attendance records.
     """
     serializer_class = StudentAttendanceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AttendanceRecordPermission]
     queryset = StudentAttendance.objects.all().select_related('student', 'ClassRoom', 'status', 'term', 'marked_by')
-    
+
     def get_serializer_class(self):
         """Use lightweight serializer for list endpoint"""
         if self.action == 'list':
@@ -56,6 +74,13 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter attendance based on query parameters"""
         queryset = super().get_queryset()
+        user = self.request.user
+        if is_attendance_admin(user):
+            pass
+        elif getattr(user, 'teacher', None):
+            queryset = queryset.filter(ClassRoom_id__in=teacher_classroom_ids(user))
+        else:
+            queryset = queryset.filter(student_id__in=student_ids_for_user(user))
         
         # ── Filter by student ──
         student_id = self.request.query_params.get('student')
@@ -94,6 +119,67 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(date__lte=end_date)
         
         return queryset.order_by('date', 'student__admission_number')
+
+    def _service_payload(self, request, instance=None):
+        student_id = request.data.get('student') or request.data.get('student_id')
+        classroom_id = request.data.get('classroom') or request.data.get('ClassRoom')
+        attendance_date = request.data.get('date')
+        status_value = request.data.get('status')
+        if instance:
+            if student_id and str(student_id) != str(instance.student_id):
+                raise ValidationError({'student': 'The student cannot be changed during a correction.'})
+            if classroom_id and str(classroom_id) != str(instance.ClassRoom_id):
+                raise ValidationError({'classroom': 'The classroom cannot be changed during a correction.'})
+            if attendance_date and str(attendance_date) != instance.date.isoformat():
+                raise ValidationError({'date': 'The attendance date cannot be changed during a correction.'})
+            student_id = instance.student_id
+            classroom_id = instance.ClassRoom_id
+            attendance_date = instance.date
+            status_value = status_value or instance.status.name
+        if not all((student_id, classroom_id, attendance_date, status_value)):
+            raise ValidationError('student, classroom, date, and status are required.')
+        if isinstance(attendance_date, str):
+            attendance_date = parse_date(attendance_date)
+            if not attendance_date:
+                raise ValidationError({'date': 'Use YYYY-MM-DD.'})
+        student = get_object_or_404(Student, id=student_id, classroom_id=classroom_id)
+        classroom = get_object_or_404(ClassRoom, id=classroom_id)
+        if not can_access_classroom(request.user, classroom.id):
+            raise PermissionDenied('You are not authorized for this classroom.')
+        if isinstance(status_value, int) or str(status_value).isdigit():
+            status_value = get_object_or_404(AttendanceStatus, id=status_value).name
+        time_in = request.data.get('time_in', instance.time_in if instance else None)
+        time_out = request.data.get('time_out', instance.time_out if instance else None)
+        if isinstance(time_in, str):
+            time_in = parse_time(time_in)
+        if isinstance(time_out, str):
+            time_out = parse_time(time_out)
+        return {
+            'student': student,
+            'attendance_date': attendance_date,
+            'classroom': classroom,
+            'status_name': status_value,
+            'marked_by': request.user,
+            'notes': request.data.get('remarks', request.data.get('notes', instance.notes if instance else '')),
+            'time_in': time_in,
+            'time_out': time_out,
+            'term': instance.term if instance else None,
+        }
+
+    def create(self, request, *args, **kwargs):
+        attendance, created = StudentAttendanceService.mark_manual(**self._service_payload(request))
+        return Response(self.get_serializer(attendance).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        attendance, _ = StudentAttendanceService.mark_manual(**self._service_payload(request, instance))
+        return Response(self.get_serializer(attendance).data)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        raise MethodNotAllowed('DELETE', detail='Attendance records are auditable and cannot be deleted through this API.')
     
     @action(detail=False, methods=['get'])
     def summary(self, request):
@@ -107,7 +193,9 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
 
         if student:
-            queryset = StudentAttendance.objects.filter(student=student)
+            if not can_access_student(request.user, student):
+                raise PermissionDenied('You are not authorized to view this student attendance.')
+            queryset = self.get_queryset().filter(student=student)
 
             month = request.query_params.get('month')
             year = request.query_params.get('year')
@@ -160,7 +248,9 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
         # ── School-wide summary (no student param) ──
         from administration.models import Term
 
-        queryset = StudentAttendance.objects.all()
+        if not is_attendance_admin(request.user):
+            raise PermissionDenied('School-wide attendance summaries require administrator access.')
+        queryset = self.get_queryset()
 
         term_id = request.query_params.get('term')
         date_param = request.query_params.get('date')
@@ -239,13 +329,15 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
                 {'error': 'Student not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        if not can_access_student(request.user, student):
+            raise PermissionDenied('You are not authorized to view this student attendance.')
         
         year = request.query_params.get('year', datetime.now().year)
         
         # Get attendance for each month
         monthly_data = []
         for month in range(1, 13):
-            queryset = StudentAttendance.objects.filter(
+            queryset = self.get_queryset().filter(
                 student=student,
                 date__year=year,
                 date__month=month
@@ -285,7 +377,9 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        queryset = StudentAttendance.objects.filter(ClassRoom_id=classroom_id)
+        if not can_access_classroom(request.user, int(classroom_id)):
+            raise PermissionDenied('You are not authorized for this classroom.')
+        queryset = self.get_queryset().filter(ClassRoom_id=classroom_id)
         if start_date:
             queryset = queryset.filter(date__gte=start_date)
         if end_date:
@@ -303,8 +397,12 @@ class BulkMarkAttendanceView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=BulkAttendanceRequestSerializer,
+        responses={200: BulkAttendanceResponseSerializer},
+    )
     def post(self, request):
-        is_admin = getattr(request.user, "is_admin", False) or getattr(request.user, "is_superuser", False)
+        is_admin = is_attendance_admin(request.user)
         teacher = getattr(request.user, "teacher", None)
 
         if not teacher and not is_admin:
@@ -383,7 +481,7 @@ class BulkMarkAttendanceView(APIView):
                     continue
 
                 try:
-                    student = Student.objects.get(id=student_id)
+                    student = Student.objects.get(id=student_id, classroom=classroom)
                 except Student.DoesNotExist:
                     errors.append({
                         "student_id": student_id,
@@ -391,28 +489,14 @@ class BulkMarkAttendanceView(APIView):
                     })
                     continue
 
-                # Get or create attendance status
-                attendance_status, _ = AttendanceStatus.objects.get_or_create(
-                    name=status_name,
-                    defaults={
-                        'code': status_name[:2].upper(),
-                        'absent': status_name == 'Absent',
-                        'late': status_name == 'Late',
-                        'excused': status_name == 'Excused'
-                    }
-                )
-
-                # ── FIX: Store "Present" like any other status (no more deletion) ──
-                attendance, created = StudentAttendance.objects.update_or_create(
+                attendance, created = StudentAttendanceService.mark_manual(
                     student=student,
-                    date=attendance_date,
-                    defaults={
-                        'ClassRoom': classroom,
-                        'status': attendance_status,
-                        'notes': remarks,
-                        'term': term,
-                        'marked_by': request.user  # Track who last edited
-                    }
+                    attendance_date=attendance_date,
+                    classroom=classroom,
+                    status_name=status_name,
+                    notes=remarks,
+                    term=term,
+                    marked_by=request.user,
                 )
 
                 if created:
@@ -435,12 +519,23 @@ class ClassAttendanceSummaryView(APIView):
     """
     GET /api/attendance/class/{classroom_id}/summary/?term=X (or date=X, or startDate/endDate)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanReadAssignedAttendance]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("term", int, required=False),
+            OpenApiParameter("date", str, required=False),
+            OpenApiParameter("startDate", str, required=False),
+            OpenApiParameter("endDate", str, required=False),
+        ],
+        responses={200: AttendanceClassSummarySerializer},
+    )
     def get(self, request, classroom_id):
         from administration.models import Term
         from academic.models import StudentClassEnrollment
 
+        if not can_access_classroom(request.user, classroom_id):
+            raise PermissionDenied('You are not authorized for this classroom.')
         queryset = StudentAttendance.objects.filter(ClassRoom_id=classroom_id)
 
         term_id = request.query_params.get('term')

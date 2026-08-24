@@ -336,9 +336,12 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by('template_type')
 
-class DirectMessageViewSet(viewsets.ModelViewSet):
+class UnroutedLegacyDirectMessageViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for direct messaging between teachers and parents.
+    Legacy implementation retained temporarily for Phase 4B removal.
+
+    This class is deliberately not routed. The secured immutable API lives in
+    notifications.views_messages.DirectMessageViewSet.
     """
     permission_classes = [IsAuthenticated]
 
@@ -452,4 +455,3 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
                 "role_label": "School Administrator",
             })
         return Response(results)
-

@@ -2,13 +2,40 @@ from rest_framework import serializers
 
 from academic.models import (
     StudentsMedicalHistory,
+    StudentsPreviousAcademicHistory,
     Student,
     Parent,
     ReasonLeft,
     ClassLevel,
     ClassYear,
+    ClassRoom,
 )
 from academic.serializers import ClassLevelSerializer, ClassYearSerializer
+from academic.services.student_creation_service import StudentCreationService
+from academic.services.parent_identity_service import ParentIdentityService
+
+
+class BulkUploadFileSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
+
+class BulkStudentUpdatedSerializer(serializers.Serializer):
+    admission_number = serializers.CharField()
+    full_name = serializers.CharField()
+    reasons = serializers.ListField(child=serializers.CharField())
+
+
+class BulkStudentSkippedSerializer(serializers.Serializer):
+    admission_number = serializers.CharField()
+    full_name = serializers.CharField()
+    reason = serializers.CharField()
+
+
+class BulkStudentUploadResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    updated_students = BulkStudentUpdatedSerializer(many=True)
+    skipped_students = BulkStudentSkippedSerializer(many=True)
+    not_created = serializers.ListField(child=serializers.JSONField())
 
 
 class ReasonLeftSerializer(serializers.ModelSerializer):
@@ -20,6 +47,18 @@ class ReasonLeftSerializer(serializers.ModelSerializer):
 class StudentHealthRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentsMedicalHistory
+        fields = "__all__"
+
+
+class StudentsMedicalHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentsMedicalHistory
+        fields = "__all__"
+
+
+class StudentsPreviousAcademicHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentsPreviousAcademicHistory
         fields = "__all__"
 
 
@@ -54,6 +93,46 @@ class SiblingSerializer(serializers.ModelSerializer):
         return obj.class_level.name if obj.class_level else None
 
 
+class StudentListSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+    class_level_display = serializers.SerializerMethodField()
+    classroom_display = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Student
+        fields = [
+            "id",
+            "first_name",
+            "middle_name",
+            "last_name",
+            "full_name",
+            "admission_number",
+            "gender",
+            "class_level_display",
+            "classroom_display",
+            "image",
+            "status",
+            "admission_date",
+        ]
+        read_only_fields = ["admission_number"]
+
+    def get_full_name(self, obj):
+        return obj.full_name
+
+    def get_class_level_display(self, obj):
+        return obj.class_level.name if obj.class_level else None
+
+    def get_classroom_display(self, obj):
+        if obj.classroom:
+            stream_name = obj.classroom.stream.name if obj.classroom.stream else ""
+            return f"{obj.classroom.name.name} {stream_name}".strip()
+        return None
+
+    def get_status(self, obj):
+        return obj.status
+
+
 class StudentSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     class_level_display = serializers.SerializerMethodField()
@@ -65,8 +144,15 @@ class StudentSerializer(serializers.ModelSerializer):
     grade_level_name = serializers.SerializerMethodField()
     siblings = SiblingSerializer(many=True, read_only=True)
     status = serializers.SerializerMethodField()
+    portal_account_created = serializers.SerializerMethodField()
     image = serializers.ImageField(required=False, allow_null=True)
     class_level = serializers.CharField(write_only=True, required=False)
+    classroom_id = serializers.PrimaryKeyRelatedField(
+        queryset=ClassRoom.objects.all(), write_only=True, required=False
+    )
+    parent_email = serializers.EmailField(write_only=True, required=False)
+    parent_first_name = serializers.CharField(write_only=True, required=False)
+    parent_last_name = serializers.CharField(write_only=True, required=False)
     class_of_year = serializers.CharField(
         write_only=False, required=False, allow_null=True
     )
@@ -79,6 +165,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "middle_name",
             "last_name",
             "admission_number",
+            "phone_number",
             "parent_contact",
             "region",
             "city",
@@ -96,18 +183,29 @@ class StudentSerializer(serializers.ModelSerializer):
             "grade_level",
             "grade_level_name",
             "classroom",
+            "classroom_id", # write-only
             "class_level",  # write-only
             "class_of_year",  # write-only
+            "parent_email", # write-only
+            "parent_first_name", # write-only
+            "parent_last_name", # write-only
             "siblings",
             "status",
             "image",
             "graduation_date",
             "date_dismissed",
             "reason_left",
+            "admission_date",
+            "can_login",
+            "portal_account_created",
         ]
+        read_only_fields = ["admission_number", "classroom", "can_login", "portal_account_created"]
 
     def get_status(self, obj):
         return obj.status
+
+    def get_portal_account_created(self, obj):
+        return bool(obj.user_id)
 
     def get_full_name(self, obj):
         return obj.full_name
@@ -119,7 +217,9 @@ class StudentSerializer(serializers.ModelSerializer):
         return obj.class_of_year.full_name if obj.class_of_year else None
 
     def get_parent_guardian_display(self, obj):
-        return obj.parent_guardian.email if obj.parent_guardian else None
+        if obj.parent_guardian:
+            return f"{obj.parent_guardian.first_name} {obj.parent_guardian.last_name}".strip()
+        return None
 
     def get_classroom_display(self, obj):
         if obj.classroom:
@@ -145,112 +245,124 @@ class StudentSerializer(serializers.ModelSerializer):
         return None
 
     def validate_and_create_student(self, data):
-        print("validated_data:", data)
-        class_level_name = data.pop("class_level", None)
-        if not class_level_name:
-            raise serializers.ValidationError("Missing 'class_level' field.")
+        classroom = data.pop("classroom_id", None)
+        if not classroom:
+            raise serializers.ValidationError({"classroom_id": "Classroom is required for student creation."})
 
-        try:
-            class_level = ClassLevel.objects.get(name__iexact=class_level_name)
-        except ClassLevel.DoesNotExist:
+        class_level_name = data.pop("class_level", None)
+        if class_level_name and classroom.name.name.lower() != class_level_name.lower():
             raise serializers.ValidationError(
-                f"Class level '{class_level_name}' does not exist."
+                f"Mismatch: provided class_level '{class_level_name}' does not match classroom's level '{classroom.name.name}'."
             )
-        data["class_level"] = class_level
-        date_of_birth = (data.get("date_of_birth", "2000-01-01"),)
-        religion = data.get("religion", None)
 
         class_of_year_name = data.pop("class_of_year", None)
+        # ClassYear validation is kept for compatibility if passed
         if class_of_year_name:
             try:
                 class_year = ClassYear.objects.get(year=class_of_year_name)
                 data["class_of_year"] = class_year
             except ClassYear.DoesNotExist:
-                raise serializers.ValidationError(
-                    f"Class year '{class_of_year_name}' does not exist."
-                )
+                raise serializers.ValidationError(f"Class year '{class_of_year_name}' does not exist.")
 
         # Normalize names
         data["first_name"] = data["first_name"].title()
         data["middle_name"] = data.get("middle_name", "").title()
         data["last_name"] = data["last_name"].title()
 
-        parent = None
-        contact = data.get("parent_contact")
-        if contact:
-            parent, _ = Parent.objects.get_or_create(
-                phone_number=contact,
-                defaults={
-                    "first_name": data["middle_name"] or "Unknown",
-                    "last_name": data["last_name"],
-                    "email": f"parent_of_{data['first_name']}_{data['last_name']}@hayatul.com",
-                },
-            )
-        data["parent_guardian"] = parent
-
-        return Student.objects.create(**data)
+        return StudentCreationService.create_student(
+            classroom=classroom,
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+            parent_phone=data.get("parent_contact"),
+            parent_email=data.pop("parent_email", None),
+            student_phone=data.get("phone_number"),
+            middle_name=data.get("middle_name", ""),
+            gender=data.get("gender"),
+            religion=data.get("religion"),
+            date_of_birth=data.get("date_of_birth"),
+            region=data.get("region", ""),
+            city=data.get("city", ""),
+            street=data.get("street", ""),
+            admission_date=data.get("admission_date"),
+            image=data.get("image"),
+            parent_first_name=data.pop("parent_first_name", ""),
+            parent_last_name=data.pop("parent_last_name", ""),
+            actor=getattr(self.context.get("request"), "user", None),
+        )
 
     def create(self, validated_data):
         return self.validate_and_create_student(validated_data)
 
     def update(self, instance, validated_data):
-        class_level_name = validated_data.pop("class_level", None)
-        if class_level_name:
-            try:
-                class_level = ClassLevel.objects.get(name__iexact=class_level_name)
-                instance.class_level = class_level
-            except ClassLevel.DoesNotExist:
-                raise serializers.ValidationError(
-                    f"Class level '{class_level_name}' does not exist."
+        from django.db import transaction
+        with transaction.atomic():
+            class_level_name = validated_data.pop("class_level", None)
+            if class_level_name:
+                try:
+                    class_level = ClassLevel.objects.get(name__iexact=class_level_name)
+                    instance.class_level = class_level
+                except ClassLevel.DoesNotExist:
+                    raise serializers.ValidationError(
+                        f"Class level '{class_level_name}' does not exist."
+                    )
+
+            class_year_name = validated_data.pop("class_of_year", None)
+            if class_year_name:
+                try:
+                    class_year = ClassYear.objects.get(year=class_year_name)
+                    instance.class_of_year = class_year
+                except ClassYear.DoesNotExist:
+                    raise serializers.ValidationError(
+                        f"Class year '{class_year_name}' does not exist."
+                    )
+
+            instance.first_name = validated_data.get(
+                "first_name", instance.first_name
+            ).title()
+            instance.middle_name = validated_data.get(
+                "middle_name", instance.middle_name
+            ).title()
+            instance.last_name = validated_data.get("last_name", instance.last_name).title()
+
+            for field in [
+                "parent_contact",
+                "phone_number",
+                "region",
+                "city",
+                "street",
+                "gender",
+                "religion",
+                "date_of_birth",
+                "image",
+            ]:
+                if field in validated_data:
+                    setattr(instance, field, validated_data[field])
+
+            # Update parent if needed
+            contact = validated_data.get("parent_contact", instance.parent_contact)
+            email = validated_data.get("parent_email", None)
+            first_name = validated_data.get("parent_first_name", instance.middle_name or "Unknown")
+            last_name = validated_data.get("parent_last_name", instance.last_name)
+
+            if contact or email:
+                parent = ParentIdentityService.resolve_parent(
+                    phone_number=contact or instance.parent_contact,
+                    email=email or (instance.parent_guardian.email if instance.parent_guardian else None),
+                    first_name=first_name,
+                    last_name=last_name,
                 )
+                instance.parent_guardian = parent
 
-        class_year_name = validated_data.pop("class_of_year", None)
-        if class_year_name:
-            try:
-                class_year = ClassYear.objects.get(year=class_year_name)
-                instance.class_of_year = class_year
-            except ClassYear.DoesNotExist:
-                raise serializers.ValidationError(
-                    f"Class year '{class_year_name}' does not exist."
-                )
+            instance.save()
+            return instance
 
-        instance.first_name = validated_data.get(
-            "first_name", instance.first_name
-        ).title()
-        instance.middle_name = validated_data.get(
-            "middle_name", instance.middle_name
-        ).title()
-        instance.last_name = validated_data.get("last_name", instance.last_name).title()
-
-        for field in [
-            "admission_number",
-            "parent_contact",
-            "region",
-            "city",
-            "street",
-            "gender",
-            "religion",
-            "date_of_birth",
-            "image",
-        ]:
-            if field in validated_data:
-                setattr(instance, field, validated_data[field])
-
-        # Update parent if needed
-        contact = validated_data.get("parent_contact", instance.parent_contact)
-        if contact:
-            parent, _ = Parent.objects.get_or_create(
-                phone_number=contact,
-                defaults={
-                    "first_name": instance.middle_name or "Unknown",
-                    "last_name": instance.last_name,
-                    "email": f"parent_of_{instance.first_name}_{instance.last_name}@hayatul.com",
-                },
-            )
-            instance.parent_guardian = parent
-
-        instance.save()
-        return instance
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if instance.parent_guardian:
+            ret['parent_email'] = instance.parent_guardian.email
+            ret['parent_first_name'] = instance.parent_guardian.first_name
+            ret['parent_last_name'] = instance.parent_guardian.last_name
+        return ret
 
     def bulk_create(self, student_data_list):
         created_students = []
@@ -265,3 +377,48 @@ class StudentSerializer(serializers.ModelSerializer):
                 errors.append(data)
 
         return created_students, errors
+
+
+class ScopedStudentReadSerializer(serializers.ModelSerializer):
+    """Minimal student identity/class data for non-admin SIS readers."""
+
+    full_name = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    classroom = serializers.StringRelatedField(read_only=True)
+    class_level = serializers.StringRelatedField(read_only=True)
+    grade_level = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Student
+        fields = (
+            "id",
+            "first_name",
+            "middle_name",
+            "last_name",
+            "full_name",
+            "admission_number",
+            "gender",
+            "date_of_birth",
+            "status",
+            "classroom",
+            "class_level",
+            "grade_level",
+            "image",
+        )
+        read_only_fields = fields
+
+    def get_grade_level(self, obj):
+        grade_level = obj.class_level.grade_level if obj.class_level_id else None
+        return str(grade_level) if grade_level else None
+
+
+class TeacherStudentReadSerializer(ScopedStudentReadSerializer):
+    """Educational identity only; excludes student demographic/profile details."""
+
+    class Meta(ScopedStudentReadSerializer.Meta):
+        fields = tuple(
+            field
+            for field in ScopedStudentReadSerializer.Meta.fields
+            if field not in {"gender", "date_of_birth"}
+        )
+        read_only_fields = fields

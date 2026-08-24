@@ -26,9 +26,13 @@ class TermResultService:
     ):
         enrollment = pre_fetched_enrollment
         if not enrollment:
-            enrollment = StudentClassEnrollment.objects.filter(
+            enrollment = StudentClassEnrollment.objects.select_for_update().filter(
                 student=student, academic_year=academic_year
             ).select_related("classroom").first()
+        else:
+            enrollment = StudentClassEnrollment.objects.select_for_update().select_related(
+                "classroom"
+            ).get(pk=enrollment.pk)
             
         if not enrollment:
             raise ValidationError("Student has no enrollment for this academic year.")
@@ -55,9 +59,11 @@ class TermResultService:
 
         existing_result = pre_fetched_existing_result
         if existing_result is None:
-            existing_result = TermResult.objects.filter(
+            existing_result = TermResult.objects.select_for_update().filter(
                 student=student, term=term, academic_year=academic_year
             ).first()
+        elif existing_result.pk:
+            existing_result = TermResult.objects.select_for_update().get(pk=existing_result.pk)
             
         if existing_result and existing_result.is_locked:
             raise ValidationError(f"Term result for student '{getattr(student, 'full_name', str(student))}' is locked. Unlock result first to re-compute.")

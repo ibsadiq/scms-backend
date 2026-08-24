@@ -16,41 +16,62 @@ from examination.services.result_computation_service import ResultComputationSer
 from academic.models import ClassRoom
 from administration.models import Term, AcademicYear
 from users.models import CustomUser
+from api.jobs.services import BackgroundJobService
+from api.jobs.tasks import TenantBackgroundJobTask
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, name='examination.compute_class_results')
-def compute_class_results_task(self, schema_name, classroom_id, term_id, academic_year_id, user_id):
+@shared_task(bind=True, base=TenantBackgroundJobTask, name='examination.compute_class_results')
+def compute_class_results_task(
+    self, schema_name, classroom_id, term_id, academic_year_id, user_id, job_public_id=None
+):
     """
     Async task for computing term results for a classroom via Celery.
     """
     with schema_context(schema_name):
-        summary = {"computed": 0, "failed": 0, "errors": []}
+        if job_public_id:
+            BackgroundJobService.mark_started(job_public_id)
         try:
             classroom = ClassRoom.objects.get(id=classroom_id)
             term = Term.objects.get(id=term_id)
             academic_year = AcademicYear.objects.get(id=academic_year_id)
             user = CustomUser.objects.filter(id=user_id).first() if user_id else None
-        except (ClassRoom.DoesNotExist, Term.DoesNotExist, AcademicYear.DoesNotExist) as e:
-            return {"status": "failed", "error": "Invalid classroom, term, or academic year."}
+        except (ClassRoom.DoesNotExist, Term.DoesNotExist, AcademicYear.DoesNotExist):
+            if job_public_id:
+                BackgroundJobService.mark_failure(job_public_id, "RESULT_INPUT_NOT_FOUND")
+            return {"status": "failed"}
 
         def update_progress(current, total, student):
+            progress = int((current / total) * 100) if total else 0
+            if job_public_id:
+                BackgroundJobService.mark_progress(job_public_id, progress)
             self.update_state(
                 state='PROGRESS',
                 meta={'current': current, 'total': total, 'student': getattr(student, 'full_name', str(student))}
             )
 
-        summary = ResultComputationService.compute_classroom_term_results(
-            classroom=classroom,
-            term=term,
-            academic_year=academic_year,
-            user=user,
-            progress_callback=update_progress,
-        )
+        try:
+            summary = ResultComputationService.compute_classroom_term_results(
+                classroom=classroom,
+                term=term,
+                academic_year=academic_year,
+                user=user,
+                progress_callback=update_progress,
+            )
+        except Exception:
+            logger.exception("Class result background job failed", extra={"job_id": job_public_id})
+            if job_public_id:
+                BackgroundJobService.mark_failure(job_public_id, "RESULT_COMPUTATION_FAILED")
+            raise
 
         summary["status"] = "success"
+        if job_public_id:
+            BackgroundJobService.mark_success(
+                job_public_id,
+                {"computed": summary.get("computed", 0), "failed": summary.get("failed", 0)},
+            )
         logger.info(f"Computed term results asynchronously for classroom {classroom_id}: {summary['computed']} success, {summary['failed']} failed.")
         return summary
 

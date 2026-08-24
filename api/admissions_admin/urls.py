@@ -5,7 +5,7 @@ Requires authentication and appropriate permissions.
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from academic.views_admission_admin import (
+from academic.views import (
     AdmissionSessionAdminViewSet,
     AdmissionFeeStructureAdminViewSet,
     AdmissionApplicationAdminViewSet,
@@ -13,6 +13,10 @@ from academic.views_admission_admin import (
     AdmissionAssessmentAdminViewSet,
     AssessmentTemplateAdminViewSet,
     AssessmentCriterionAdminViewSet,
+)
+from academic.views.admission_admin import (
+    StudentAdmissionNumberPolicyView,
+    AdmissionApplicationNumberPolicyView,
 )
 
 # Create router
@@ -56,5 +60,7 @@ router.register(
 )
 
 urlpatterns = [
+    path('numbering/student/', StudentAdmissionNumberPolicyView.as_view(), name='student-number-policy'),
+    path('numbering/applications/', AdmissionApplicationNumberPolicyView.as_view(), name='application-number-policy'),
     path('', include(router.urls)),
 ]

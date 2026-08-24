@@ -16,7 +16,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 from datetime import timedelta
 
-from attendance.models import StudentAttendance
 # from finance.models import DebtRecord  # TODO: Update when debt tracking is implemented
 from examination.models import TermResult, ReportCard, ReportCardStatus
 from academic.models import StudentPromotion
@@ -27,52 +26,6 @@ from .models import Notification
 
 logger = logging.getLogger(__name__)
 notification_service = NotificationService()
-
-
-from django.db import transaction
-
-@receiver(post_save, sender=StudentAttendance)
-def notify_attendance_alert(sender, instance, created, **kwargs):
-    """
-    Send notification when student is marked absent.
-
-    Notifies parents when their child is absent after transaction commits.
-    """
-    # Check if status indicates absence
-    if not instance.status or not instance.status.absent:
-        return  # Only for absences
-
-    student = instance.student
-    if not student.parent_guardian:
-        return  # No parent to notify
-
-    parent_user = student.parent_guardian.user
-    student_name = student.full_name
-    if hasattr(instance.date, 'strftime'):
-        date_str = instance.date.strftime('%B %d, %Y')
-    else:
-        date_str = str(instance.date)
-    student_id = student.id
-
-    def send_alert():
-        try:
-            notification_service.create_notification(
-                recipient=parent_user,
-                notification_type='attendance',
-                title=f"Attendance Alert: {student_name}",
-                message=f"{student_name} was marked absent on {date_str}. "
-                        f"If this is unexpected, please contact the school.",
-                priority='high',
-                related_student=student,
-                related_object=instance,
-                send_email=True,
-                send_sms=False
-            )
-            logger.info(f"Attendance alert sent for student {student_id}")
-        except Exception as e:
-            logger.error(f"Failed to send attendance notification: {str(e)}")
-
-    transaction.on_commit(send_alert)
 
 
 # TODO: Re-enable when DebtRecord model is available

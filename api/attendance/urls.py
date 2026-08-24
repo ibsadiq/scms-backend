@@ -11,12 +11,19 @@ from attendance.views_student import (
     StudentAttendanceViewSet,
     BulkMarkAttendanceView,  # <-- import from here, not academic.teacher_views
 )
+from attendance.views_summary import StudentTermAttendanceSummaryViewSet
+from attendance.views_device import AttendanceDeviceViewSet, AttendanceScanViewSet, DeviceScanIngestView, DeviceSecurityEventViewSet
 
 # Router for ViewSet-based endpoints
 router = DefaultRouter()
 router.register(r'student-attendance', StudentAttendanceViewSet, basename='student-attendance')
+router.register(r'term-summaries', StudentTermAttendanceSummaryViewSet, basename='student-term-attendance-summary')
+router.register(r'devices', AttendanceDeviceViewSet, basename='attendance-device')
+router.register(r'scans', AttendanceScanViewSet, basename='attendance-scan')
+router.register(r'device-security-events', DeviceSecurityEventViewSet, basename='device-security-event')
 
 urlpatterns = [
+    path("device-scans/", DeviceScanIngestView.as_view(), name="device-scan-ingest"),
     # Bulk attendance marking (must come BEFORE router include to avoid shadowing)
     path(
         "student-attendance/bulk-mark/",

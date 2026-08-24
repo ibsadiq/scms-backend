@@ -1,63 +1,38 @@
 import openpyxl
 from django.db import transaction
-from django.db.models import Q
-from django_filters.rest_framework import FilterSet, CharFilter, DjangoFilterBackend, NumberFilter
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import views
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status, generics
 from django.http import Http404
+from django.shortcuts import get_object_or_404
 
 
-from academic.models import Student, ClassLevel, Parent
-from .serializers import StudentSerializer
-
-# Students filter
+from academic.models import Student, ClassLevel, ClassRoom, Parent
+from academic.permissions import IsSchoolAdmin
+from academic.services.academic_authority_service import AcademicAuthorityService
+from academic.services.student_creation_service import StudentCreationService
+from .access import student_queryset_for_user
+from .filters import StudentFilter
+from .permissions import SISStudentPermission
+from .serializers import (
+    ScopedStudentReadSerializer,
+    StudentSerializer,
+    StudentsMedicalHistorySerializer,
+    StudentsPreviousAcademicHistorySerializer,
+    TeacherStudentReadSerializer,
+    BulkUploadFileSerializer,
+    BulkStudentUploadResponseSerializer,
+)
+from drf_spectacular.utils import extend_schema
 
 
 class StudentPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
     max_page_size = 100
-
-
-class StudentFilter(FilterSet):
-    first_name = CharFilter(field_name="first_name", lookup_expr="icontains")
-    middle_name = CharFilter(field_name="middle_name", lookup_expr="icontains")
-    last_name = CharFilter(field_name="last_name", lookup_expr="icontains")
-    admission_number = CharFilter(field_name="admission_number", lookup_expr="icontains")
-    status = CharFilter(field_name="status", lookup_expr="iexact")
-    # grade_level filters by the grade level ID (derived from class_level.grade_level)
-    grade_level = CharFilter(field_name="class_level__grade_level", lookup_expr="exact")
-    # class_level filters by the class level ID directly
-    class_level = CharFilter(field_name="class_level", lookup_expr="exact")
-
-    admission_date__year = NumberFilter(
-        field_name="admission_date",
-        lookup_expr="year"
-    )
-
-    admission_date__month = NumberFilter(
-        field_name="admission_date",
-        lookup_expr="month"
-    )
-    search = CharFilter(method="filter_search")
-
-    class Meta:
-        model = Student
-        fields = ["first_name", "middle_name", "last_name", "admission_number", "status", "grade_level", "class_level", "search", "admission_date__year",
-            "admission_date__month",]
-
-    def filter_search(self, queryset, name, value):
-        """Search across multiple fields"""
-        return queryset.filter(
-            Q(first_name__icontains=value) |
-            Q(last_name__icontains=value) |
-            Q(middle_name__icontains=value) |
-            Q(admission_number__icontains=value)
-        )
 
 
 class StudentListView(generics.ListCreateAPIView):
@@ -69,12 +44,32 @@ class StudentListView(generics.ListCreateAPIView):
         'classroom__stream',
         'parent_guardian',
         'reason_left'
-    )
+    ).prefetch_related('siblings__class_level')
     serializer_class = StudentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [SISStudentPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_class = StudentFilter
     pagination_class = StudentPagination
+
+    def get_queryset(self):
+        return student_queryset_for_user(self.request.user, super().get_queryset())
+
+    def get_serializer_class(self):
+        user = getattr(self.request, "user", None) if getattr(self, "request", None) else None
+        if getattr(self, "request", None) and self.request.method == "GET":
+            if user and AcademicAuthorityService.is_school_admin(user):
+                from .serializers import StudentListSerializer
+                return StudentListSerializer
+            if user and getattr(user, "teacher", None):
+                return TeacherStudentReadSerializer
+            return ScopedStudentReadSerializer
+
+        if user and AcademicAuthorityService.is_school_admin(user):
+            return StudentSerializer
+        if user and getattr(user, "teacher", None):
+            return TeacherStudentReadSerializer
+        return ScopedStudentReadSerializer
+
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -86,21 +81,37 @@ class StudentListView(generics.ListCreateAPIView):
 
 
 class StudentDetailView(views.APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [SISStudentPermission]
+    serializer_class = StudentSerializer
 
-    def get_object(self, pk):
+    def get_object(self, request, pk):
         try:
-            return Student.objects.get(pk=pk)
+            return student_queryset_for_user(
+                request.user,
+                Student.objects.select_related(
+                    "class_level__grade_level", "classroom__name", "classroom__stream",
+                    "parent_guardian", "class_of_year", "reason_left",
+                ).prefetch_related("siblings__class_level"),
+            ).get(pk=pk)
         except Student.DoesNotExist:
             raise Http404
 
+    def serialize_student(self, request, student, **kwargs):
+        if AcademicAuthorityService.is_school_admin(request.user):
+            serializer_class = StudentSerializer
+        elif getattr(request.user, "teacher", None):
+            serializer_class = TeacherStudentReadSerializer
+        else:
+            serializer_class = ScopedStudentReadSerializer
+        return serializer_class(student, context={"request": request}, **kwargs)
+
     def get(self, request, pk, format=None):
-        student = self.get_object(pk)
-        serializer = StudentSerializer(student)
+        student = self.get_object(request, pk)
+        serializer = self.serialize_student(request, student)
         return Response(serializer.data)
 
     def put(self, request, pk, format=None):
-        student = self.get_object(pk)
+        student = self.get_object(request, pk)
         serializer = StudentSerializer(student, data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -108,7 +119,7 @@ class StudentDetailView(views.APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def patch(self, request, pk, format=None):
-        student = self.get_object(pk)
+        student = self.get_object(request, pk)
         serializer = StudentSerializer(student, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -116,17 +127,52 @@ class StudentDetailView(views.APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk, format=None):
-        student = self.get_object(pk)
+        student = self.get_object(request, pk)
         student.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StudentPortalAccessView(APIView):
+    permission_classes = [IsSchoolAdmin]
+
+    def patch(self, request, pk):
+        student = get_object_or_404(Student, pk=pk)
+        enabled = request.data.get("enabled")
+        if not isinstance(enabled, bool):
+            return Response(
+                {"enabled": "This field must be a boolean."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if enabled and not student.is_active:
+            return Response(
+                {"detail": "Portal access cannot be enabled for an inactive student."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if enabled and not student.phone_number:
+            return Response(
+                {"detail": "Add the student's phone number before enabling portal access."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        Student.objects.filter(pk=student.pk).update(can_login=enabled)
+        student.can_login = enabled
+        return Response({
+            "id": student.pk,
+            "can_login": student.can_login,
+            "portal_account_created": bool(student.user_id),
+        })
 
 
 class BulkUploadStudentsView(APIView):
     """
     API View to handle bulk uploading of students from an Excel file.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSchoolAdmin]
 
+    @extend_schema(
+        request=BulkUploadFileSerializer,
+        responses={201: BulkStudentUploadResponseSerializer},
+    )
     def post(self, request, *args, **kwargs):
         file = request.FILES.get("file")
         if not file:
@@ -142,17 +188,18 @@ class BulkUploadStudentsView(APIView):
                 "first_name",
                 "middle_name",
                 "last_name",
-                "admission_number",
                 "parent_contact",
+                "parent_email",
+                "parent_first_name",
+                "parent_last_name",
                 "religion",
-                "class_level",
+                "classroom_id",
                 "gender",
             ]
 
             students_to_create = []
             not_created = []
             created_students = []
-            new_parents_created = 0
             updated_students_info = []
             skipped_students = []
 
@@ -162,124 +209,59 @@ class BulkUploadStudentsView(APIView):
                 student_data = dict(zip(columns, row))
 
                 # Normalize names
-                first_name = (student_data["first_name"] or "").lower()
-                middle_name = (student_data["middle_name"] or "").lower()
-                last_name = (student_data["last_name"] or "").lower()
+                first_name = (student_data.get("first_name") or "").lower()
+                middle_name = (student_data.get("middle_name") or "").lower()
+                last_name = (student_data.get("last_name") or "").lower()
+                parent_contact = student_data.get("parent_contact")
 
                 try:
-                    class_level = ClassLevel.objects.get(
-                        name=student_data["class_level"]
+                    # Prepare new student via canonical service
+                    classroom_id = student_data.get("classroom_id")
+                    if not classroom_id:
+                        raise ValueError("classroom_id is required")
+
+                    classroom = ClassRoom.objects.get(pk=classroom_id)
+
+                    # Transaction boundary per row managed by create_student atomic block
+                    student = StudentCreationService.create_student(
+                        classroom=classroom,
+                        first_name=first_name.title(),
+                        last_name=last_name.title(),
+                        parent_phone=parent_contact,
+                        parent_email=student_data.get("parent_email"),
+                        middle_name=middle_name.title(),
+                        gender=student_data.get("gender"),
+                        religion=student_data.get("religion"),
+                        parent_first_name=student_data.get("parent_first_name"),
+                        parent_last_name=student_data.get("parent_last_name"),
                     )
-                    parent_contact = student_data["parent_contact"]
-                    parent = None
-                    update_reasons = []
 
+                    created_students.append(student)
+
+                    # Manage siblings
                     if parent_contact:
-                        parent, parent_created = Parent.objects.get_or_create(
-                            phone_number=parent_contact,
-                            defaults={
-                                "first_name": middle_name,
-                                "last_name": last_name,
-                                "email": f"parent_of_{first_name}_{middle_name}_{last_name}@hayatul.com",
-                            },
-                        )
-                        if parent_created:
-                            new_parents_created += 1
+                        existing_sibling = Student.objects.filter(
+                            parent_contact=parent_contact
+                        ).exclude(id=student.id).first()
 
-                    admission_number = student_data["admission_number"]
-                    student_exists = Student.objects.filter(
-                        admission_number=admission_number
-                    ).first()
-
-                    if student_exists:
-                        # Track updates to existing students
-                        updated = False
-
-                        if not student_exists.parent_guardian and parent:
-                            student_exists.parent_guardian = parent
-                            update_reasons.append("parent added")
-                            updated = True
-
-                        existing_sibling = (
-                            Student.objects.filter(parent_contact=parent_contact)
-                            .exclude(id=student_exists.id)
-                            .first()
-                        )
-                        if (
-                            existing_sibling
-                            and not student_exists.siblings.filter(
-                                id=existing_sibling.id
-                            ).exists()
-                        ):
-                            student_exists.siblings.add(existing_sibling)
-                            existing_sibling.siblings.add(student_exists)
-                            update_reasons.append("sibling added")
-                            updated = True
-
-                        if updated:
-                            student_exists.save()
+                        if existing_sibling and not student.siblings.filter(id=existing_sibling.id).exists():
+                            student.siblings.add(existing_sibling)
+                            existing_sibling.siblings.add(student)
                             updated_students_info.append(
                                 {
-                                    "admission_number": admission_number,
-                                    "full_name": f"{student_exists.first_name} {student_exists.last_name}",
-                                    "reasons": update_reasons,
+                                    "admission_number": student.admission_number,
+                                    "full_name": f"{student.first_name} {student.last_name}",
+                                    "reasons": ["sibling added"],
                                 }
                             )
-                        else:
-                            skipped_students.append(
-                                {
-                                    "admission_number": admission_number,
-                                    "full_name": f"{student_exists.first_name} {student_exists.last_name}",
-                                    "reason": "Student already exists and no updates were needed.",
-                                }
-                            )
-                        continue  # Skip creating duplicate
-
-                    # Prepare new student
-                    student = Student(
-                        first_name=first_name,
-                        middle_name=middle_name,
-                        last_name=last_name,
-                        admission_number=admission_number,
-                        parent_contact=parent_contact,
-                        religion=student_data["religion"],
-                        class_level=class_level,
-                        gender=student_data["gender"],
-                        parent_guardian=parent,
-                    )
-
-                    existing_sibling = Student.objects.filter(
-                        parent_contact=parent_contact
-                    ).first()
-                    students_to_create.append((student, existing_sibling))
 
                 except Exception as e:
                     student_data["error"] = str(e)
                     not_created.append(student_data)
 
-            # Save new students
-            with transaction.atomic():
-                for student, existing_sibling in students_to_create:
-                    student.save()
-                    created_students.append(student)
-
-                    if (
-                        existing_sibling
-                        and not student.siblings.filter(id=existing_sibling.id).exists()
-                    ):
-                        student.siblings.add(existing_sibling)
-                        existing_sibling.siblings.add(student)
-                        updated_students_info.append(
-                            {
-                                "admission_number": student.admission_number,
-                                "full_name": f"{student.first_name} {student.last_name}",
-                                "reasons": ["sibling added"],
-                            }
-                        )
-
             return Response(
                 {
-                    "message": f"{len(created_students)} students successfully uploaded. {new_parents_created} parents created successfully. ",
+                    "message": f"{len(created_students)} students successfully uploaded.",
                     "updated_students": updated_students_info,
                     "skipped_students": skipped_students,
                     "not_created": not_created,
@@ -314,26 +296,21 @@ class MessageToStudentViewSet(viewsets.ModelViewSet):
 """
 
 from academic.models import StudentsMedicalHistory, StudentsPreviousAcademicHistory
-from rest_framework import serializers
-
-class StudentsMedicalHistorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StudentsMedicalHistory
-        fields = '__all__'
-
-class StudentsPreviousAcademicHistorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StudentsPreviousAcademicHistory
-        fields = '__all__'
 
 class StudentMedicalHistoryView(views.APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [SISStudentPermission]
+    serializer_class = StudentsMedicalHistorySerializer
+
+    def get_student(self, request, pk):
+        return get_object_or_404(student_queryset_for_user(request.user), pk=pk)
 
     def get(self, request, pk):
+        self.get_student(request, pk)
         records = StudentsMedicalHistory.objects.filter(student_id=pk)
         return Response(StudentsMedicalHistorySerializer(records, many=True).data)
 
     def post(self, request, pk):
+        self.get_student(request, pk)
         data = request.data.copy()
         data['student'] = pk
         serializer = StudentsMedicalHistorySerializer(data=data)
@@ -343,13 +320,19 @@ class StudentMedicalHistoryView(views.APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class StudentAcademicHistoryView(views.APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [SISStudentPermission]
+    serializer_class = StudentsPreviousAcademicHistorySerializer
+
+    def get_student(self, request, pk):
+        return get_object_or_404(student_queryset_for_user(request.user), pk=pk)
 
     def get(self, request, pk):
+        self.get_student(request, pk)
         records = StudentsPreviousAcademicHistory.objects.filter(student_id=pk)
         return Response(StudentsPreviousAcademicHistorySerializer(records, many=True).data)
 
     def post(self, request, pk):
+        self.get_student(request, pk)
         data = request.data.copy()
         data['student'] = pk
         serializer = StudentsPreviousAcademicHistorySerializer(data=data)

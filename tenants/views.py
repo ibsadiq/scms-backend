@@ -12,6 +12,7 @@ from django.db.models import Sum, Count
 from django_tenants.utils import schema_context
 from .services import TenantService, TenantCreationError
 from rest_framework.views import APIView
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from .serializers import (
     SchoolSignupSerializer,
     TenantListSerializer,
@@ -19,6 +20,9 @@ from .serializers import (
     InspectorSerializer,
     InspectorCreateSerializer,
     InspectorUpdateSerializer,
+    SchoolSearchResultSerializer,
+    SchoolSettingsSerializer,
+    TenantBrandingSerializer,
 )
 from .models import Client, Domain, TenantStatus, Inspector
 from .utils import build_school_url
@@ -635,6 +639,7 @@ class AdminTenantViewSet(viewsets.ReadOnlyModelViewSet):
 class TenantBrandingView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(responses={200: TenantBrandingSerializer})
     def get(self, request):
         try:
             tenant = Client.objects.get(schema_name=connection.schema_name)
@@ -681,10 +686,15 @@ class SchoolSettingsView(APIView):
             'onboarding_completed': tenant.onboarding_completed,
         }
 
+    @extend_schema(responses={200: SchoolSettingsSerializer})
     def get(self, request):
         tenant = self._get_client()
         return Response(self._serialize(tenant, request))
 
+    @extend_schema(
+        request=SchoolSettingsSerializer,
+        responses={200: SchoolSettingsSerializer},
+    )
     def patch(self, request):
         if not request.user.is_admin:
             return Response({'error': 'School admin access required.'}, status=status.HTTP_403_FORBIDDEN)
@@ -841,6 +851,10 @@ class SchoolSearchView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        parameters=[OpenApiParameter("q", str, required=True)],
+        responses={200: SchoolSearchResultSerializer(many=True)},
+    )
     def get(self, request):
         query = request.query_params.get('q', '').strip()
         if len(query) < 2:

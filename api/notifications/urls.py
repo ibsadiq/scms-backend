@@ -8,8 +8,8 @@ from notifications.views import (
     NotificationViewSet,
     NotificationPreferenceViewSet,
     NotificationTemplateViewSet,
-    DirectMessageViewSet
 )
+from notifications.views_messages import DirectMessageViewSet
 
 router = DefaultRouter()
 router.register(r'notifications', NotificationViewSet, basename='notifications')

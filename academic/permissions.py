@@ -7,6 +7,7 @@ Permissions for:
 - Combined student/parent access
 """
 from rest_framework import permissions
+from rest_framework.permissions import SAFE_METHODS
 
 
 class IsStudentOwner(permissions.BasePermission):
@@ -146,7 +147,8 @@ class IsAdminOrStudentOwner(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         """Check if user is admin OR student owner"""
         # Admin can access everything
-        if request.user.is_staff:
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        if AcademicAuthorityService.is_school_admin(request.user):
             return True
 
         # Student can access their own data
@@ -173,7 +175,8 @@ class IsAdminOrParent(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         """Check if user is admin OR parent of student"""
         # Admin can access everything
-        if request.user.is_staff:
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        if AcademicAuthorityService.is_school_admin(request.user):
             return True
 
         # Parent can access their children's data
@@ -201,7 +204,8 @@ class IsAdminOrStudentOrParent(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         """Check if user is admin, student owner, OR parent"""
         # Admin can access everything
-        if request.user.is_staff:
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        if AcademicAuthorityService.is_school_admin(request.user):
             return True
 
         # Student or parent can access
@@ -238,3 +242,64 @@ class CanAccessStudentPortal(permissions.BasePermission):
             return False
 
         return True
+
+
+class IsSchoolAdmin(permissions.BasePermission):
+    """Allows access only to authenticated school administrators."""
+    def has_permission(self, request, view):
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        return bool(request.user and request.user.is_authenticated and AcademicAuthorityService.is_school_admin(request.user))
+
+
+class IsAcademicAdminOrReadOnly(permissions.BasePermission):
+    """Authenticated users may read academic structure; only school admins may mutate it."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        return AcademicAuthorityService.is_school_admin(request.user)
+
+
+class CanReviewLessonPlan(permissions.BasePermission):
+    """Checks whether the requesting user has authority to approve/reject a lesson plan."""
+    def has_object_permission(self, request, view, obj):
+        from academic.models import AcademicWorkflow
+        from academic.services.academic_authority_service import AcademicAuthorityService
+
+        subject = obj.allocation.subject
+        section = obj.allocation.class_room.name.grade_level.section
+        academic_year = obj.allocation.academic_year
+        creator = obj.allocation.teacher_name
+
+        return AcademicAuthorityService.can_approve(
+            actor=request.user,
+            workflow=AcademicWorkflow.LESSON_PLAN,
+            subject=subject,
+            section=section,
+            academic_year=academic_year,
+            creator=creator,
+        )
+
+
+class CanReviewSchemeOfWork(permissions.BasePermission):
+    """Checks whether the requesting user has authority to approve/reject a scheme of work."""
+    def has_object_permission(self, request, view, obj):
+        from academic.models import AcademicWorkflow
+        from academic.services.academic_authority_service import AcademicAuthorityService
+
+        subject = obj.curriculum_subject.subject
+        section = obj.curriculum_subject.grade_level.section
+        academic_year = obj.academic_year
+        creator = obj.created_by
+
+        return AcademicAuthorityService.can_approve(
+            actor=request.user,
+            workflow=AcademicWorkflow.SCHEME_OF_WORK,
+            subject=subject,
+            section=section,
+            academic_year=academic_year,
+            creator=creator,
+        )

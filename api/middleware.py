@@ -45,14 +45,19 @@ class CustomExceptionMiddleware:
             )
 
         except IntegrityError as e:
+            logger.warning("Database integrity conflict", exc_info=True)
             return JsonResponse(
-                {"error": "Integrity Error", "detail": str(e)},
-                status=400,
+                {
+                    "error": "Conflict",
+                    "detail": "The request conflicts with an existing record or data constraint.",
+                },
+                status=409,
             )
 
         except DatabaseError as e:
+            logger.error("Unexpected database error", exc_info=True)
             return JsonResponse(
-                {"error": "Database Error", "detail": str(e)},
+                {"error": "Database Error", "detail": "The database operation could not be completed."},
                 status=500,
             )
 
@@ -64,9 +69,9 @@ class CustomExceptionMiddleware:
             )
 
         # Catch-all for other exceptions
-        except Exception as e:
+        except Exception:
             logger.error("Unhandled exception: %s", traceback.format_exc())
             return JsonResponse(
-                {"error": "Internal Server Error", "detail": str(e)},
+                {"error": "Internal Server Error", "detail": "The request could not be completed."},
                 status=500,
             )

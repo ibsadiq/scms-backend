@@ -43,4 +43,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'finance.send_fee_reminders',
         'schedule': crontab(hour=8, minute=0),  # run daily at 8:00 AM
     },
+    'monitor-attendance-devices': {
+        'task': 'attendance.monitor_device_health',
+        'schedule': crontab(minute='*/10'),
+    },
+    'cleanup-retained-raw-scans': {
+        'task': 'attendance.cleanup_raw_scans',
+        'schedule': crontab(hour=2, minute=30),
+    },
 }

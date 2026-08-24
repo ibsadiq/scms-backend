@@ -5,6 +5,18 @@ from .models import PeriodSlot, TeacherAvailability, TimetableEntry, Room
 from academic.models import AllocatedSubject, ClassRoom, Teacher, Term
 
 
+class GenerateTimetableRequestSerializer(serializers.Serializer):
+    term = serializers.IntegerField()
+    dry_run = serializers.BooleanField(required=False, default=False)
+    max_backtracks = serializers.IntegerField(required=False, default=5000, min_value=1)
+
+
+class GenerateTimetableResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=("success", "error"))
+    dry_run = serializers.BooleanField(required=False)
+    message = serializers.CharField()
+
+
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room

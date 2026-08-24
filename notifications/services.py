@@ -16,6 +16,7 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
+from django.db import IntegrityError, transaction
 
 from .models import Notification, NotificationPreference, NotificationTemplate
 from users.models import CustomUser
@@ -52,7 +53,8 @@ class NotificationService:
         related_object: Optional[Any] = None,
         send_email: bool = True,
         send_sms: bool = False,
-        expires_at: Optional[timezone.datetime] = None
+        expires_at: Optional[timezone.datetime] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Notification:
         """
         Create a notification record.
@@ -76,15 +78,34 @@ class NotificationService:
         prefs, _ = NotificationPreference.objects.get_or_create(user=recipient)
 
         # Create notification record
-        notification = Notification.objects.create(
-            recipient=recipient,
-            related_student=related_student,
-            notification_type=notification_type,
-            priority=priority,
-            title=title,
-            message=message,
-            expires_at=expires_at
-        )
+        try:
+            with transaction.atomic():
+                notification, created = Notification.objects.get_or_create(
+                    idempotency_key=idempotency_key,
+                    defaults={
+                        "recipient": recipient,
+                        "related_student": related_student,
+                        "notification_type": notification_type,
+                        "priority": priority,
+                        "title": title,
+                        "message": message,
+                        "expires_at": expires_at,
+                    },
+                ) if idempotency_key else (Notification.objects.create(
+                    recipient=recipient,
+                    related_student=related_student,
+                    notification_type=notification_type,
+                    priority=priority,
+                    title=title,
+                    message=message,
+                    expires_at=expires_at,
+                ), True)
+        except IntegrityError:
+            notification = Notification.objects.get(idempotency_key=idempotency_key)
+            created = False
+
+        if not created:
+            return notification
 
         # Set related object if provided
         if related_object:

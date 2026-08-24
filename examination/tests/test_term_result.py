@@ -1,5 +1,5 @@
 from decimal import Decimal
-from django_tenants.test.cases import TenantTestCase as TestCase
+from school.testcases import TenantTestCase as TestCase
 from django.contrib.auth import get_user_model
 from administration.models import AcademicYear, Term
 from academic.models import Student, ClassRoom, GradeLevel, Subject, StudentClassEnrollment, SectionType
@@ -59,18 +59,22 @@ class TermResultServiceTestCase(TestCase):
         
         # Add entries for Math
         AssessmentEntry.objects.create(
-            student=self.enrollment, subject=self.subject, component=self.ca_component, score=25, entered_by=self.teacher
+            student=self.enrollment, subject=self.subject, component=self.ca_component, score=25,
+            entered_by=self.teacher, term=self.term, academic_year=self.academic_year,
         )
         AssessmentEntry.objects.create(
-            student=self.enrollment, subject=self.subject, component=self.exam_component, score=50, entered_by=self.teacher
+            student=self.enrollment, subject=self.subject, component=self.exam_component, score=50,
+            entered_by=self.teacher, term=self.term, academic_year=self.academic_year,
         )
         
         # Add entries for English (Failed)
         AssessmentEntry.objects.create(
-            student=self.enrollment, subject=self.subject2, component=self.ca_component, score=10, entered_by=self.teacher
+            student=self.enrollment, subject=self.subject2, component=self.ca_component, score=10,
+            entered_by=self.teacher, term=self.term, academic_year=self.academic_year,
         )
         AssessmentEntry.objects.create(
-            student=self.enrollment, subject=self.subject2, component=self.exam_component, score=30, entered_by=self.teacher
+            student=self.enrollment, subject=self.subject2, component=self.exam_component, score=30,
+            entered_by=self.teacher, term=self.term, academic_year=self.academic_year,
         )
         
         result = TermResultService.compute_student_term_result(

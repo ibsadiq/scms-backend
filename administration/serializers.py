@@ -7,6 +7,103 @@ from .models import AcademicYear, Term, Article, CarouselImage, SchoolEvent
 from users.serializers import UserSerializer
 
 
+class DashboardStatsCoreSerializer(serializers.Serializer):
+    totalStudents = serializers.IntegerField()
+    totalTeachers = serializers.IntegerField()
+    activeSubjects = serializers.IntegerField()
+    attendanceRate = serializers.FloatField()
+    attendancePresent = serializers.IntegerField()
+    attendanceAbsent = serializers.IntegerField()
+    newStudentsThisMonth = serializers.IntegerField()
+    revenueCollected = serializers.FloatField()
+    pendingFees = serializers.FloatField()
+    revenueSeries = serializers.ListField(child=serializers.FloatField())
+
+
+class EnrollmentTrendSerializer(serializers.Serializer):
+    month = serializers.IntegerField()
+    year = serializers.IntegerField()
+    label = serializers.CharField()
+    shortLabel = serializers.CharField()
+    count = serializers.IntegerField()
+
+
+class RecentStudentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    admission_number = serializers.CharField()
+    class_name = serializers.CharField()
+    admission_date = serializers.DateField(allow_null=True)
+
+
+class StudentsByLevelSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    count = serializers.IntegerField()
+    percentage = serializers.FloatField()
+    icon = serializers.CharField()
+
+
+class DashboardFinanceSerializer(serializers.Serializer):
+    collected = serializers.FloatField()
+    outstanding = serializers.FloatField()
+    expected = serializers.FloatField()
+    collectionRate = serializers.FloatField()
+    studentsWithDebt = serializers.IntegerField()
+    totalStudents = serializers.IntegerField()
+
+
+class DashboardAttendanceDaySerializer(serializers.Serializer):
+    dayName = serializers.CharField()
+    date = serializers.DateField()
+    rate = serializers.FloatField()
+    present = serializers.IntegerField()
+    total = serializers.IntegerField()
+
+
+class RecentAdmissionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    grade_level = serializers.CharField()
+    admission_date = serializers.DateField(allow_null=True)
+
+
+class RecentPaymentSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    receipt_number = serializers.CharField(allow_null=True)
+    student_name = serializers.CharField()
+    amount = serializers.FloatField()
+    method = serializers.CharField(allow_null=True)
+    paid_on = serializers.DateField()
+    term_name = serializers.CharField()
+
+
+class GradeDistributionSerializer(serializers.Serializer):
+    a = serializers.IntegerField()
+    b = serializers.IntegerField()
+    c = serializers.IntegerField()
+    df = serializers.IntegerField()
+
+
+class DashboardPerformanceSerializer(serializers.Serializer):
+    averageGrade = serializers.CharField()
+    passRate = serializers.IntegerField()
+    grades = GradeDistributionSerializer()
+
+
+class AdministrationDashboardSerializer(serializers.Serializer):
+    stats = DashboardStatsCoreSerializer()
+    enrollmentTrends = EnrollmentTrendSerializer(many=True)
+    recentStudents = RecentStudentSerializer(many=True)
+    studentsByLevel = StudentsByLevelSerializer(many=True)
+    financial = DashboardFinanceSerializer()
+    attendance = DashboardAttendanceDaySerializer(many=True)
+    recentAdmissions = RecentAdmissionSerializer(many=True)
+    recentPayments = RecentPaymentSerializer(many=True)
+    performance = DashboardPerformanceSerializer()
+
+
 class ArticleSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField(read_only=True)
     # created_at = serializers.SerializerMethodField(read_only=True)

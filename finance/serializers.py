@@ -13,6 +13,68 @@ from .models import (
     PaymentCategory,
     ReminderSetting
 )
+
+
+class FinanceMethodTotalSerializer(serializers.Serializer):
+    method = serializers.CharField()
+    total = serializers.FloatField()
+
+
+class FinanceRecentReceiptSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    receipt_number = serializers.CharField(allow_null=True)
+    student_name = serializers.CharField()
+    amount = serializers.FloatField()
+    method = serializers.CharField(allow_null=True)
+    date = serializers.DateField()
+    term_name = serializers.CharField()
+
+
+class FinanceDashboardSummarySerializer(serializers.Serializer):
+    total_expected = serializers.FloatField()
+    total_collected = serializers.FloatField()
+    total_outstanding = serializers.FloatField()
+    collection_rate = serializers.FloatField()
+    paid_count = serializers.IntegerField()
+    partial_count = serializers.IntegerField()
+    unpaid_count = serializers.IntegerField()
+    method_breakdown = FinanceMethodTotalSerializer(many=True)
+    recent_receipts = FinanceRecentReceiptSerializer(many=True)
+
+
+class ParentFeeBreakdownSerializer(serializers.Serializer):
+    fee_name = serializers.CharField()
+    fee_type = serializers.CharField()
+    amount_owed = serializers.FloatField()
+    amount_paid = serializers.FloatField()
+    balance = serializers.FloatField()
+    status = serializers.CharField()
+
+
+class ParentReceiptSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    receipt_number = serializers.CharField()
+    amount = serializers.FloatField()
+    payment_date = serializers.DateField()
+    paid_through = serializers.CharField(allow_null=True)
+    term_name = serializers.CharField()
+
+
+class ParentChildFeesSerializer(serializers.Serializer):
+    student_id = serializers.IntegerField()
+    student_name = serializers.CharField()
+    admission_number = serializers.CharField(allow_null=True)
+    classroom_display = serializers.CharField()
+    total_fees = serializers.FloatField()
+    amount_paid = serializers.FloatField()
+    balance = serializers.FloatField()
+    status = serializers.ChoiceField(choices=("Paid", "Partial", "Unpaid"))
+    receipts = ParentReceiptSerializer(many=True)
+    fee_breakdown = ParentFeeBreakdownSerializer(many=True)
+
+
+class ParentFeesResponseSerializer(serializers.Serializer):
+    children_fees = ParentChildFeesSerializer(many=True)
 # from academic.models import Student
 # from administration.models import Term, AcademicYear
 # from academic.models import GradeLevel, ClassLevel

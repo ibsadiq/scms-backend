@@ -112,6 +112,13 @@ class TeacherAdmin(admin.ModelAdmin):
     get_phone.short_description = 'Phone'
 
 
+@admin.register(Staff)
+class StaffAdmin(admin.ModelAdmin):
+    list_display = ('staff_id', 'full_name', 'role', 'designation', 'department', 'is_active')
+    list_filter = ('role', 'is_active', 'department')
+    search_fields = ('staff_id', 'user__first_name', 'user__last_name', 'user__email', 'designation')
+
+
 admin.site.register(Department)
 admin.site.register(Subject)
 admin.site.register(ClassLevel)
@@ -818,3 +825,16 @@ class AssessmentTemplateCriterionAdmin(admin.ModelAdmin):
             'fields': ('max_score', 'weight', 'description')
         }),
     )
+
+
+@admin.register(AcademicLeadershipAssignment)
+class AcademicLeadershipAssignmentAdmin(admin.ModelAdmin):
+    list_display = ['teacher', 'role', 'department', 'section', 'academic_year', 'is_active']
+    list_filter = ['role', 'is_active', 'academic_year', 'department', 'section']
+    search_fields = ['teacher__user__first_name', 'teacher__user__last_name', 'department__name']
+
+
+@admin.register(AcademicApprovalPolicy)
+class AcademicApprovalPolicyAdmin(admin.ModelAdmin):
+    list_display = ['workflow', 'approval_route', 'is_active', 'updated_at']
+    list_filter = ['approval_route', 'is_active']

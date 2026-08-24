@@ -4,8 +4,11 @@ from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from api.jobs.throttles import BackgroundJobCreateThrottle
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum, Q, F
 from django.shortcuts import get_object_or_404
 from decimal import Decimal
@@ -35,17 +38,29 @@ from .serializers import (
     PaymentSerializer,
     PaymentCategorySerializer,
     StudentFeeBalanceSerializer,
-    ReminderSettingSerializer
+    ReminderSettingSerializer,
+    FinanceDashboardSummarySerializer,
+    ParentFeesResponseSerializer,
 )
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from academic.models import Student
 from administration.models import Term
+from .access import accessible_student_ids, can_access_student_finance
+from .permissions import (
+    FinanceManagerWriteOwnRead,
+    IsFinanceManager,
+    IsParentFinanceUser,
+    is_finance_manager,
+)
+from api.jobs.serializers import BackgroundJobSerializer
+from api.jobs.services import BackgroundJobService
 
 
 class OptionalServiceViewSet(viewsets.ModelViewSet):
     """ViewSet for managing optional services."""
     queryset = OptionalService.objects.all()
     serializer_class = OptionalServiceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['is_active', 'fee_type']
     search_fields = ['name', 'description']
@@ -57,12 +72,15 @@ class ServiceSubscriptionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing student subscriptions to optional services."""
     queryset = ServiceSubscription.objects.select_related('student', 'service')
     serializer_class = ServiceSubscriptionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [FinanceManagerWriteOwnRead]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['service', 'student', 'is_active']
     search_fields = ['student__first_name', 'student__last_name', 'student__admission_number', 'service__name']
     ordering_fields = ['subscribed_on', 'is_active']
     ordering = ['-subscribed_on']
+
+    def get_queryset(self):
+        return super().get_queryset().filter(student_id__in=accessible_student_ids(self.request.user))
 
     @action(detail=False, methods=['post'])
     def bulk_subscribe(self, request):
@@ -126,7 +144,7 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         'class_levels'
     )
     serializer_class = FeeStructureSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['academic_year', 'term', 'fee_type', 'is_mandatory']
     search_fields = ['name', 'fee_type']
@@ -191,7 +209,11 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(applicable_fees, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'])
+    @action(
+        detail=True,
+        methods=['post'],
+        throttle_classes=[BackgroundJobCreateThrottle],
+    )
     def send_reminder(self, request, pk=None):
         """
         Send payment reminder for this specific fee structure.
@@ -203,16 +225,20 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         fee_structure = self.get_object()
         custom_message = request.data.get('message', None)
 
-        # Trigger async task
-        task = send_custom_fee_reminder.delay(fee_structure.id, custom_message)
+        job = BackgroundJobService.create_and_dispatch(
+            task=send_custom_fee_reminder,
+            job_type="FINANCE_CUSTOM_FEE_REMINDER",
+            created_by=request.user,
+            task_kwargs={"fee_structure_id": fee_structure.id, "message": custom_message},
+        )
 
-        return Response({
-            'message': 'Reminder task queued successfully',
-            'task_id': task.id,
-            'fee_structure': fee_structure.name
-        })
+        return Response(BackgroundJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
-    @action(detail=False, methods=['post'])
+    @action(
+        detail=False,
+        methods=['post'],
+        throttle_classes=[BackgroundJobCreateThrottle],
+    )
     def send_all_reminders(self, request):
         """
         Trigger fee reminders for all due fees.
@@ -221,13 +247,12 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         from finance.tasks import send_fee_reminders
 
         # Trigger async task
-        task = send_fee_reminders.delay()
-
-        return Response({
-            'message': 'Fee reminders task queued successfully',
-            'task_id': task.id,
-            'check_status': f'/api/tasks/{task.id}/'
-        })
+        job = BackgroundJobService.create_and_dispatch(
+            task=send_fee_reminders,
+            job_type="FINANCE_FEE_REMINDERS",
+            created_by=request.user,
+        )
+        return Response(BackgroundJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
 
 class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
@@ -250,12 +275,15 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         'waived_by'
     )
     serializer_class = StudentFeeAssignmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [FinanceManagerWriteOwnRead]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = StudentFeeAssignmentFilter
     search_fields = ['student__first_name', 'student__last_name', 'student__admission_number', 'fee_structure__name']
     ordering_fields = ['assigned_date', 'amount_owed', 'balance']
     ordering = ['-assigned_date']
+
+    def get_queryset(self):
+        return super().get_queryset().filter(student_id__in=accessible_student_ids(self.request.user))
 
     def perform_create(self, serializer):
         assignment = serializer.save()
@@ -443,7 +471,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         'received_by'
     ).prefetch_related('fee_allocations')
     serializer_class = ReceiptSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [FinanceManagerWriteOwnRead]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = {
         'student': ['exact'],
@@ -472,17 +500,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
             'received_by'
         ).prefetch_related('fee_allocations')
 
-        user = self.request.user
-        if hasattr(user, 'is_student') and user.is_student:
-            student = getattr(user, 'student_profile', None) or getattr(user, 'student', None)
-            if not student:
-                from academic.models import Student
-                student = Student.objects.filter(user=user).first()
-            if student:
-                return queryset.filter(student=student)
-            return Receipt.objects.none()
-
-        return queryset
+        return queryset.filter(student_id__in=accessible_student_ids(self.request.user))
 
     def perform_create(self, serializer):
         receipt = serializer.save(received_by=self.request.user)
@@ -521,6 +539,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         return super().filter_queryset(queryset)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def allocate_to_fees(self, request, pk=None):
         """
         Allocate receipt amount to specific fee assignments.
@@ -541,33 +560,15 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate total doesn't exceed receipt amount
-        total_to_allocate = sum(
-            Decimal(str(alloc['amount'])) for alloc in allocations_data
-        )
-
-        available = receipt.unallocated_amount
-        if total_to_allocate > available:
-            return Response(
-                {'error': f'Total allocation (₦{total_to_allocate}) exceeds available amount (₦{available})'},
-                status=status.HTTP_400_BAD_REQUEST
+        from finance.services import PaymentAllocationService
+        try:
+            created_allocations = PaymentAllocationService.allocate(
+                receipt=receipt, allocations=allocations_data, actor=request.user
             )
-
-        # Create allocations
-        created_allocations = []
-        for alloc_data in allocations_data:
-            fee_assignment = get_object_or_404(
-                StudentFeeAssignment,
-                id=alloc_data['fee_assignment_id']
-            )
-
-            allocation = FeePaymentAllocation.objects.create(
-                receipt=receipt,
-                fee_assignment=fee_assignment,
-                amount=Decimal(str(alloc_data['amount'])),
-                allocated_by=request.user
-            )
-            created_allocations.append(allocation)
+        except (DjangoValidationError, KeyError, TypeError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else str(exc)
+            return Response({"error": detail}, status=status.HTTP_400_BAD_REQUEST)
+        total_to_allocate = sum((allocation.amount for allocation in created_allocations), Decimal("0.00"))
 
         return Response({
             'message': f'Successfully allocated ₦{total_to_allocate} to {len(created_allocations)} fees',
@@ -666,7 +667,7 @@ class PaymentCategoryViewSet(viewsets.ModelViewSet):
     """
     queryset = PaymentCategory.objects.all()
     serializer_class = PaymentCategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ['name', 'abbr']
     ordering = ['name']
@@ -678,7 +679,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
     """
     queryset = Payment.objects.select_related('category', 'paid_by', 'user')
     serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = {
         'category': ['exact'],
@@ -719,7 +720,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
     - GET /api/finance/fee-balance/?student={id}&term={id} - Get balance by query param
     - GET /api/finance/student-balance/{student_id}/?term_id={id} - Get balance by path param
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [FinanceManagerWriteOwnRead]
+    serializer_class = StudentFeeBalanceSerializer
 
     def _resolve_student(self, pk_or_id, user=None):
         from academic.models import Student
@@ -750,6 +752,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 {'error': 'No student found matching query'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        if not can_access_student_finance(request.user, student):
+            return Response({'detail': 'You do not have access to this student.'}, status=status.HTTP_403_FORBIDDEN)
         term_id = request.query_params.get('term')
         return self._get_student_balance(student, term_id)
 
@@ -764,6 +768,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 {'error': 'No student found matching query'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        if not can_access_student_finance(request.user, student):
+            return Response({'detail': 'You do not have access to this student.'}, status=status.HTTP_403_FORBIDDEN)
         term_id = request.query_params.get('term_id')
         academic_year_id = request.query_params.get('academic_year_id')
         return self._get_student_balance(student, term_id, academic_year_id)
@@ -876,6 +882,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         Get fee balance summary for all students (optimized SQL aggregate).
         GET /api/financial/student-balance/summary/?term_id=1&academic_year_id=1
         """
+        if not is_finance_manager(request.user):
+            return Response({'detail': 'Finance manager access required.'}, status=status.HTTP_403_FORBIDDEN)
         term_id = request.query_params.get('term_id')
         academic_year_id = request.query_params.get('academic_year_id')
         status_param = request.query_params.get('status')
@@ -959,8 +967,17 @@ class FinanceDashboardSummaryView(APIView):
     Fast, aggregated Finance Dashboard summary with 30-second Redis caching.
     GET /api/finance/dashboard/summary/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("term_id", int, required=False),
+            OpenApiParameter("academic_year_id", int, required=False),
+            OpenApiParameter("classroom_id", int, required=False),
+            OpenApiParameter("fee_type", str, required=False),
+        ],
+        responses={200: FinanceDashboardSummarySerializer},
+    )
     def get(self, request):
         from django.core.cache import cache
         from django.db import connection
@@ -1068,8 +1085,9 @@ class ParentFeesView(APIView):
     GET /api/finance/parent/fees/
     Returns: Detailed fee breakdown and receipt history for all children
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsParentFinanceUser]
 
+    @extend_schema(responses={200: ParentFeesResponseSerializer})
     def get(self, request):
         try:
             parent = Parent.objects.get(user=request.user)
@@ -1143,7 +1161,7 @@ class ReminderSettingViewSet(viewsets.ModelViewSet):
     """
     queryset = ReminderSetting.objects.all()
     serializer_class = ReminderSettingSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['fee_structure', 'is_active', 'days_before_due']
     search_fields = ['name']
@@ -1160,10 +1178,9 @@ class FinanceAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     from finance.filters import FinanceAuditLogFilter
     queryset = FinanceAuditLog.objects.select_related('user', 'target_student').all()
     serializer_class = FinanceAuditLogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsFinanceManager]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = FinanceAuditLogFilter
     search_fields = ['description', 'target_student__first_name', 'target_student__last_name', 'user__first_name', 'user__last_name', 'user__email']
     ordering_fields = ['timestamp']
     ordering = ['-timestamp']
-
