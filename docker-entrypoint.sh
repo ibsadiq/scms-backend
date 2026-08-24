@@ -74,7 +74,7 @@ for client in Client.objects.all():
 
 # Run database migrations for all tenants
 echo -e "${BLUE}🔄 Running tenant schema migrations...${NC}"
-python manage.py migrate_schemas --noinput || true
+python manage.py migrate_schemas --noinput
 echo -e "${GREEN}✅ All schema migrations complete${NC}"
 echo ""
 

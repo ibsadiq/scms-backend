@@ -3,6 +3,23 @@
 from django.db import migrations, models
 
 
+def add_source_reference_if_missing(apps, schema_editor):
+    table_name = "examination_assessmententry"
+    connection = schema_editor.connection
+    with connection.cursor() as cursor:
+        columns = {
+            column.name
+            for column in connection.introspection.get_table_description(
+                cursor, table_name
+            )
+        }
+        if "source_reference" not in columns:
+            cursor.execute(
+                'ALTER TABLE "examination_assessmententry" '
+                'ADD COLUMN "source_reference" varchar(100) NULL'
+            )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,14 +27,23 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="assessmententry",
-            name="source_reference",
-            field=models.CharField(
-                blank=True,
-                help_text="External reference ID (e.g. CBT Attempt ID) for traceability.",
-                max_length=100,
-                null=True,
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    add_source_reference_if_missing, migrations.RunPython.noop
+                )
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="assessmententry",
+                    name="source_reference",
+                    field=models.CharField(
+                        blank=True,
+                        help_text="External reference ID (e.g. CBT Attempt ID) for traceability.",
+                        max_length=100,
+                        null=True,
+                    ),
+                ),
+            ],
         ),
     ]

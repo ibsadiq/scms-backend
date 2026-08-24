@@ -3,6 +3,15 @@
 from django.db import migrations, models
 
 
+def ensure_source_reference_unique_index(apps, schema_editor):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            '"examination_assessmententry_source_reference_repair_uniq" '
+            'ON "examination_assessmententry" ("source_reference")'
+        )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,15 +19,24 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name="assessmententry",
-            name="source_reference",
-            field=models.CharField(
-                blank=True,
-                help_text="External reference ID (e.g. CBT Attempt ID) for traceability.",
-                max_length=100,
-                null=True,
-                unique=True,
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    ensure_source_reference_unique_index, migrations.RunPython.noop
+                )
+            ],
+            state_operations=[
+                migrations.AlterField(
+                    model_name="assessmententry",
+                    name="source_reference",
+                    field=models.CharField(
+                        blank=True,
+                        help_text="External reference ID (e.g. CBT Attempt ID) for traceability.",
+                        max_length=100,
+                        null=True,
+                        unique=True,
+                    ),
+                ),
+            ],
         ),
     ]
