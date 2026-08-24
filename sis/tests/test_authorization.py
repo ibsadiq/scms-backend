@@ -49,9 +49,21 @@ class SISStudentAuthorizationTests(SISAccessTestCase):
         response = self.client.get(f"/api/sis/students/{self.other_student.id}/")
         self.assertEqual(response.status_code, 404)
 
-    def test_accountant_ordinary_staff_and_anonymous_are_denied(self):
-        for user in (self.accountant, self.staff):
-            self.assertEqual(self.list_ids(user)[0].status_code, 403)
+    def test_accountant_gets_minimal_read_access_but_ordinary_staff_and_anonymous_are_denied(self):
+        response, ids = self.list_ids(self.accountant)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ids, {self.own_student.id, self.other_student.id})
+        row = self.rows(response)[0]
+        self.assertNotIn("parent_contact", row)
+        self.assertNotIn("region", row)
+
+        self.authenticate(self.accountant)
+        self.assertEqual(
+            self.client.post("/api/sis/students/", {}, format="json").status_code,
+            403,
+        )
+
+        self.assertEqual(self.list_ids(self.staff)[0].status_code, 403)
         self.client.force_authenticate(user=None)
         self.assertIn(self.client.get("/api/sis/students/").status_code, (401, 403))
 

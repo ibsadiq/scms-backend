@@ -22,6 +22,9 @@ def student_queryset_for_user(user, queryset=None):
     if getattr(user, "is_student", False):
         return queryset.filter(user=user)
 
+    if getattr(user, "is_accountant", False):
+        return queryset.filter(is_active=True)
+
     return queryset.none()
 
 
@@ -33,4 +36,5 @@ def can_read_sis_students(user):
         or getattr(user, "teacher", None)
         or (getattr(user, "is_parent", False) and getattr(user, "parent", None))
         or getattr(user, "is_student", False)
+        or getattr(user, "is_accountant", False)
     )

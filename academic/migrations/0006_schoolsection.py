@@ -4,19 +4,25 @@ from django.db import migrations, models
 
 
 def create_school_section_table(apps, schema_editor):
+    # SeparateDatabaseAndState runs database operations against the state from
+    # the previous migration, where SchoolSection does not exist yet.
+    from academic.models import SchoolSection
+
     table_name = "academic_schoolsection"
     with schema_editor.connection.cursor() as cursor:
         existing_tables = schema_editor.connection.introspection.table_names(cursor)
     if table_name not in existing_tables:
-        schema_editor.create_model(apps.get_model("academic", "SchoolSection"))
+        schema_editor.create_model(SchoolSection)
 
 
 def drop_school_section_table(apps, schema_editor):
+    from academic.models import SchoolSection
+
     table_name = "academic_schoolsection"
     with schema_editor.connection.cursor() as cursor:
         existing_tables = schema_editor.connection.introspection.table_names(cursor)
     if table_name in existing_tables:
-        schema_editor.delete_model(apps.get_model("academic", "SchoolSection"))
+        schema_editor.delete_model(SchoolSection)
 
 
 class Migration(migrations.Migration):
