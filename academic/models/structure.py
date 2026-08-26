@@ -217,10 +217,9 @@ class ClassRoom(models.Model):
 
     @property
     def display_name(self):
-        grade = str(self.grade_level)
         if self.stream:
-            return f"{grade} - {self.stream.name} - {self.name}"
-        return f"{grade} - {self.name}"
+            return f"{self.stream.name} - {self.name}"
+        return f"{self.name}"
 
     @property
     def name_display(self):

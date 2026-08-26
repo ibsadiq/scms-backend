@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django import forms
+from django.utils import timezone
 from users.models import CustomUser
 
 from .models import *
@@ -128,8 +129,15 @@ admin.site.register(Subject)
 admin.site.register(ClassYear)
 admin.site.register(AllocatedSubject)
 # StudentClassEnrollment registered below with custom admin (Phase 2.2)
+admin.site.register(Curriculum)
+admin.site.register(CurriculumSource)
+admin.site.register(CurriculumImportBatch)
+admin.site.register(CurriculumSubject)
 admin.site.register(Topic)
+admin.site.register(CurriculumTopic)
+admin.site.register(CurriculumGuidance)
 admin.site.register(SubTopic)
+admin.site.register(LearningObjective)
 admin.site.register(Dormitory)
 admin.site.register(DormitoryAllocation)
 admin.site.register(MessageToParent)

@@ -35,6 +35,10 @@ from .staff import (
 
 from .curriculum import (
     Curriculum,
+    CurriculumSource,
+    CurriculumImportBatch,
+    SourceType,
+    ImportBatchStatus,
     CurriculumSubject,
     Topic,
     CurriculumTopic,
@@ -123,6 +127,10 @@ __all__ = [
     "AdmissionApplicationNumberSequence",
     # Curriculum
     "Curriculum",
+    "CurriculumSource",
+    "CurriculumImportBatch",
+    "SourceType",
+    "ImportBatchStatus",
     "CurriculumSubject",
     "Topic",
     "CurriculumTopic",

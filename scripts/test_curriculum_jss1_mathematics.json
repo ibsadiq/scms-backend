@@ -1,0 +1,155 @@
+{
+  "curriculum": {
+    "name": "Nigerian Basic Education Curriculum",
+    "version": "2024",
+    "authority_type": "NERDC"
+  },
+  "source": {
+    "title": "National Curriculum for Junior Secondary Schools: Mathematics",
+    "authority": "NERDC",
+    "publication_year": 2024,
+    "version": "2024",
+    "original_filename": "NERDC_JSS_Mathematics_2024.pdf",
+    "source_type": "PDF",
+    "source_reference": "ISBN 978-978-900-123-4",
+    "checksum_sha256": "a8f5c38b2d1947b198302f32145b23d918304910382910394857102938475610"
+  },
+  "grades": [
+    {
+      "grade": "JSS_1",
+      "subjects": [
+        {
+          "subject": "Mathematics",
+          "topics": [
+            {
+              "name": "Number Bases",
+              "order": 1,
+              "theme": "Number and Numeration",
+              "content_summary": "Introduction to base ten and base two systems and conversions.",
+              "_source": {
+                "page_start": 10,
+                "page_end": 12,
+                "reference": "Section 1.1, Module A"
+              },
+              "subtopics": [
+                "Decimal Number Base (Base 10)",
+                "Binary Number Base (Base 2)"
+              ],
+              "learning_objectives": [
+                {
+                  "order": 1,
+                  "description": "Identify place values in base ten numbers.",
+                  "subtopic": "Decimal Number Base (Base 10)",
+                  "_source": {
+                    "page": 10,
+                    "reference": "Obj 1.1.1"
+                  }
+                },
+                {
+                  "order": 2,
+                  "description": "Convert base two numbers to base ten numbers.",
+                  "subtopic": "Binary Number Base (Base 2)",
+                  "_source": {
+                    "page": 11,
+                    "reference": "Obj 1.1.2"
+                  }
+                }
+              ],
+              "guidance": {
+                "teacher_activities": "Demonstrate counting and bundling in groups of two and ten.",
+                "learner_activities": "Group counters into bundles of two and record quantities.",
+                "teaching_learning_materials": "Counting sticks, abacus, number charts.",
+                "evaluation_guide": "Ask learners to convert binary 1101 to base ten.",
+                "notes": "Synthetic test data for JSS 1 Mathematics curriculum import."
+              }
+            },
+            {
+              "name": "Basic Operations with Fractions",
+              "order": 2,
+              "theme": "Number and Numeration",
+              "content_summary": "Arithmetic operations on proper, improper, and mixed fractions.",
+              "_source": {
+                "page_start": 13,
+                "page_end": 15,
+                "reference": "Section 1.2, Module B"
+              },
+              "subtopics": [
+                "Addition and Subtraction of Fractions",
+                "Multiplication and Division of Fractions"
+              ],
+              "learning_objectives": [
+                {
+                  "order": 1,
+                  "description": "Add and subtract fractions with like and unlike denominators.",
+                  "subtopic": "Addition and Subtraction of Fractions",
+                  "_source": {
+                    "page": 13,
+                    "reference": "Obj 1.2.1"
+                  }
+                },
+                {
+                  "order": 2,
+                  "description": "Multiply proper fractions and divide fractions using reciprocals.",
+                  "subtopic": "Multiplication and Division of Fractions",
+                  "_source": {
+                    "page": 14,
+                    "reference": "Obj 1.2.2"
+                  }
+                }
+              ],
+              "guidance": {
+                "teacher_activities": "Use visual circular fraction cutouts to illustrate addition.",
+                "learner_activities": "Combine shaded regions of circular discs.",
+                "teaching_learning_materials": "Fraction discs, paper strips, worksheets.",
+                "evaluation_guide": "Evaluate student calculations of 3/4 + 1/2 and 2/3 divided by 4/5.",
+                "notes": "Synthetic test data for JSS 1 Mathematics curriculum import."
+              }
+            },
+            {
+              "name": "Simple Algebraic Expressions",
+              "order": 3,
+              "theme": "Basic Algebra",
+              "content_summary": "Introduction to algebraic symbols, terms, variables, and simplification.",
+              "_source": {
+                "page_start": 16,
+                "page_end": 18,
+                "reference": "Section 2.1, Module C"
+              },
+              "subtopics": [
+                "Variables and Constants",
+                "Simplification of Like Terms"
+              ],
+              "learning_objectives": [
+                {
+                  "order": 1,
+                  "description": "Distinguish between algebraic variables, coefficients, and constants.",
+                  "subtopic": "Variables and Constants",
+                  "_source": {
+                    "page": 16,
+                    "reference": "Obj 2.1.1"
+                  }
+                },
+                {
+                  "order": 2,
+                  "description": "Collect and combine like terms in linear expressions.",
+                  "subtopic": "Simplification of Like Terms",
+                  "_source": {
+                    "page": 17,
+                    "reference": "Obj 2.1.2"
+                  }
+                }
+              ],
+              "guidance": {
+                "teacher_activities": "Present word problems using boxes or letters to represent unknown quantities.",
+                "learner_activities": "Translate simple word statements into algebraic notation.",
+                "teaching_learning_materials": "Algebra tiles, flash cards.",
+                "evaluation_guide": "Ask learners to simplify 4x + 3y - 2x + 5y.",
+                "notes": "Synthetic test data for JSS 1 Mathematics curriculum import."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
