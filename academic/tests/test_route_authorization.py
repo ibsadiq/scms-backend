@@ -37,7 +37,7 @@ class StructuralRouteAuthorizationTests(SimpleTestCase):
 
     def test_curriculum_hierarchy_routes_define_their_supported_filters(self):
         expected_filters = {
-            CurriculumSubjectViewSet: ["curriculum"],
+            CurriculumSubjectViewSet: ["curriculum", "grade_level"],
             CurriculumTopicViewSet: ["curriculum_subject"],
             TopicViewSet: ["grade_level", "subject"],
             SubTopicViewSet: ["topic"],

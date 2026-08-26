@@ -1,6 +1,8 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from academic.models import GradeLevel
 from academic.models.curriculum import (
     Curriculum,
     CurriculumSubject,
@@ -17,18 +19,29 @@ from academic.serializers.curriculum import (
     SubTopicSerializer,
     LearningObjectiveSerializer,
 )
+from academic.serializers import GradeLevelSerializer
 
 class CurriculumViewSet(viewsets.ModelViewSet):
     queryset = Curriculum.objects.all()
     serializer_class = CurriculumSerializer
     permission_classes = [IsAuthenticated]
 
+    @action(detail=True, methods=["get"], url_path="classes")
+    def classes(self, request, pk=None):
+        curriculum = self.get_object()
+        queryset = GradeLevel.objects.filter(
+            curriculum_subjects__curriculum=curriculum
+        ).distinct()
+        page = self.paginate_queryset(queryset)
+        serializer = GradeLevelSerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
 class CurriculumSubjectViewSet(viewsets.ModelViewSet):
     queryset = CurriculumSubject.objects.select_related("subject", "grade_level")
     serializer_class = CurriculumSubjectSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["curriculum"]
+    filterset_fields = ["curriculum", "grade_level"]
 
 class CurriculumTopicViewSet(viewsets.ModelViewSet):
     queryset = CurriculumTopic.objects.select_related("topic", "guidance").prefetch_related(
