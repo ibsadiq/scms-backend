@@ -20,11 +20,14 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from drf_spectacular.utils import extend_schema
 from django.utils import timezone
 from django.db.models import Sum, Count
+from django.db import transaction
+
 
 
 
 
 from academic.models import StudentClassEnrollment, Teacher, Subject, Parent, AllocatedSubject
+from academic.permissions import IsSchoolAdmin
 from examination.models import AssessmentSession, AssessmentEntry
 from schedule.models import PeriodSlot, TimetableEntry
 from .models import CustomUser, CustomUser as User, UserInvitation
@@ -242,6 +245,9 @@ class TeacherFilter(FilterSet):
     first_name = CharFilter(field_name="user__first_name", lookup_expr="icontains")
     middle_name = CharFilter(field_name="user__middle_name", lookup_expr="icontains")
     last_name = CharFilter(field_name="user__last_name", lookup_expr="icontains")
+    designation = CharFilter(field_name="staff__designation", lookup_expr="icontains")
+    academic_qualification = CharFilter(field_name="staff__academic_qualification", lookup_expr="icontains")
+    state = CharFilter(field_name="staff__state", lookup_expr="icontains")
 
     class Meta:
         model = Teacher
@@ -249,6 +255,9 @@ class TeacherFilter(FilterSet):
             "first_name",
             "middle_name",
             "last_name",
+            "designation",
+            "academic_qualification",
+            "state",
         ]
 
 
@@ -327,98 +336,6 @@ class UserDetailView(views.APIView):
         user = self.get_object(pk)
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-# class AccountantListView(APIView):
-#     """
-#     API View for handling single and listing accountants.
-#     """
-
-#     def get(self, request, format=None):
-#         accountants = Accountant.objects.all()
-#         serializer = AccountantSerializer(accountants, many=True)
-#         return Response(serializer.data, status=status.HTTP_200_OK)
-
-#     def post(self, request, format=None):
-#         email = request.data.get("email")
-#         if email:
-#             existing_user = User.objects.filter(email=email).first()
-#             if existing_user:
-#                 if Accountant.objects.filter(user=existing_user).exists():
-#                     return Response(
-#                         {"error": "Accountant with this email already exists."},
-#                         status=status.HTTP_400_BAD_REQUEST,
-#                     )
-#                 try:
-#                     accountant = Accountant()
-#                     model_fields = [f.name for f in Accountant._meta.get_fields()]
-#                     for key, value in request.data.items():
-#                         if key in model_fields and key != "user":
-#                             setattr(accountant, key, value)
-#                     accountant.user = existing_user
-#                     accountant.email = existing_user.email
-#                     accountant.save()
-
-#                     if hasattr(existing_user, "is_accountant"):
-#                         existing_user.is_accountant = True
-#                         existing_user.save()
-
-#                     group, _ = Group.objects.get_or_create(name="accountant")
-#                     existing_user.groups.add(group)
-
-#                     return Response(
-#                         AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED
-#                     )
-#                 except Exception as e:
-#                     return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-#         serializer = AccountantSerializer(data=request.data)
-#         if serializer.is_valid():
-#             accountant = serializer.save()
-#             return Response(
-#                 AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED
-#             )
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# class AccountantDetailView(views.APIView):
-#     permission_classes = [IsAuthenticated]
-
-#     def get_object(self, pk):
-#         return get_object_or_404(Accountant, pk=pk)
-
-#     def get(self, request, pk, format=None):
-#         accountant = self.get_object(pk)
-#         serializer = AccountantSerializer(accountant)
-#         return Response(serializer.data)
-
-#     def put(self, request, pk, format=None):
-#         accountant = self.get_object(pk)
-#         serializer = AccountantSerializer(accountant, data=request.data)
-#         if serializer.is_valid():
-#             updated_accountant = serializer.save()
-
-#             # Update the linked CustomUser when accountant details change
-#             email = updated_accountant.email
-#             first_name = updated_accountant.first_name
-#             last_name = updated_accountant.last_name
-
-#             try:
-#                 user = User.objects.get(email=accountant.email)
-#                 user.email = email
-#                 user.first_name = first_name
-#                 user.last_name = last_name
-#                 user.save()
-#             except User.DoesNotExist:
-#                 pass  # If user does not exist, no update is needed
-
-#             return Response(serializer.data)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#     def delete(self, request, pk, format=None):
-#         accountant = self.get_object(pk)
-#         accountant.delete()
-#         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ParentListView(generics.ListCreateAPIView):
@@ -539,42 +456,18 @@ class TeacherListView(generics.ListCreateAPIView):
     serializer_class = TeacherSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = TeacherFilter
-    search_fields = ['user__first_name', 'user__last_name', 'user__middle_name', 'empId', 'user__email']
+    search_fields = [
+        'user__first_name',
+        'user__last_name',
+        'user__middle_name',
+        'empId',
+        'user__email',
+        'staff__designation',
+        'staff__academic_qualification',
+        'staff__state',
+    ]
 
     def create(self, request, *args, **kwargs):
-        email = request.data.get("email")
-        if email:
-            existing_user = User.objects.filter(email=email).first()
-            if existing_user:
-                if Teacher.objects.filter(user=existing_user).exists():
-                    return Response(
-                        {"error": "Teacher with this email already exists."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                try:
-                    teacher = Teacher()
-                    model_fields = [f.name for f in Teacher._meta.get_fields()]
-                    for key, value in request.data.items():
-                        if key in model_fields and key not in ["user", "subject_specialization", "id"]:
-                            setattr(teacher, key, value)
-                    teacher.user = existing_user
-                    teacher.save()
-
-                    if "subject_specialization" in request.data:
-                        teacher.subject_specialization.set(request.data["subject_specialization"])
-
-                    existing_user.is_teacher = True
-                    existing_user.save()
-
-                    group, _ = Group.objects.get_or_create(name="teacher")
-                    existing_user.groups.add(group)
-
-                    return Response(
-                        self.get_serializer(teacher).data, status=status.HTTP_201_CREATED
-                    )
-                except Exception as e:
-                    return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         teacher = serializer.save()
@@ -592,16 +485,15 @@ class TeacherDetailView(views.APIView):
 
     def get(self, request, pk, format=None):
         teacher = self.get_object(pk)
-        serializer = TeacherSerializer(teacher)
+        serializer = TeacherSerializer(teacher, context={"request": request})
         return Response(serializer.data)
 
     def put(self, request, pk, format=None):
         teacher = self.get_object(pk)
-        serializer = TeacherSerializer(teacher, data=request.data)
+        serializer = TeacherSerializer(teacher, data=request.data, context={"request": request})
         if serializer.is_valid():
             updated_teacher = serializer.save()
 
-            # Update the linked CustomUser when teacher details change
             email = updated_teacher.email
             first_name = updated_teacher.first_name
             last_name = updated_teacher.last_name
@@ -613,18 +505,17 @@ class TeacherDetailView(views.APIView):
                 user.last_name = last_name
                 user.save()
             except User.DoesNotExist:
-                pass  # If user does not exist, no update is needed
+                pass
 
-            return Response(serializer.data)
+            return Response(TeacherSerializer(updated_teacher, context={"request": request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def patch(self, request, pk, format=None):
         teacher = self.get_object(pk)
-        serializer = TeacherSerializer(teacher, data=request.data, partial=True)
+        serializer = TeacherSerializer(teacher, data=request.data, partial=True, context={"request": request})
         if serializer.is_valid():
             updated_teacher = serializer.save()
 
-            # Update the linked CustomUser when teacher details change
             if 'email' in request.data or 'first_name' in request.data or 'last_name' in request.data:
                 try:
                     user = User.objects.get(email=teacher.email)
@@ -636,9 +527,9 @@ class TeacherDetailView(views.APIView):
                         user.last_name = updated_teacher.last_name
                     user.save()
                 except User.DoesNotExist:
-                    pass  # If user does not exist, no update is needed
+                    pass
 
-            return Response(serializer.data)
+            return Response(TeacherSerializer(updated_teacher, context={"request": request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk, format=None):
@@ -649,16 +540,22 @@ class TeacherDetailView(views.APIView):
 
 class BulkUploadTeachersView(APIView):
     """
-    API View to handle bulk uploading of teachers from an Excel file.
+    API View to handle bulk uploading of teachers from an Excel file with Staff integration.
     """
 
     parser_classes = (MultiPartParser, FormParser)
+    permission_classes = [IsSchoolAdmin]
 
     @extend_schema(
         request=BulkTeacherUploadRequestSerializer,
         responses={201: BulkTeacherUploadResponseSerializer},
     )
     def post(self, request, *args, **kwargs):
+        from decimal import Decimal, InvalidOperation
+        from datetime import datetime, date
+        from django.utils import timezone
+        from academic.models import Staff
+
         file = request.FILES.get("file")
         if not file:
             return Response(
@@ -666,117 +563,210 @@ class BulkUploadTeachersView(APIView):
             )
 
         try:
-            # Load the Excel file
             workbook = openpyxl.load_workbook(file)
-            sheet = workbook.active  # Assuming data is in the first sheet
+            sheet = workbook.active
 
-            # Expected columns in the Excel file
-            columns = [
-                "first_name",
-                "middle_name",
-                "last_name",
-                "phone_number",
-                "employment_id",
-                "short_name",
-                "subject_specialization",  # Should match subject names as a comma-separated string
-                "address",
-                "gender",
-                "date_of_birth",
-                "salary",
-            ]
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows or len(rows) < 2:
+                return Response(
+                    {"message": "0 teachers successfully uploaded.", "not_created": []},
+                    status=status.HTTP_201_CREATED,
+                )
+
+            # Check if row 0 contains header names
+            first_row = [str(c).strip().lower().replace(" ", "_") if c is not None else "" for c in rows[0]]
+            is_named_header = any(h in first_row for h in ["first_name", "email", "phone_number", "emp_id", "employment_id"])
+
+            if is_named_header:
+                header_map = {name: idx for idx, name in enumerate(first_row) if name}
+                data_rows = rows[1:]
+            else:
+                default_cols = [
+                    "first_name",
+                    "middle_name",
+                    "last_name",
+                    "phone_number",
+                    "employment_id",
+                    "short_name",
+                    "subject_specialization",
+                    "address",
+                    "gender",
+                    "date_of_birth",
+                    "salary",
+                    "academic_qualification",
+                    "state",
+                    "designation",
+                ]
+                header_map = {col: idx for idx, col in enumerate(default_cols)}
+                data_rows = rows[1:]
 
             teachers_to_create = []
             not_created = []
 
-            for i, row in enumerate(
-                sheet.iter_rows(min_row=2, values_only=True), start=2
-            ):
-                # Map row data to the expected columns
-                teacher_data = dict(zip(columns, row))
+            for row_idx, row in enumerate(data_rows, start=2):
+                if not any(row):
+                    continue
+
+                def get_val(key, default=""):
+                    idx = header_map.get(key)
+                    if idx is not None and idx < len(row) and row[idx] is not None:
+                        return str(row[idx]).strip()
+                    return default
+
+                def get_raw(key, default=None):
+                    idx = header_map.get(key)
+                    if idx is not None and idx < len(row) and row[idx] is not None:
+                        return row[idx]
+                    return default
+
+                teacher_data = {
+                    "first_name": get_val("first_name"),
+                    "middle_name": get_val("middle_name"),
+                    "last_name": get_val("last_name"),
+                    "email": get_val("email"),
+                    "phone_number": get_val("phone_number"),
+                    "employment_id": get_val("employment_id") or get_val("empid"),
+                    "short_name": get_val("short_name"),
+                    "subject_specialization": get_val("subject_specialization"),
+                    "address": get_val("address"),
+                    "gender": get_val("gender"),
+                    "date_of_birth": get_raw("date_of_birth"),
+                    "academic_qualification": get_val("academic_qualification"),
+                    "state": get_val("state"),
+                    "designation": get_val("designation") or "Teacher",
+                    "salary": get_raw("salary"),
+                }
 
                 try:
-                    # Generate email based on first_name and last_name
-                    generated_email = (
+                    if not teacher_data["first_name"] or not teacher_data["last_name"]:
+                        raise ValueError("First name and Last name are required.")
+
+                    # Determine email
+                    generated_email = teacher_data["email"] or (
                         f"{teacher_data['first_name'].lower()}."
-                        f"{teacher_data['last_name'].lower()}@hayatul.com"
+                        f"{teacher_data['last_name'].lower()}{get_random_string(3).lower()}@ssyncportal.local"
                     )
                     teacher_data["email"] = generated_email
 
-                    # Check for duplicate email
                     if Teacher.objects.filter(user__email=generated_email).exists():
                         raise ValueError(f"Email '{generated_email}' already exists.")
 
-                    # Check for duplicate phone number
-                    if Teacher.objects.filter(
+                    if teacher_data["phone_number"] and Teacher.objects.filter(
                         user__phone_number=teacher_data["phone_number"]
                     ).exists():
                         raise ValueError(
                             f"Phone number '{teacher_data['phone_number']}' already exists."
                         )
 
-                    # Validate subject specialization
+                    # Parse date of birth
+                    dob = None
+                    raw_dob = teacher_data["date_of_birth"]
+                    if raw_dob:
+                        if isinstance(raw_dob, (datetime, date)):
+                            dob = raw_dob.date() if isinstance(raw_dob, datetime) else raw_dob
+                        else:
+                            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
+                                try:
+                                    dob = datetime.strptime(str(raw_dob), fmt).date()
+                                    break
+                                except ValueError:
+                                    pass
+                            if not dob:
+                                raise ValueError(f"Invalid date of birth format '{raw_dob}'. Use YYYY-MM-DD.")
+                        if dob and dob > timezone.now().date():
+                            raise ValueError("Date of birth cannot be in the future.")
+
+                    # Parse salary
+                    salary_dec = None
+                    raw_salary = teacher_data["salary"]
+                    if raw_salary:
+                        try:
+                            clean_sal = str(raw_salary).replace(",", "").replace("$", "").replace("₦", "").strip()
+                            salary_dec = Decimal(clean_sal)
+                            if salary_dec < 0:
+                                raise ValueError("Salary cannot be negative.")
+                        except (InvalidOperation, ValueError) as err:
+                            raise ValueError(f"Invalid salary amount '{raw_salary}': {err}")
+
+                    # Validate subjects
                     subjects = []
                     subject_names = (
-                        teacher_data["subject_specialization"].lower().split(",")
-                        if teacher_data["subject_specialization"].lower()
+                        teacher_data["subject_specialization"].split(",")
+                        if teacher_data["subject_specialization"]
                         else []
                     )
                     for subject_name in subject_names:
-                        try:
-                            subject = Subject.objects.get(name=subject_name.strip())
-                            subjects.append(subject)
-                        except Subject.DoesNotExist:
-                            raise ValueError(
-                                f"Subject '{subject_name.strip()}' does not exist."
-                            )
+                        clean_name = subject_name.strip()
+                        if clean_name:
+                            try:
+                                subject = Subject.objects.get(name__iexact=clean_name)
+                                subjects.append(subject)
+                            except Subject.DoesNotExist:
+                                raise ValueError(
+                                    f"Subject '{clean_name}' does not exist."
+                                )
 
-                    # Create Teacher object
-                    teacher = Teacher(
-                        first_name=teacher_data["first_name"].lower(),
-                        middle_name=teacher_data["middle_name"].lower(),
-                        last_name=teacher_data["last_name"].lower(),
-                        email=generated_email,
-                        short_name=teacher_data["short_name"].upper(),
-                        phone_number=teacher_data["phone_number"],
-                        empId=teacher_data["employment_id"],
-                        address=teacher_data["address"].lower(),
-                        gender=teacher_data["gender"],
-                        date_of_birth=teacher_data["date_of_birth"],
-                        salary=teacher_data["salary"],
-                    )
-                    teacher.save()
+                    with transaction.atomic():
+                        emp_id_val = teacher_data["employment_id"] or None
+                        short_name_val = teacher_data["short_name"][:3].upper() if teacher_data["short_name"] else None
 
-                    # Assign subjects
-                    if subjects:
-                        teacher.subject_specialization.set(subjects)
+                        user, created = CustomUser.objects.get_or_create(
+                            email=generated_email,
+                            defaults={
+                                "first_name": teacher_data["first_name"],
+                                "middle_name": teacher_data["middle_name"],
+                                "last_name": teacher_data["last_name"],
+                                "phone_number": teacher_data["phone_number"] or None,
+                                "is_teacher": True,
+                            },
+                        )
+                        if created:
+                            default_password = f"Complex.{emp_id_val[-4:] if emp_id_val and len(emp_id_val) >= 4 else '0000'}"
+                            user.set_password(default_password)
+                            user.save()
+                            group, _ = Group.objects.get_or_create(name="teacher")
+                            user.groups.add(group)
 
-                    # Create corresponding user
-                    if not teacher.username:
-                        teacher.username = f"{teacher.first_name.lower()}{teacher.last_name.lower()}{get_random_string(4)}"
-                    teacher.save()
+                        staff, staff_created = Staff.objects.get_or_create(
+                            user=user,
+                            defaults={
+                                "role": Staff.Role.TEACHER,
+                                "designation": teacher_data["designation"],
+                                "academic_qualification": teacher_data["academic_qualification"],
+                                "state": teacher_data["state"],
+                                "address": teacher_data["address"],
+                                "date_of_birth": dob,
+                                "salary": salary_dec,
+                                "is_active": True,
+                            }
+                        )
+                        if not staff_created:
+                            staff.role = Staff.Role.TEACHER
+                            staff.designation = teacher_data["designation"]
+                            staff.academic_qualification = teacher_data["academic_qualification"]
+                            staff.state = teacher_data["state"]
+                            staff.address = teacher_data["address"]
+                            staff.date_of_birth = dob
+                            staff.salary = salary_dec
+                            staff.is_active = True
+                            staff.save()
 
-                    user, created = User.objects.get_or_create(
-                        email=teacher.email,
-                        defaults={
-                            "first_name": teacher.first_name,
-                            "last_name": teacher.last_name,
-                            "is_teacher": True,
-                        },
-                    )
-                    if created:
-                        default_password = f"Complex.{teacher.empId[-4:] if teacher.empId and len(teacher.empId) >= 4 else '0000'}"
-                        user.set_password(default_password)
-                        user.save()
+                        teacher = Teacher(
+                            user=user,
+                            staff=staff,
+                            empId=emp_id_val,
+                            short_name=short_name_val,
+                        )
+                        teacher.save()
 
-                        # Add to "teacher" group
-                        group, _ = Group.objects.get_or_create(name="teacher")
-                        user.groups.add(group)
+                        if subjects:
+                            teacher.subject_specialization.set(subjects)
 
-                    teachers_to_create.append(teacher)
+                        teachers_to_create.append(teacher)
 
                 except Exception as e:
-                    # Add row data and error message to the not_created list
                     teacher_data["error"] = str(e)
+                    teacher_data["row"] = row_idx
                     not_created.append(teacher_data)
 
             return Response(
@@ -957,7 +947,7 @@ class TeacherDashboardView(APIView):
         homeroom_students_qs = Student.objects.filter(
             classroom__class_teacher=teacher,
             is_active=True
-        ).select_related('classroom', 'classroom__name', 'parent_guardian', 'parent_guardian__user')
+        ).select_related('classroom', 'classroom__grade_level', 'parent_guardian', 'parent_guardian__user')
         
         homeroom_students = []
         for student in homeroom_students_qs:
@@ -1061,7 +1051,7 @@ class ParentDashboardView(APIView):
                     avg_pct = (sum(pcts) / len(pcts)) if pcts else 78.5
                     
                     # Match GradeRule from school GradingScheme
-                    gl = student.classroom.name.grade_level if (student.classroom and hasattr(student.classroom, 'name') and hasattr(student.classroom.name, 'grade_level')) else None
+                    gl = student.classroom.grade_level if student.classroom else None
                     scheme = GradingScheme.objects.filter(grade_level=gl).first() if gl else GradingScheme.objects.first()
                     rule = GradeRule.objects.filter(scheme=scheme, min_score__lte=avg_pct, max_score__gte=avg_pct).first() if scheme else None
                     
@@ -1130,12 +1120,10 @@ class ParentDashboardView(APIView):
                     "last_name": t.last_name or (t_user.last_name if t_user else '')
                 }
 
-            # Class name resolution (classroom > class_level > N/A)
+            # Class name resolution from the canonical classroom relationship.
             class_name = 'N/A'
             if student.classroom:
-                class_name = str(student.classroom.name) if hasattr(student.classroom, 'name') and student.classroom.name else str(student.classroom)
-            elif student.class_level:
-                class_name = student.class_level.name if hasattr(student.class_level, 'name') and student.class_level.name else str(student.class_level)
+                class_name = str(student.classroom)
 
             children_data.append({
                 "id": student.id,
@@ -1254,9 +1242,7 @@ class ParentChildrenView(APIView):
         for student in parent.children.all():
             class_name = 'N/A'
             if student.classroom:
-                class_name = str(student.classroom.name) if hasattr(student.classroom, 'name') and student.classroom.name else str(student.classroom)
-            elif student.class_level:
-                class_name = student.class_level.name if hasattr(student.class_level, 'name') and student.class_level.name else str(student.class_level)
+                class_name = str(student.classroom)
 
             children_data.append({
                 "id": student.id,
@@ -1444,14 +1430,14 @@ class AccountantListView(APIView):
                 Q(last_name__icontains=search) |
                 Q(email__icontains=search)
             )
-        serializer = AccountantSerializer(qs, many=True)
+        serializer = AccountantSerializer(qs, many=True, context={'request': request})
         return Response(serializer.data)
 
     def post(self, request):
         serializer = AccountantSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             accountant = serializer.save()
-            return Response(AccountantSerializer(accountant).data, status=status.HTTP_201_CREATED)
+            return Response(AccountantSerializer(accountant, context={'request': request}).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -1467,7 +1453,7 @@ class AccountantDetailView(APIView):
         serializer = AccountantSerializer(accountant, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             updated = serializer.save()
-            return Response(AccountantSerializer(updated).data)
+            return Response(AccountantSerializer(updated, context={'request': request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):

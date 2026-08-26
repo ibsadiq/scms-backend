@@ -107,7 +107,7 @@ class GradingScheme(models.Model):
         if self.classroom:
             if (
                 self.grade_level and
-                self.classroom.name.grade_level != self.grade_level
+                self.classroom.grade_level != self.grade_level
             ):
                 raise ValidationError(
                     "Classroom grade level mismatch."

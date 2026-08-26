@@ -246,7 +246,7 @@ class LessonPlan(models.Model):
             if curriculum_subject.subject_id != self.allocation.subject_id:
                 errors["allocation"] = "Allocated subject must match the scheme of work subject."
 
-            allocation_grade = self.allocation.class_room.name.grade_level
+            allocation_grade = self.allocation.class_room.grade_level
             if curriculum_subject.grade_level_id != allocation_grade.id:
                 errors["allocation"] = "Allocated classroom grade level must match the scheme of work grade level."
 

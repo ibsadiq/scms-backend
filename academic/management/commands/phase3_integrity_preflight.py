@@ -72,20 +72,15 @@ class Command(BaseCommand):
         conflicts = []
         enrollments = StudentClassEnrollment.objects.filter(
             is_active=True, academic_year__active_year=True
-        ).select_related("student", "classroom__name").order_by("student_id", "academic_year_id")
+        ).select_related("student", "classroom__grade_level").order_by("student_id", "academic_year_id")
         for enrollment in enrollments:
             student = enrollment.student
-            if (
-                student.classroom_id != enrollment.classroom_id
-                or student.class_level_id != enrollment.classroom.name_id
-            ):
+            if student.classroom_id != enrollment.classroom_id:
                 conflicts.append({
                     "enrollment_id": enrollment.pk,
                     "student_id": enrollment.student_id,
                     "enrollment_classroom_id": enrollment.classroom_id,
                     "student_classroom_id": student.classroom_id,
-                    "expected_class_level_id": enrollment.classroom.name_id,
-                    "student_class_level_id": student.class_level_id,
                 })
         multiple = list(
             StudentClassEnrollment.objects.filter(
@@ -94,9 +89,9 @@ class Command(BaseCommand):
             .filter(row_count__gt=1).order_by("student_id")
         )
         orphan_snapshots = list(
-            Student.objects.filter(Q(classroom__isnull=False) | Q(class_level__isnull=False))
+            Student.objects.filter(classroom__isnull=False)
             .exclude(student_classes__is_active=True, student_classes__academic_year__active_year=True)
-            .order_by("pk").values("id", "classroom_id", "class_level_id")
+            .order_by("pk").values("id", "classroom_id")
         )
         self.stdout.write(f"  enrollment snapshot divergence: {len(conflicts)} conflict(s)")
         for row in conflicts:

@@ -265,5 +265,5 @@ class ResultAuditLogSerializer(serializers.ModelSerializer):
 
     def get_classroom_name(self, obj):
         if obj.term_result and obj.term_result.classroom:
-            return getattr(obj.term_result.classroom, 'name_display', None) or (obj.term_result.classroom.name.name if obj.term_result.classroom.name else str(obj.term_result.classroom))
+            return str(obj.term_result.classroom)
         return None

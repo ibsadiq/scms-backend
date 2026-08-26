@@ -90,7 +90,6 @@ class EnrollmentService:
             if row.get("is_active", True) and row["academic_year"].active_year:
                 student = students[row["student"].pk]
                 student.classroom = row["classroom"]
-                student.class_level = row["classroom"].name
                 changed_students.append(student)
-        Student.objects.bulk_update(changed_students, ("classroom", "class_level"))
+        Student.objects.bulk_update(changed_students, ("classroom",))
         return enrollments

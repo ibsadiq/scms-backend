@@ -29,6 +29,16 @@ class Staff(models.Model):
     staff_id = models.CharField(max_length=50, unique=True, db_index=True, editable=False)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.OTHER)
     designation = models.CharField(max_length=255, blank=True)
+    academic_qualification = models.CharField(max_length=255, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    address = models.CharField(max_length=255, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    salary = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     department = models.ForeignKey(
         Department,
         on_delete=models.SET_NULL,
@@ -45,7 +55,15 @@ class Staff(models.Model):
         ordering = ("staff_id",)
         indexes = [models.Index(fields=["role", "is_active"])]
 
+    def clean(self):
+        super().clean()
+        if self.date_of_birth and self.date_of_birth > timezone.now().date():
+            raise ValidationError({"date_of_birth": "Date of birth cannot be in the future."})
+        if self.salary is not None and self.salary < 0:
+            raise ValidationError({"salary": "Salary cannot be negative."})
+
     def save(self, *args, **kwargs):
+        self.full_clean()
         if not self.staff_id:
             for _ in range(20):
                 candidate = f"STF-{get_random_string(8, allowed_chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789')}"
@@ -118,9 +136,7 @@ class Teacher(models.Model):
     short_name = models.CharField(max_length=3, blank=True, null=True, unique=True)
     subject_specialization = models.ManyToManyField(Subject, blank=True)
     national_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
-    address = models.CharField(max_length=255, blank=True)
     alt_email = models.EmailField(blank=True, null=True)
-    designation = models.CharField(max_length=255, blank=True, null=True)
     image = models.ImageField(upload_to="Employee_images", blank=True, null=True)
     inactive = models.BooleanField(default=False)
 
@@ -157,7 +173,21 @@ class Teacher(models.Model):
 
     @property
     def date_of_birth(self):
+        if self.staff and self.staff.date_of_birth:
+            return self.staff.date_of_birth
         return getattr(self.user, "date_of_birth", None) if self.user else None
+
+    @property
+    def academic_qualification(self):
+        return self.staff.academic_qualification if self.staff else ""
+
+    @property
+    def state(self):
+        return self.staff.state if self.staff else ""
+
+    @property
+    def salary(self):
+        return self.staff.salary if self.staff else None
 
     @property
     def deleted(self):
@@ -184,13 +214,13 @@ class Teacher(models.Model):
 
         super().save(*args, **kwargs)
 
-        if not self.staff_id:
+        if not self.staff:
             staff, _ = Staff.objects.get_or_create(
                 user=self.user,
                 defaults={
                     "staff_id": self.teacher_id,
                     "role": Staff.Role.TEACHER,
-                    "designation": self.designation or "Teacher",
+                    "designation": "Teacher",
                     "image": self.image,
                     "is_active": not self.inactive,
                 },

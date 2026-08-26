@@ -3,7 +3,7 @@ from rest_framework.test import APIClient
 from school.testcases import TenantTestCase
 
 from academic.models import (
-    AllocatedSubject, ClassLevel, ClassRoom, GradeLevel, Parent, Student,
+    AllocatedSubject, ClassRoom, GradeLevel, Parent, Student,
     Subject, Teacher,
 )
 from administration.models import AcademicYear, Term
@@ -80,10 +80,8 @@ class MessagingTestCase(TenantTestCase):
         grade = GradeLevel.objects.create(
             system_code="JSS_1", section="JSS", default_name="JSS 1", sequence_order=1,
         )
-        own_level = ClassLevel.objects.create(name="Messaging A", grade_level=grade)
-        other_level = ClassLevel.objects.create(name="Messaging B", grade_level=grade)
-        self.own_class = ClassRoom.objects.create(name=own_level, class_teacher=self.teacher)
-        self.other_class = ClassRoom.objects.create(name=other_level, class_teacher=self.other_teacher)
+        self.own_class = ClassRoom.objects.create(name="Messaging A", grade_level=grade, class_teacher=self.teacher)
+        self.other_class = ClassRoom.objects.create(name="Messaging B", grade_level=grade, class_teacher=self.other_teacher)
         subject = Subject.objects.create(name="Messaging Subject", subject_code="MSG")
         AllocatedSubject.objects.create(
             teacher_name=self.teacher, subject=subject, academic_year=self.year,

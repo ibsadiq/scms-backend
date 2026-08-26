@@ -28,7 +28,7 @@ class Command(BaseCommand):
         updated = 0
         for i, classroom in enumerate(classrooms):
             # Only assign streams to Senior Secondary (SS) classes
-            if 'SS' not in classroom.name.name:
+            if 'SS' not in classroom.grade_level.system_code and 'SS' not in str(classroom.grade_level):
                 if classroom.stream:
                     classroom.stream = None
                     classroom.save()
@@ -39,7 +39,7 @@ class Command(BaseCommand):
             classroom.stream = stream
             classroom.save()
             updated += 1
-            self.stdout.write(f'  - {classroom.name} → Stream {stream.name}')
+            self.stdout.write(f'  - {classroom.display_name} → Stream {stream.name}')
 
         self.stdout.write(
             self.style.SUCCESS(f'\nSuccessfully assigned streams to {updated} classrooms!')

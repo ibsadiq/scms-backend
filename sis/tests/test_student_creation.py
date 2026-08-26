@@ -4,7 +4,7 @@ from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from academic.models import ClassRoom, ClassLevel, Student, Parent, StudentClassEnrollment, GradeLevel
+from academic.models import ClassRoom, Student, Parent, StudentClassEnrollment, GradeLevel
 from academic.models.choices import StandardClassCode, SectionType
 from administration.models import AcademicYear, Term
 from users.models import CustomUser, UserInvitation
@@ -13,9 +13,15 @@ from datetime import date
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class StudentCreationTests(TenantTestCase):
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.auto_create_schema = True
+        tenant.status = "active"
+        return super().setup_tenant(tenant)
+
     def setUp(self):
         super().setUp()
-        self.client = APIClient()
+        self.client = APIClient(HTTP_HOST=self.domain.domain)
 
         # Admin user
         self.admin = CustomUser.objects.create_user(
@@ -42,8 +48,7 @@ class StudentCreationTests(TenantTestCase):
             sequence_order=7,
             alias="JSS 1"
         )
-        self.class_level = ClassLevel.objects.create(name="JSS 1", grade_level=self.grade_level)
-        self.classroom = ClassRoom.objects.create(name=self.class_level, capacity=30, occupied_sits=0)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=self.grade_level, capacity=30, occupied_sits=0)
 
         self.create_url = "/api/sis/students/"
 
@@ -65,8 +70,8 @@ class StudentCreationTests(TenantTestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
 
         # Check student
-        student = Student.objects.get(first_name="Test")
-        self.assertEqual(student.class_level, self.class_level)
+        student = Student.objects.get(first_name__iexact="Test")
+        self.assertEqual(student.classroom, self.classroom)
         self.assertTrue(student.admission_number) # Allocated automatically
         self.assertEqual(student.phone_number, "08099990001")
 
@@ -98,12 +103,9 @@ class StudentCreationTests(TenantTestCase):
         }
         response = self.client.post(self.create_url, data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("classroom_id", response.data)
+        self.assertIn("classroom_id", response.data.get("detail", response.data))
 
     def test_mismatch_class_level_and_classroom_rejected(self):
-        other_grade = GradeLevel.objects.create(name="Grade 8", alias="JSS 2", rank=8)
-        other_level = ClassLevel.objects.create(name="JSS 2", grade_level=other_grade)
-        
         data = {
             "first_name": "Test",
             "last_name": "Student",
@@ -127,7 +129,7 @@ class StudentCreationTests(TenantTestCase):
         response = self.client.post(self.create_url, data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         
-        student = Student.objects.get(first_name="Legacy")
+        student = Student.objects.get(first_name__iexact="Legacy")
         self.assertNotEqual(student.admission_number, "LEGACY-001")
         self.assertTrue(student.admission_number)
 

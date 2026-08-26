@@ -5,7 +5,6 @@ from academic.models import (
     ClassYear,
     ClassRoom,
     GradeLevel,
-    ClassLevel,
     Department,
     ReasonLeft,
     Stream,
@@ -23,20 +22,6 @@ class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
         fields = "__all__"
-
-
-class ClassLevelSerializer(serializers.ModelSerializer):
-    grade_level_name = serializers.SerializerMethodField(read_only=True)
-
-    class Meta:
-        model = ClassLevel
-        fields = ["id", "name", "grade_level", "grade_level_name"]
-        read_only_fields = ["id", "grade_level_name"]
-
-    def get_grade_level_name(self, obj):
-        if obj.grade_level:
-            return obj.grade_level.alias or obj.grade_level.default_name
-        return None
 
 
 class StreamSerializer(serializers.ModelSerializer):
@@ -72,6 +57,7 @@ class GradeLevelSerializer(serializers.ModelSerializer):
 
 
 class ClassRoomSerializer(serializers.ModelSerializer):
+    grade_level_name = serializers.SerializerMethodField(read_only=True)
     name_display = serializers.SerializerMethodField(read_only=True)
     class_teacher_name = serializers.SerializerMethodField()
     stream_name = serializers.SerializerMethodField()
@@ -84,6 +70,8 @@ class ClassRoomSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "grade_level",
+            "grade_level_name",
             "name_display",
             "stream",
             "stream_name",
@@ -103,9 +91,15 @@ class ClassRoomSerializer(serializers.ModelSerializer):
         representation["display_name"] = readable
         return representation
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_grade_level_name(self, obj):
+        if obj.grade_level:
+            return obj.grade_level.alias or obj.grade_level.default_name
+        return None
+
     @extend_schema_field(serializers.CharField)
     def get_name_display(self, obj):
-        return obj.name.name if obj.name else None
+        return str(obj)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_stream_name(self, obj):

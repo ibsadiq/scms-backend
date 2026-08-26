@@ -1,7 +1,7 @@
 from school.testcases import TenantTestCase as TestCase
 from django.contrib.auth import get_user_model
 from administration.models import AcademicYear, Term
-from academic.models import Student, ClassRoom, GradeLevel, Subject, StudentClassEnrollment, ClassLevel, Teacher
+from academic.models import Student, ClassRoom, GradeLevel, Subject, StudentClassEnrollment, Teacher
 from examination.models import (
     GradingScheme, AssessmentComponent, GradeRule, PromotionRule,
     AssessmentEntry, TermResult, SubjectResult
@@ -26,8 +26,7 @@ class PromotionServiceTestCase(TestCase):
         self.term1 = Term.objects.create(academic_year=self.academic_year, name="Term 1", start_date="2024-09-01", end_date="2024-12-15")
         
         self.grade_level = GradeLevel.objects.create(system_code="JSS_1", default_name="JSS 1", section="JSS", sequence_order=1)
-        self.class_level = ClassLevel.objects.create(name="JSS 1A", grade_level=self.grade_level)
-        self.classroom = ClassRoom.objects.create(name=self.class_level)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=self.grade_level)
         self.subject = Subject.objects.create(name="Mathematics", subject_code="MTH")
         
         self.student = Student.objects.create(first_name="John", last_name="Doe", admission_number="STD001", parent_contact="+2348012345678")
@@ -54,8 +53,8 @@ class PromotionServiceTestCase(TestCase):
 
     def test_promotion_override(self):
         # Student gets 20% (Fails)
-        AssessmentEntry.objects.create(student=self.enrollment, subject=self.subject, component=self.ca_component, score=5, entered_by=self.teacher)
-        AssessmentEntry.objects.create(student=self.enrollment, subject=self.subject, component=self.exam_component, score=15, entered_by=self.teacher)
+        AssessmentEntry.objects.create(student=self.enrollment, term=self.term1, subject=self.subject, component=self.ca_component, score=5, entered_by=self.teacher)
+        AssessmentEntry.objects.create(student=self.enrollment, term=self.term1, subject=self.subject, component=self.exam_component, score=15, entered_by=self.teacher)
         term_res = TermResultService.compute_student_term_result(self.student, self.term1, self.academic_year, self.user, skip_ranking=True)
         term_res.is_published = True
         term_res.save()

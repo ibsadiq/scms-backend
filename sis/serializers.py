@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from academic.models import (
@@ -6,11 +7,10 @@ from academic.models import (
     Student,
     Parent,
     ReasonLeft,
-    ClassLevel,
     ClassYear,
     ClassRoom,
 )
-from academic.serializers import ClassLevelSerializer, ClassYearSerializer
+from academic.serializers import ClassYearSerializer
 from academic.services.student_creation_service import StudentCreationService
 from academic.services.parent_identity_service import ParentIdentityService
 
@@ -90,7 +90,7 @@ class SiblingSerializer(serializers.ModelSerializer):
         return obj.full_name
 
     def get_class_level(self, obj):
-        return obj.class_level.name if obj.class_level else None
+        return str(obj.classroom.grade_level) if obj.classroom and obj.classroom.grade_level else None
 
 
 class StudentListSerializer(serializers.ModelSerializer):
@@ -121,12 +121,11 @@ class StudentListSerializer(serializers.ModelSerializer):
         return obj.full_name
 
     def get_class_level_display(self, obj):
-        return obj.class_level.name if obj.class_level else None
+        return str(obj.classroom.grade_level) if obj.classroom and obj.classroom.grade_level else None
 
     def get_classroom_display(self, obj):
         if obj.classroom:
-            stream_name = obj.classroom.stream.name if obj.classroom.stream else ""
-            return f"{obj.classroom.name.name} {stream_name}".strip()
+            return obj.classroom.name_display
         return None
 
     def get_status(self, obj):
@@ -211,7 +210,7 @@ class StudentSerializer(serializers.ModelSerializer):
         return obj.full_name
 
     def get_class_level_display(self, obj):
-        return obj.class_level.name if obj.class_level else None
+        return str(obj.classroom.grade_level) if obj.classroom and obj.classroom.grade_level else None
 
     def get_class_of_year_display(self, obj):
         return obj.class_of_year.full_name if obj.class_of_year else None
@@ -223,24 +222,20 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_classroom_display(self, obj):
         if obj.classroom:
-            stream_name = obj.classroom.stream.name if obj.classroom.stream else ""
-            return f"{obj.classroom.name.name} {stream_name}".strip()
+            return obj.classroom.name_display
         return None
 
     def get_classroom_name(self, obj):
-        if obj.classroom:
-            stream_name = obj.classroom.stream.name if obj.classroom.stream else ""
-            return f"{obj.classroom.name.name} {stream_name}".strip()
-        return None
+        return str(obj.classroom) if obj.classroom else None
 
     def get_grade_level(self, obj):
-        if obj.class_level and obj.class_level.grade_level:
-            return obj.class_level.grade_level.id
+        if obj.classroom and hasattr(obj.classroom, "grade_level") and obj.classroom.grade_level:
+            return obj.classroom.grade_level.id
         return None
 
     def get_grade_level_name(self, obj):
-        if obj.class_level and obj.class_level.grade_level:
-            gl = obj.class_level.grade_level
+        if obj.classroom and hasattr(obj.classroom, "grade_level") and obj.classroom.grade_level:
+            gl = obj.classroom.grade_level
             return gl.alias if gl.alias else gl.default_name
         return None
 
@@ -250,10 +245,17 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"classroom_id": "Classroom is required for student creation."})
 
         class_level_name = data.pop("class_level", None)
-        if class_level_name and classroom.name.name.lower() != class_level_name.lower():
-            raise serializers.ValidationError(
-                f"Mismatch: provided class_level '{class_level_name}' does not match classroom's level '{classroom.name.name}'."
-            )
+        if class_level_name and classroom.grade_level:
+            grade_names = [
+                classroom.grade_level.system_code.lower(),
+                (classroom.grade_level.default_name or "").lower(),
+                (classroom.grade_level.alias or "").lower(),
+                classroom.name.lower(),
+            ]
+            if class_level_name.lower() not in grade_names:
+                raise serializers.ValidationError(
+                    f"Mismatch: provided class_level '{class_level_name}' does not match classroom's grade '{classroom.grade_level}'."
+                )
 
         class_of_year_name = data.pop("class_of_year", None)
         # ClassYear validation is kept for compatibility if passed
@@ -269,26 +271,30 @@ class StudentSerializer(serializers.ModelSerializer):
         data["middle_name"] = data.get("middle_name", "").title()
         data["last_name"] = data["last_name"].title()
 
-        return StudentCreationService.create_student(
-            classroom=classroom,
-            first_name=data["first_name"],
-            last_name=data["last_name"],
-            parent_phone=data.get("parent_contact"),
-            parent_email=data.pop("parent_email", None),
-            student_phone=data.get("phone_number"),
-            middle_name=data.get("middle_name", ""),
-            gender=data.get("gender"),
-            religion=data.get("religion"),
-            date_of_birth=data.get("date_of_birth"),
-            region=data.get("region", ""),
-            city=data.get("city", ""),
-            street=data.get("street", ""),
-            admission_date=data.get("admission_date"),
-            image=data.get("image"),
-            parent_first_name=data.pop("parent_first_name", ""),
-            parent_last_name=data.pop("parent_last_name", ""),
-            actor=getattr(self.context.get("request"), "user", None),
-        )
+        try:
+            return StudentCreationService.create_student(
+                classroom=classroom,
+                first_name=data["first_name"],
+                last_name=data["last_name"],
+                parent_phone=data.get("parent_contact"),
+                parent_email=data.pop("parent_email", None),
+                student_phone=data.get("phone_number"),
+                middle_name=data.get("middle_name", ""),
+                gender=data.get("gender"),
+                religion=data.get("religion"),
+                date_of_birth=data.get("date_of_birth"),
+                region=data.get("region", ""),
+                city=data.get("city", ""),
+                street=data.get("street", ""),
+                admission_date=data.get("admission_date"),
+                image=data.get("image"),
+                parent_first_name=data.pop("parent_first_name", ""),
+                parent_last_name=data.pop("parent_last_name", ""),
+                actor=getattr(self.context.get("request"), "user", None),
+            )
+        except DjangoValidationError as e:
+            detail = e.message_dict if hasattr(e, "message_dict") else e.messages
+            raise serializers.ValidationError(detail)
 
     def create(self, validated_data):
         return self.validate_and_create_student(validated_data)
@@ -296,15 +302,10 @@ class StudentSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         from django.db import transaction
         with transaction.atomic():
-            class_level_name = validated_data.pop("class_level", None)
-            if class_level_name:
-                try:
-                    class_level = ClassLevel.objects.get(name__iexact=class_level_name)
-                    instance.class_level = class_level
-                except ClassLevel.DoesNotExist:
-                    raise serializers.ValidationError(
-                        f"Class level '{class_level_name}' does not exist."
-                    )
+            validated_data.pop("class_level", None)
+            classroom = validated_data.pop("classroom_id", None)
+            if classroom:
+                instance.classroom = classroom
 
             class_year_name = validated_data.pop("class_of_year", None)
             if class_year_name:
@@ -385,7 +386,7 @@ class ScopedStudentReadSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     status = serializers.CharField(read_only=True)
     classroom = serializers.StringRelatedField(read_only=True)
-    class_level = serializers.StringRelatedField(read_only=True)
+    class_level = serializers.SerializerMethodField()
     grade_level = serializers.SerializerMethodField()
 
     class Meta:
@@ -407,8 +408,11 @@ class ScopedStudentReadSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    def get_class_level(self, obj):
+        return str(obj.classroom.grade_level) if obj.classroom and obj.classroom.grade_level else None
+
     def get_grade_level(self, obj):
-        grade_level = obj.class_level.grade_level if obj.class_level_id else None
+        grade_level = obj.classroom.grade_level if obj.classroom else None
         return str(grade_level) if grade_level else None
 
 

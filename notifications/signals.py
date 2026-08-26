@@ -245,6 +245,10 @@ def notify_school_event(sender, instance, created, **kwargs):
     if not created:
         return
 
+    # Allow local suppression for bulk imports and administrative scripts
+    if getattr(instance, "_skip_notifications", False) or getattr(instance, "skip_notifications", False):
+        return
+
     # Only notify for future events
     if instance.start_date < timezone.now().date():
         return

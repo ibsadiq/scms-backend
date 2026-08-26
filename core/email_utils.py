@@ -267,7 +267,7 @@ def send_admission_confirmation_email(application):
         'parent_name': application.parent_guardian_name,
         'student_name': f"{application.first_name} {application.last_name}",
         'application_number': application.application_number,
-        'class_level': application.class_level.name,
+        'class_level': str(application.applying_for_class),
         'academic_session': str(application.session),
         'submission_date': application.submitted_at.strftime('%B %d, %Y') if application.submitted_at else application.created_at.strftime('%B %d, %Y'),
         'tracking_token': application.tracking_token,
@@ -335,7 +335,7 @@ def send_admission_exam_scheduled_email(application):
 
     # Get fee structure
     fee_structure = application.session.fee_structures.filter(
-        class_level=application.class_level
+        grade_levels=application.applying_for_class
     ).first()
 
     context = {
@@ -409,14 +409,14 @@ def send_admission_approved_email(application):
 
     # Get fee structure
     fee_structure = application.session.fee_structures.filter(
-        class_level=application.class_level
+        grade_levels=application.applying_for_class
     ).first()
 
     context = {
         'parent_name': application.parent_guardian_name,
         'student_name': f"{application.first_name} {application.last_name}",
         'application_number': application.application_number,
-        'class_level': application.class_level.name,
+        'class_level': str(application.applying_for_class),
         'academic_session': str(application.session),
         'approval_notes': application.approval_notes,
         'acceptance_fee_required': fee_structure.acceptance_fee_required if fee_structure else False,
@@ -450,7 +450,7 @@ def send_admission_rejected_email(application):
         'parent_name': application.parent_guardian_name,
         'student_name': f"{application.first_name} {application.last_name}",
         'application_number': application.application_number,
-        'class_level': application.class_level.name,
+        'class_level': str(application.applying_for_class),
         'academic_session': str(application.session),
         'rejection_reason': application.rejection_reason,
         'admissions_email': school_settings['contact_email'] or 'admissions@school.com',
@@ -482,7 +482,7 @@ def send_admission_accepted_email(application):
         'parent_name': application.parent_guardian_name,
         'student_name': f"{application.first_name} {application.last_name}",
         'application_number': application.application_number,
-        'class_level': application.class_level.name,
+        'class_level': str(application.applying_for_class),
         'academic_session': str(application.session),
         'tracking_url': tracking_url,
         'resumption_date': None,  # To be set based on academic calendar
@@ -517,7 +517,7 @@ def send_admission_enrolled_email(application):
         'student_name': f"{application.first_name} {application.last_name}",
         'student_id': application.student.id if application.student else 'TBD',
         'application_number': application.application_number,
-        'class_level': application.class_level.name,
+        'class_level': str(application.applying_for_class),
         'academic_session': str(application.session),
         'portal_url': portal_url,
         'username': application.student.user.username if application.student else 'TBD',

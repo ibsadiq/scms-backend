@@ -13,7 +13,6 @@ from academic.models import (
     AssessmentTemplateCriterion,
     AdmissionStatus,
     AssessmentType,
-    ClassLevel,
     Student,
     StudentAdmissionNumberPolicy,
     AdmissionApplicationNumberPolicy,

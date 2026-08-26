@@ -141,7 +141,7 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
         'created_by'
     ).prefetch_related(
         'grade_levels',
-        'class_levels'
+        'classrooms'
     )
     serializer_class = FeeStructureSerializer
     permission_classes = [IsFinanceManager]
@@ -858,7 +858,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             'student_name': student.full_name,
             'student_image': student_image_url,
             'student_admission_number': student.admission_number,
-            'class_level_name': str(student.classroom) if student.classroom else (str(student.class_level) if student.class_level else 'N/A'),
+            'class_level_name': str(student.classroom) if student.classroom else 'N/A',
             'parent_name': f"{student.parent_guardian.first_name or ''} {student.parent_guardian.last_name or ''}".strip() if student.parent_guardian else "N/A",
             'parent_contact': student.parent_guardian.phone_number if student.parent_guardian else "N/A",
             'term': term.id if term else None,
@@ -890,7 +890,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         classroom_id = request.query_params.get('classroom_id')
         fee_type = request.query_params.get('fee_type')
 
-        students_qs = Student.objects.filter(is_active=True).select_related('classroom', 'class_level')
+        students_qs = Student.objects.filter(is_active=True).select_related('classroom', 'classroom__grade_level')
         if classroom_id:
             students_qs = students_qs.filter(classroom_id=classroom_id)
 
@@ -931,7 +931,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 'student': student.id,
                 'student_name': student.full_name,
                 'student_admission_number': student.admission_number,
-                'class_level_name': str(student.classroom) if student.classroom else (str(student.class_level) if student.class_level else 'N/A'),
+                'class_level_name': str(student.classroom) if student.classroom else 'N/A',
                 'total_fees': total_fees,
                 'total_paid': total_paid,
                 'balance': balance,
@@ -1144,7 +1144,7 @@ class ParentFeesView(APIView):
                 "student_id": student.id,
                 "student_name": student.full_name,
                 "admission_number": student.admission_number,
-                "classroom_display": student.class_level.name if student.class_level else 'N/A',
+                "classroom_display": str(student.classroom) if student.classroom else 'N/A',
                 "total_fees": float(total_fees),
                 "amount_paid": float(total_paid),
                 "balance": float(total_balance),

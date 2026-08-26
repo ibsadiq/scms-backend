@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from decimal import Decimal
 from administration.models import Term, AcademicYear
-from academic.models import GradeLevel, ClassLevel
+from academic.models import GradeLevel, ClassRoom
 from django.conf import settings
 from academic.models import Teacher, Student
 
@@ -123,11 +123,11 @@ class FeeStructure(models.Model):
         related_name='fee_structures',
         help_text="Leave blank to apply to all grade levels"
     )
-    class_levels = models.ManyToManyField(
-        ClassLevel,
+    classrooms = models.ManyToManyField(
+        ClassRoom,
         blank=True,
         related_name='fee_structures',
-        help_text="Leave blank to apply to all class levels"
+        help_text="Leave blank to apply to all classrooms in the selected grade levels"
     )
 
     # Optional Service link
@@ -172,23 +172,23 @@ class FeeStructure(models.Model):
     def __str__(self):
         scope = []
 
-        # Get grade levels (need to check if called after initialization)
+        # Get grade levels
         try:
             grade_count = self.grade_levels.count()
             if grade_count > 0:
                 if grade_count <= 2:
-                    scope.append(", ".join(g.name for g in self.grade_levels.all()))
+                    scope.append(", ".join(g.alias or g.default_name for g in self.grade_levels.all()))
                 else:
                     scope.append(f"{grade_count} grades")
         except:
             pass
 
-        # Get class levels
+        # Get classrooms
         try:
-            class_count = self.class_levels.count()
+            class_count = self.classrooms.count()
             if class_count > 0:
                 if class_count <= 2:
-                    scope.append(", ".join(c.name for c in self.class_levels.all()))
+                    scope.append(", ".join(c.name for c in self.classrooms.all()))
                 else:
                     scope.append(f"{class_count} classes")
         except:
@@ -222,14 +222,15 @@ class FeeStructure(models.Model):
         """Check if this fee structure applies to a given student."""
         # Check grade levels
         grade_levels_list = list(self.grade_levels.all())
-        if grade_levels_list and student.class_level:
-            if student.class_level.grade_level not in grade_levels_list:
+        if grade_levels_list:
+            student_grade = student.classroom.grade_level if (student.classroom and hasattr(student.classroom, "grade_level")) else None
+            if not student_grade or student_grade not in grade_levels_list:
                 return False
 
-        # Check class levels
-        class_levels_list = list(self.class_levels.all())
-        if class_levels_list and student.class_level:
-            if student.class_level not in class_levels_list:
+        # Check classrooms
+        classrooms_list = list(self.classrooms.all())
+        if classrooms_list:
+            if not student.classroom or student.classroom not in classrooms_list:
                 return False
 
         # Check term

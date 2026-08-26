@@ -82,9 +82,8 @@ class ParentDashboardViewSet(viewsets.ViewSet):
             is_active=True
         ).select_related(
             'classroom',
-            'classroom__name',
+            'classroom__grade_level',
             'classroom__stream',
-            'class_level'
         ).prefetch_related(
             Prefetch(
                 'termresult_set',
@@ -124,7 +123,7 @@ class ParentDashboardViewSet(viewsets.ViewSet):
                 'admission_number': child.admission_number,
                 'full_name': child.full_name,
                 'classroom': str(child.classroom) if child.classroom else 'Not Assigned',
-                'class_level': str(child.class_level) if child.class_level else 'N/A',
+                'class_level': str(child.grade_level) if child.grade_level else 'N/A',
                 'latest_result': {
                     'term': str(latest_result.term) if latest_result else None,
                     'average': float(latest_result.average) if latest_result else None,
@@ -172,14 +171,14 @@ class ParentDashboardViewSet(viewsets.ViewSet):
         children = Student.objects.filter(
             parent_guardian=parent,
             is_active=True
-        ).select_related('classroom', 'class_level')
+        ).select_related('classroom', 'classroom__grade_level')
 
         children_data = [{
             'id': child.id,
             'admission_number': child.admission_number,
             'full_name': child.full_name,
             'classroom': str(child.classroom) if child.classroom else 'Not Assigned',
-            'class_level': str(child.class_level) if child.class_level else 'N/A',
+            'class_level': str(child.grade_level) if child.grade_level else 'N/A',
             'gender': child.gender,
             'date_of_birth': child.date_of_birth
         } for child in children]
@@ -208,7 +207,7 @@ class ParentDashboardViewSet(viewsets.ViewSet):
         try:
             child = Student.objects.select_related(
                 'classroom',
-                'class_level',
+                'classroom__grade_level',
                 'parent_guardian'
             ).get(id=pk, parent_guardian=parent, is_active=True)
         except Student.DoesNotExist:
@@ -227,7 +226,7 @@ class ParentDashboardViewSet(viewsets.ViewSet):
             'gender': child.gender,
             'date_of_birth': child.date_of_birth,
             'classroom': str(child.classroom) if child.classroom else 'Not Assigned',
-            'class_level': str(child.class_level) if child.class_level else 'N/A',
+            'class_level': str(child.grade_level) if child.grade_level else 'N/A',
             'admission_date': child.admission_date,
             'blood_group': child.blood_group,
             'religion': child.religion,

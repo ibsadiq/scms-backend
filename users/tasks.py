@@ -13,7 +13,7 @@ from django.conf import settings
 import openpyxl
 from io import BytesIO
 
-from academic.models import Teacher, Parent, Student
+from academic.models import Staff, Teacher, Parent, Student
 from users.models import CustomUser as User
 from django_tenants.utils import schema_context
 
@@ -71,7 +71,7 @@ def bulk_upload_teachers_task(self, schema_name, file_content):
 
                 try:
                     # Check if teacher already exists
-                    if Teacher.objects.filter(email=teacher_data["email"]).exists():
+                    if Teacher.objects.filter(user__email=teacher_data["email"]).exists():
                         raise ValueError(f"Row {i}: Teacher with email '{teacher_data['email']}' already exists")
 
                     # Check for duplicate NIN
@@ -84,17 +84,26 @@ def bulk_upload_teachers_task(self, schema_name, file_content):
                         if Teacher.objects.filter(tin_number=teacher_data["tin_number"]).exists():
                             raise ValueError(f"Row {i}: Teacher with TIN '{teacher_data['tin_number']}' already exists")
 
-                    teacher = Teacher(
+                    user = User.objects.create_user(
+                        email=teacher_data["email"],
                         first_name=teacher_data["first_name"],
                         last_name=teacher_data["last_name"],
-                        email=teacher_data["email"],
                         phone_number=teacher_data.get("phone_number"),
+                        is_teacher=True,
+                    )
+                    staff = Staff.objects.create(
+                        user=user,
+                        role=Staff.Role.TEACHER,
                         date_of_birth=teacher_data.get("date_of_birth"),
-                        gender=teacher_data["gender"].upper()[0],
                         address=teacher_data.get("address"),
+                        academic_qualification=teacher_data.get("qualification") or "",
+                        designation="Teacher",
+                    )
+                    teacher = Teacher(
+                        user=user,
+                        staff=staff,
                         national_id=teacher_data.get("national_id"),
                         tin_number=teacher_data.get("tin_number"),
-                        qualification=teacher_data.get("qualification"),
                     )
 
                     teachers_to_create.append(teacher)

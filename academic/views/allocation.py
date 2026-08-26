@@ -46,7 +46,7 @@ class AllocatedSubjectViewSet(viewsets.ModelViewSet):
             'teacher_name__user',
             'subject',
             'class_room',
-            'class_room__name',
+            'class_room__grade_level',
             'academic_year',
             'term'
         ).order_by('-academic_year', 'class_room', 'subject')

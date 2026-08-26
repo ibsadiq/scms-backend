@@ -27,7 +27,7 @@ class TutorContextService:
         return (
             StudentClassEnrollment.objects
             .filter(student=student, is_active=True)
-            .select_related("classroom", "classroom__name__grade_level", "academic_year")
+            .select_related("classroom", "classroom__grade_level", "academic_year")
             .order_by("-academic_year__start_date")
             .first()
         )
@@ -59,8 +59,8 @@ class TutorContextService:
         enrollment = cls.get_student_active_enrollment(student)
         classroom_str = str(enrollment.classroom) if enrollment else str(getattr(student, "classroom", "Classroom"))
         grade_str = (
-            str(enrollment.classroom.name.grade_level)
-            if enrollment and enrollment.classroom.name and enrollment.classroom.name.grade_level
+            str(enrollment.classroom.grade_level)
+            if enrollment and enrollment.classroom and enrollment.classroom.grade_level
             else "Standard Grade Level"
         )
         student_name = getattr(student, "full_name", f"{student.first_name} {student.last_name}").strip()

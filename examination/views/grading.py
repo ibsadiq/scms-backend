@@ -36,12 +36,12 @@ class AssessmentComponentViewSet(viewsets.ModelViewSet):
                 # Wait, grading scheme doesn't import well this way, but we can use self.queryset
                 from ..models import GradingScheme
                 scheme = GradingScheme.objects.filter(classroom=classroom).first()
-                if not scheme and classroom.name and classroom.name.grade_level:
+                if not scheme and classroom.grade_level:
                     # 2. Grade level
-                    scheme = GradingScheme.objects.filter(grade_level=classroom.name.grade_level).first()
-                if not scheme and classroom.name and classroom.name.grade_level and hasattr(classroom.name.grade_level, 'section') and classroom.name.grade_level.section:
+                    scheme = GradingScheme.objects.filter(grade_level=classroom.grade_level).first()
+                if not scheme and classroom.grade_level and classroom.grade_level.section:
                     # 3. Section level
-                    scheme = GradingScheme.objects.filter(section=classroom.name.grade_level.section).first()
+                    scheme = GradingScheme.objects.filter(section=classroom.grade_level.section).first()
                 
                 if scheme:
                     return qs.filter(scheme=scheme)

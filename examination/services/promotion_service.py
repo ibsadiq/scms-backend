@@ -39,11 +39,15 @@ class PromotionService:
             incompleteness_reasons.append("No subject results found for this annual record.")
             
         from django.db import models
-        missing_terms_count = annual_result.subjects.filter(
-            models.Q(first_term_status="MISSING") |
-            models.Q(second_term_status="MISSING") |
-            models.Q(third_term_status="MISSING")
-        ).count()
+        missing_terms_filter = models.Q()
+        if expected_terms >= 1:
+            missing_terms_filter |= models.Q(first_term_status="MISSING")
+        if expected_terms >= 2:
+            missing_terms_filter |= models.Q(second_term_status="MISSING")
+        if expected_terms >= 3:
+            missing_terms_filter |= models.Q(third_term_status="MISSING")
+
+        missing_terms_count = annual_result.subjects.filter(missing_terms_filter).count() if missing_terms_filter else 0
         
         structured_reasons["missing_terms_in_subjects"] = missing_terms_count
         if missing_terms_count > 0:

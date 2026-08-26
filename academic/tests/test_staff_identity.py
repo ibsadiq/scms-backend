@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from school.testcases import TenantTestCase
 
@@ -17,11 +18,17 @@ class StaffIdentityTests(TenantTestCase):
 
     def test_teacher_creation_maps_to_staff_without_replacing_teacher_user(self):
         user = User.objects.create_user(email="teacher@example.com", password="test", is_teacher=True)
-        teacher = Teacher.objects.create(user=user, designation="Mathematics Teacher")
+        staff = Staff.objects.create(
+            user=user,
+            role=Staff.Role.TEACHER,
+            designation="Mathematics Teacher",
+        )
+        teacher = Teacher.objects.create(user=user, staff=staff)
 
         teacher.refresh_from_db()
         self.assertEqual(teacher.staff.user, user)
         self.assertEqual(teacher.staff.role, Staff.Role.TEACHER)
+        self.assertEqual(teacher.staff.designation, "Mathematics Teacher")
         self.assertEqual(teacher.user, user)
 
     def test_non_teaching_staff_can_map_to_accountant_user(self):
@@ -44,5 +51,5 @@ class StaffIdentityTests(TenantTestCase):
     def test_database_prevents_duplicate_profile_for_same_user(self):
         user = User.objects.create_user(email="duplicate@example.com", password="test")
         Staff.objects.create(user=user)
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises((IntegrityError, ValidationError)):
             Staff.objects.create(user=user)

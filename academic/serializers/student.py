@@ -346,7 +346,7 @@ class StudentDashboardSerializer(serializers.Serializer):
                         if max_s > 0:
                             pcts.append((float(e.score) / max_s) * 100.0)
                 avg_pct = (sum(pcts) / len(pcts)) if pcts else 78.5
-                gl = obj.classroom.name.grade_level if (obj.classroom and hasattr(obj.classroom, "name") and hasattr(obj.classroom.name, "grade_level")) else None
+                gl = obj.classroom.grade_level if (obj.classroom and hasattr(obj.classroom, "grade_level") and hasattr(obj.classroom.grade_level, "grade_level")) else None
                 scheme = GradingScheme.objects.filter(grade_level=gl).first() if gl else GradingScheme.objects.first()
                 rule = GradeRule.objects.filter(scheme=scheme, min_score__lte=avg_pct, max_score__gte=avg_pct).first() if scheme else None
                 letter = rule.grade if rule else ("A1" if avg_pct >= 75 else "B2" if avg_pct >= 70 else "B3" if avg_pct >= 65 else "C4" if avg_pct >= 60 else "C6" if avg_pct >= 50 else "F9")

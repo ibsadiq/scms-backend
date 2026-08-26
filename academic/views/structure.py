@@ -10,7 +10,6 @@ from academic.permissions import IsAcademicAdminOrReadOnly, IsSchoolAdmin
 
 from academic.models import (
     Department,
-    ClassLevel,
     GradeLevel,
     SchoolSection,
     ClassYear,
@@ -22,7 +21,6 @@ from academic.models import (
 )
 from academic.serializers import (
     DepartmentSerializer,
-    ClassLevelSerializer,
     GradeLevelSerializer,
     SchoolSectionSerializer,
     ClassYearSerializer,
@@ -43,21 +41,6 @@ class DepartmentListCreateView(generics.ListCreateAPIView):
 class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
-    permission_classes = [IsAcademicAdminOrReadOnly]
-
-
-class ClassLevelListCreateView(generics.ListCreateAPIView):
-    queryset = ClassLevel.objects.all()
-    serializer_class = ClassLevelSerializer
-    permission_classes = [IsAcademicAdminOrReadOnly]
-
-    def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
-
-
-class ClassLevelDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = ClassLevel.objects.all()
-    serializer_class = ClassLevelSerializer
     permission_classes = [IsAcademicAdminOrReadOnly]
 
 
@@ -149,6 +132,7 @@ class BulkUploadClassRoomsView(APIView):
             sheet = workbook.active
 
             columns = [
+                "grade_level",
                 "name",
                 "stream",
                 "class_teacher",
@@ -163,38 +147,46 @@ class BulkUploadClassRoomsView(APIView):
                 classroom_data = dict(zip(columns, row))
 
                 try:
-                    name = ClassLevel.objects.get(name=classroom_data["name"].lower())
+                    gl_raw = str(classroom_data.get("grade_level") or "").strip()
+                    grade_level = (
+                        GradeLevel.objects.filter(system_code__iexact=gl_raw).first()
+                        or GradeLevel.objects.filter(alias__iexact=gl_raw).first()
+                        or GradeLevel.objects.filter(default_name__iexact=gl_raw).first()
+                    )
+                    if not grade_level:
+                        raise ValueError(f"Row {i}: Grade level '{gl_raw}' not found.")
 
-                    if ClassRoom.objects.filter(name=name).exists():
-                        raise ValueError(
-                            f"Row {i}: ClassRoom with the same name already exists."
-                        )
+                    name_str = str(classroom_data.get("name") or "").strip()
+                    if not name_str:
+                        raise ValueError(f"Row {i}: Classroom name is required.")
 
                     stream = None
-                    if classroom_data.get("stream") and classroom_data["stream"].strip():
+                    if classroom_data.get("stream") and str(classroom_data["stream"]).strip():
+                        stream_raw = str(classroom_data["stream"]).strip().upper()
                         try:
-                            stream = Stream.objects.get(name=classroom_data["stream"].strip().upper())
+                            stream = Stream.objects.get(name=stream_raw)
                         except Stream.DoesNotExist:
-                            raise ValueError(
-                                f"Stream '{classroom_data['stream']}' does not exist."
-                            )
+                            stream = Stream.objects.create(name=stream_raw)
 
-                    teacher_name_parts = classroom_data["class_teacher"].lower().split()
-                    if len(teacher_name_parts) < 2:
+                    if ClassRoom.objects.filter(grade_level=grade_level, stream=stream, name__iexact=name_str).exists():
                         raise ValueError(
-                            "Class teacher name must include both first and last name."
+                            f"Row {i}: ClassRoom '{name_str}' already exists for grade '{grade_level}'."
                         )
 
-                    class_teacher_first_name = teacher_name_parts[0]
-                    class_teacher_last_name = teacher_name_parts[1]
-
-                    class_teacher = Teacher.objects.get(
-                        first_name=class_teacher_first_name,
-                        last_name=class_teacher_last_name,
-                    )
+                    class_teacher = None
+                    if classroom_data.get("class_teacher") and str(classroom_data["class_teacher"]).strip():
+                        teacher_name_parts = str(classroom_data["class_teacher"]).lower().split()
+                        if len(teacher_name_parts) >= 2:
+                            class_teacher_first_name = teacher_name_parts[0]
+                            class_teacher_last_name = teacher_name_parts[1]
+                            class_teacher = Teacher.objects.filter(
+                                first_name__iexact=class_teacher_first_name,
+                                last_name__iexact=class_teacher_last_name,
+                            ).first()
 
                     classroom = ClassRoom(
-                        name=name,
+                        name=name_str,
+                        grade_level=grade_level,
                         stream=stream,
                         class_teacher=class_teacher,
                     )

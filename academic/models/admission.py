@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from administration.models import AcademicYear
 from administration.common_objs import GENDER_CHOICE, RELIGION_CHOICE
 from .choices import AdmissionStatus, AssessmentType
-from .structure import GradeLevel, ClassLevel
+from .structure import GradeLevel
 from .student import Student
 
 
@@ -753,9 +753,9 @@ class AssessmentTemplate(models.Model):
     )
     description = models.TextField(blank=True)
     applicable_classes = models.ManyToManyField(
-        ClassLevel,
+        GradeLevel,
         blank=True,
-        help_text="Which class levels can use this template",
+        help_text="Which grade levels can use this template",
     )
     default_duration_minutes = models.PositiveIntegerField(
         default=60,

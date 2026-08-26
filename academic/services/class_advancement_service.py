@@ -23,7 +23,7 @@ from django.db.models import Count, Q
 from academic.models import (
     Student,
     ClassRoom,
-    ClassLevel,
+    GradeLevel,
     Stream,
     StudentPromotion,
     StudentClassEnrollment,
@@ -106,12 +106,13 @@ class ClassAdvancementService:
             }
 
             if status == 'promoted':
-                # Determine target classroom
-                target_class_level = promotion.to_class.name if promotion.to_class else None
+                # Determine target grade level
+                target_grade = promotion.to_grade or (promotion.to_class.grade_level if promotion.to_class else None)
 
-                if target_class_level:
+                if target_grade:
                     # Check if this is SS1 and needs stream assignment
-                    if str(target_class_level) == 'SS1':
+                    is_ss1 = target_grade.system_code == 'SS_1' or 'SS 1' in str(target_grade) or 'SS1' in str(target_grade)
+                    if is_ss1:
                         if not student.assigned_stream:
                             movement['needs_stream_assignment'] = True
                             movement['to_class'] = f"SS1 {student.preferred_stream or 'Unassigned'}"
@@ -119,7 +120,7 @@ class ClassAdvancementService:
                         else:
                             # Find appropriate classroom
                             target_classroom = self._find_best_classroom(
-                                target_class_level,
+                                target_grade,
                                 student.assigned_stream
                             )
                             movement['to_class'] = str(target_classroom) if target_classroom else f"SS1 {student.assigned_stream} (New classroom needed)"
@@ -137,10 +138,10 @@ class ClassAdvancementService:
                     else:
                         # Non-SS1 promotion
                         target_classroom = self._find_best_classroom(
-                            target_class_level,
+                            target_grade,
                             None  # No stream for primary/JSS
                         )
-                        movement['to_class'] = str(target_classroom) if target_classroom else f"{target_class_level} (New classroom needed)"
+                        movement['to_class'] = str(target_classroom) if target_classroom else f"{target_grade} (New classroom needed)"
 
                         if target_classroom:
                             capacity_check = self._check_classroom_capacity(target_classroom)
@@ -160,10 +161,10 @@ class ClassAdvancementService:
 
             elif status == 'conditional':
                 # Conditional promotions still move forward
-                target_class_level = promotion.to_class.name if promotion.to_class else None
-                if target_class_level:
-                    target_classroom = self._find_best_classroom(target_class_level, student.assigned_stream)
-                    movement['to_class'] = str(target_classroom) if target_classroom else f"{target_class_level} (New classroom needed)"
+                target_grade = promotion.to_grade or (promotion.to_class.grade_level if promotion.to_class else None)
+                if target_grade:
+                    target_classroom = self._find_best_classroom(target_grade, student.assigned_stream)
+                    movement['to_class'] = str(target_classroom) if target_classroom else f"{target_grade} (New classroom needed)"
 
             movements[status].append(movement)
 
@@ -187,7 +188,7 @@ class ClassAdvancementService:
 
     def _find_best_classroom(
         self,
-        class_level: ClassLevel,
+        grade_level: GradeLevel,
         stream_type: Optional[str] = None
     ) -> Optional[ClassRoom]:
         """
@@ -197,16 +198,17 @@ class ClassAdvancementService:
         For other levels, finds classroom with most space.
 
         Args:
-            class_level: Target class level
+            grade_level: Target grade level
             stream_type: Stream type (science/commercial/arts) for SS levels
 
         Returns:
             Best matching classroom or None
         """
-        classrooms = ClassRoom.objects.filter(name=class_level)
+        classrooms = ClassRoom.objects.filter(grade_level=grade_level)
 
         # For SS levels, filter by stream
-        if stream_type and str(class_level) in self.SS_LEVELS:
+        is_ss = grade_level.system_code in ['SS_1', 'SS_2', 'SS_3'] or 'SS' in str(grade_level)
+        if stream_type and is_ss:
             stream_obj = Stream.objects.filter(name__icontains=stream_type).first()
             if stream_obj:
                 classrooms = classrooms.filter(stream=stream_obj)
@@ -220,7 +222,7 @@ class ClassAdvancementService:
             if classroom.available_sits > 0:
                 return classroom
 
-        return None
+        return classrooms.first() if classrooms.exists() else None
 
     def _check_classroom_capacity(self, classroom: ClassRoom) -> Dict:
         """Check if classroom has space for more students"""
@@ -338,19 +340,19 @@ class ClassAdvancementService:
 
                 if status == 'promoted' or status == 'conditional':
                     # Move to new class
-                    target_class_level = promotion.to_class.name if promotion.to_class else None
+                    target_grade = promotion.to_grade or (promotion.to_class.grade_level if promotion.to_class else None)
 
-                    if target_class_level:
+                    if target_grade:
                         # Find or create appropriate classroom
                         target_classroom = self._find_best_classroom(
-                            target_class_level,
+                            target_grade,
                             student.assigned_stream
                         )
 
                         if not target_classroom and auto_create_classrooms:
                             # Create new classroom
                             target_classroom = self._create_classroom(
-                                target_class_level,
+                                target_grade,
                                 student.assigned_stream,
                                 default_teacher
                             )
@@ -393,7 +395,7 @@ class ClassAdvancementService:
 
     def _create_classroom(
         self,
-        class_level: ClassLevel,
+        grade_level: GradeLevel,
         stream_type: Optional[str],
         teacher: Optional[Teacher] = None
     ) -> ClassRoom:
@@ -401,7 +403,7 @@ class ClassAdvancementService:
         Create a new classroom.
 
         Args:
-            class_level: Class level for the classroom
+            grade_level: Grade level for the classroom
             stream_type: Stream type (for SS levels)
             teacher: Class teacher (optional)
 
@@ -409,22 +411,26 @@ class ClassAdvancementService:
             Created classroom
         """
         stream_obj = None
-        if stream_type and str(class_level) in self.SS_LEVELS:
+        is_ss = grade_level.system_code in ['SS_1', 'SS_2', 'SS_3'] or 'SS' in str(grade_level)
+        if stream_type and is_ss:
             stream_obj = Stream.objects.filter(name__icontains=stream_type).first()
             if not stream_obj:
                 # Create stream if it doesn't exist
                 stream_obj = Stream.objects.create(name=stream_type.capitalize())
 
         # Find next available section letter
-        existing_classrooms = ClassRoom.objects.filter(name=class_level)
+        existing_classrooms = ClassRoom.objects.filter(grade_level=grade_level)
         if stream_obj:
             existing_classrooms = existing_classrooms.filter(stream=stream_obj)
 
         section_count = existing_classrooms.count()
+        letters = ['A', 'B', 'C', 'D', 'E', 'F']
+        classroom_name = letters[section_count] if section_count < len(letters) else f"Room {section_count + 1}"
 
         # Create classroom
         classroom = ClassRoom.objects.create(
-            name=class_level,
+            name=classroom_name,
+            grade_level=grade_level,
             stream=stream_obj,
             class_teacher=teacher,
             capacity=self.default_classroom_capacity

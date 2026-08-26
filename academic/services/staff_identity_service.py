@@ -31,7 +31,7 @@ class StaffIdentityService:
 
         defaults = {
             "role": Staff.Role.TEACHER,
-            "designation": teacher.designation or "Teacher",
+            "designation": "Teacher",
             "image": teacher.image,
         }
         staff, created = cls.ensure_for_user(teacher.user, **defaults)
@@ -40,9 +40,6 @@ class StaffIdentityService:
         if staff.role != Staff.Role.TEACHER:
             staff.role = Staff.Role.TEACHER
             changed.append("role")
-        if not staff.designation and teacher.designation:
-            staff.designation = teacher.designation
-            changed.append("designation")
         if not staff.image and teacher.image:
             staff.image = teacher.image
             changed.append("image")

@@ -74,8 +74,8 @@ class TeacherAdminForm(forms.ModelForm):
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
     form = TeacherAdminForm
-    list_display = ('empId', 'get_full_name', 'get_email', 'get_phone', 'designation', 'inactive')
-    list_filter = ('inactive', 'designation', 'subject_specialization')
+    list_display = ('empId', 'get_full_name', 'get_email', 'get_phone', 'get_designation', 'inactive')
+    list_filter = ('inactive', 'staff__designation', 'subject_specialization')
     search_fields = ('empId', 'user__first_name', 'user__last_name', 'user__email', 'user__phone_number')
     filter_horizontal = ('subject_specialization',)
 
@@ -84,10 +84,10 @@ class TeacherAdmin(admin.ModelAdmin):
             'fields': ('user', 'first_name', 'middle_name', 'last_name', 'email', 'phone_number')
         }),
         ('Employment Details', {
-            'fields': ('empId', 'designation', 'short_name')
+            'fields': ('staff', 'empId', 'short_name')
         }),
         ('Additional Information', {
-            'fields': ('national_id', 'tin_number', 'address', 'alt_email', 'image')
+            'fields': ('national_id', 'tin_number', 'alt_email', 'image')
         }),
         ('Academic Information', {
             'fields': ('subject_specialization',)
@@ -111,6 +111,10 @@ class TeacherAdmin(admin.ModelAdmin):
         return obj.phone_number if obj.user else "N/A"
     get_phone.short_description = 'Phone'
 
+    def get_designation(self, obj):
+        return obj.staff.designation if obj.staff else ""
+    get_designation.short_description = 'Designation'
+
 
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
@@ -121,7 +125,6 @@ class StaffAdmin(admin.ModelAdmin):
 
 admin.site.register(Department)
 admin.site.register(Subject)
-admin.site.register(ClassLevel)
 admin.site.register(ClassYear)
 admin.site.register(AllocatedSubject)
 # StudentClassEnrollment registered below with custom admin (Phase 2.2)
@@ -141,9 +144,9 @@ class StudentAdmin(admin.ModelAdmin):
 
 @admin.register(ClassRoom)
 class ClassRoomAdmin(admin.ModelAdmin):
-    # ... your other settings ...
-    # REQUIRED for autocomplete to work in StudentPromotion:
-    search_fields = ['name__name', 'stream__name']
+    list_display = ['name', 'grade_level', 'stream', 'class_teacher', 'capacity', 'occupied_sits']
+    list_filter = ['grade_level__section', 'grade_level', 'stream']
+    search_fields = ['name', 'stream__name', 'grade_level__default_name', 'grade_level__alias']
 
 @admin.register(GradeLevel)
 class GradeLevelAdmin(admin.ModelAdmin):

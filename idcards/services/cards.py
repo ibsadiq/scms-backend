@@ -7,6 +7,7 @@ from idcards.models import HolderType, IDCard, RFIDCredential
 from .fields import DynamicFieldRegistry
 from .layout import TemplateService
 from .templates import IDCardTemplateLifecycleService
+from .resolution import IDCardTemplateResolver
 
 
 class CardService:
@@ -70,12 +71,18 @@ class CardService:
         return card
 
     @classmethod
-    def issue_student_card(cls, *, student, template, issued_by=None, expires_at=None):
-        return cls._issue(student=student, template=template, issued_by=issued_by, expires_at=expires_at)
+    def issue_student_card(cls, *, student, template=None, issued_by=None, expires_at=None):
+        resolution = IDCardTemplateResolver.resolve_for_student(student) if template is None else None
+        return cls._issue(student=student, template=template or resolution.template,
+                          template_version=resolution.template_version if resolution else None,
+                          issued_by=issued_by, expires_at=expires_at)
 
     @classmethod
-    def issue_staff_card(cls, *, staff, template, issued_by=None, expires_at=None):
-        return cls._issue(staff=staff, template=template, issued_by=issued_by, expires_at=expires_at)
+    def issue_staff_card(cls, *, staff, template=None, issued_by=None, expires_at=None):
+        resolution = IDCardTemplateResolver.resolve_for_staff(staff) if template is None else None
+        return cls._issue(staff=staff, template=template or resolution.template,
+                          template_version=resolution.template_version if resolution else None,
+                          issued_by=issued_by, expires_at=expires_at)
 
     @classmethod
     def deactivate_card(cls, card, *, reason="", revoke=False):

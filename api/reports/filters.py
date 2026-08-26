@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from academic.models import ClassLevel, GradeLevel, Student
+from academic.models import ClassRoom, GradeLevel, Student
 from administration.models import AcademicYear, Term
 
 
@@ -12,8 +12,11 @@ class ReportFilterSerializer(serializers.Serializer):
     grade_level = serializers.PrimaryKeyRelatedField(
         queryset=GradeLevel.objects.all(), required=False,
     )
+    classroom = serializers.PrimaryKeyRelatedField(
+        queryset=ClassRoom.objects.all(), required=False,
+    )
     class_level = serializers.PrimaryKeyRelatedField(
-        queryset=ClassLevel.objects.all(), required=False,
+        queryset=ClassRoom.objects.all(), required=False,
     )
     student = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(), required=False,

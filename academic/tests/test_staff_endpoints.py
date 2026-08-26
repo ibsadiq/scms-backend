@@ -76,12 +76,12 @@ class StaffEndpointTests(TenantTestCase):
         )
         self.teacher_profile = Teacher.objects.create(
             user=self.teacher_user,
-            designation="Physics Teacher",
         )
         self.teacher_profile.refresh_from_db()
         self.staff_teacher = self.teacher_profile.staff
+        self.staff_teacher.designation = "Physics Teacher"
         self.staff_teacher.department = self.dept_science
-        self.staff_teacher.save(update_fields=["department"])
+        self.staff_teacher.save(update_fields=["designation", "department"])
 
         # Staff 2: Accountant / Non-teaching Staff
         self.accountant_user = User.objects.create_user(
@@ -254,4 +254,126 @@ class StaffEndpointTests(TenantTestCase):
         search_results = res_search.data.get("results", res_search.data)
         self.assertEqual(len(search_results), 0)
 
+    def test_staff_canonical_fields_model_validation(self):
+        from decimal import Decimal
+        from datetime import date, timedelta
+        from django.core.exceptions import ValidationError
 
+        tomorrow = date.today() + timedelta(days=1)
+        staff = Staff(
+            role=Staff.Role.OTHER,
+            date_of_birth=tomorrow,
+            designation="Future Person",
+        )
+        with self.assertRaises(ValidationError):
+            staff.full_clean()
+
+        staff2 = Staff(
+            role=Staff.Role.OTHER,
+            salary=Decimal("-500.00"),
+            designation="Negative Salary",
+        )
+        with self.assertRaises(ValidationError):
+            staff2.full_clean()
+
+    def test_salary_permission_access_control(self):
+        from decimal import Decimal
+        self.staff_teacher.salary = Decimal("150000.00")
+        self.staff_teacher.save()
+
+        # 1. School Admin can view teacher salary
+        self.client.force_authenticate(self.admin)
+        res_admin = self.client.get(reverse("teacher-detail", args=[self.teacher_profile.pk]))
+        self.assertEqual(res_admin.status_code, 200)
+        self.assertEqual(float(res_admin.data["salary"]), 150000.0)
+
+        # 2. Teacher viewing self cannot view salary
+        self.client.force_authenticate(self.teacher_user)
+        res_self = self.client.get(reverse("teacher-detail", args=[self.teacher_profile.pk]))
+        self.assertEqual(res_self.status_code, 200)
+        self.assertNotIn("salary", res_self.data)
+
+        # 3. Accountant (unauthorized) cannot view teacher's salary
+        self.client.force_authenticate(self.accountant_user)
+        res_accountant = self.client.get(reverse("teacher-detail", args=[self.teacher_profile.pk]))
+        self.assertEqual(res_accountant.status_code, 200)
+        self.assertNotIn("salary", res_accountant.data)
+
+    def test_teacher_cannot_modify_salary(self):
+        from decimal import Decimal
+
+        self.staff_teacher.salary = Decimal("150000.00")
+        self.staff_teacher.save()
+        self.client.force_authenticate(self.teacher_user)
+        response = self.client.patch(
+            reverse("teacher-detail", args=[self.teacher_profile.pk]),
+            {"salary": "999999.00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.staff_teacher.refresh_from_db()
+        self.assertEqual(self.staff_teacher.salary, Decimal("150000.00"))
+
+    def test_teacher_create_and_update_persists_canonical_staff(self):
+        from decimal import Decimal
+        self.client.force_authenticate(self.admin)
+        url = reverse("teacher-list-create")
+
+        payload = {
+            "first_name": "Ngozi",
+            "last_name": "Eze",
+            "email": "ngozi.eze@stafftest.test",
+            "phone_number": "08012345678",
+            "date_of_birth": "1990-05-15",
+            "academic_qualification": "B.Ed English",
+            "state": "Rivers",
+            "address": "12 Station Road, Port Harcourt",
+            "designation": "English Mistress",
+            "salary": "180000.00",
+            "subject_specialization": [],
+        }
+
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, 201)
+        created_id = res.data["id"]
+
+        teacher = Teacher.objects.get(pk=created_id)
+        self.assertIsNotNone(teacher.staff)
+        self.assertEqual(teacher.staff.academic_qualification, "B.Ed English")
+        self.assertEqual(teacher.staff.state, "Rivers")
+        self.assertEqual(teacher.staff.address, "12 Station Road, Port Harcourt")
+        self.assertEqual(teacher.staff.designation, "English Mistress")
+        self.assertEqual(teacher.staff.salary, Decimal("180000.00"))
+        self.assertEqual(str(teacher.staff.date_of_birth), "1990-05-15")
+
+    def test_accountant_create_and_update_persists_canonical_staff(self):
+        from decimal import Decimal
+        self.client.force_authenticate(self.admin)
+        url = reverse("accountant-list-create")
+
+        payload = {
+            "first_name": "Tari",
+            "last_name": "Briggs",
+            "email": "tari.briggs@stafftest.test",
+            "phone_number": "08087654321",
+            "date_of_birth": "1988-11-20",
+            "academic_qualification": "B.Sc Accounting, ICAN",
+            "state": "Bayelsa",
+            "address": "44 Tombia Street",
+            "designation": "Bursar",
+            "salary": "220000.00",
+        }
+
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, 201)
+        created_user_id = res.data["id"]
+
+        user = User.objects.get(pk=created_user_id)
+        staff = Staff.objects.get(user=user)
+        self.assertEqual(staff.role, Staff.Role.ACCOUNTANT)
+        self.assertEqual(staff.academic_qualification, "B.Sc Accounting, ICAN")
+        self.assertEqual(staff.state, "Bayelsa")
+        self.assertEqual(staff.address, "44 Tombia Street")
+        self.assertEqual(staff.designation, "Bursar")
+        self.assertEqual(staff.salary, Decimal("220000.00"))
+        self.assertEqual(str(staff.date_of_birth), "1988-11-20")

@@ -6,7 +6,6 @@ from school.testcases import TenantTestCase
 
 from academic.models import (
     AllocatedSubject,
-    ClassLevel,
     ClassRoom,
     GradeLevel,
     Parent,
@@ -57,10 +56,8 @@ class SISAccessTestCase(TenantTestCase):
         grade = GradeLevel.objects.create(
             system_code="JSS_1", section="JSS", default_name="JSS 1", sequence_order=1
         )
-        assigned_level = ClassLevel.objects.create(name="JSS 1 Assigned", grade_level=grade)
-        other_level = ClassLevel.objects.create(name="JSS 1 Other", grade_level=grade)
-        self.assigned_class = ClassRoom.objects.create(name=assigned_level, class_teacher=self.teacher)
-        self.other_class = ClassRoom.objects.create(name=other_level)
+        self.assigned_class = ClassRoom.objects.create(name="Assigned", grade_level=grade, class_teacher=self.teacher)
+        self.other_class = ClassRoom.objects.create(name="Other", grade_level=grade)
         subject = Subject.objects.create(name="SIS Mathematics", subject_code="SISM")
         AllocatedSubject.objects.create(
             teacher_name=self.teacher, subject=subject, academic_year=year, term=term,
@@ -70,11 +67,11 @@ class SISAccessTestCase(TenantTestCase):
         self.own_student = Student.objects.create(
             user=self.student_user, first_name="Own", last_name="Learner",
             parent_contact=self.parent.phone_number, classroom=self.assigned_class,
-            class_level=assigned_level, can_login=True,
+            can_login=True,
         )
         self.other_student = Student.objects.create(
             first_name="Other", last_name="Learner", parent_contact="08110000002",
-            classroom=self.other_class, class_level=other_level,
+            classroom=self.other_class,
         )
 
     def authenticate(self, user):

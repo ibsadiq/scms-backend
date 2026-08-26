@@ -259,12 +259,14 @@ class DashboardStatsView(APIView):
 
         # ===== STUDENTS BY LEVEL =====
         students_by_level = []
-        students_with_class = Student.objects.filter(is_active=True).select_related('class_level')
+        students_with_class = Student.objects.filter(is_active=True).select_related('classroom', 'classroom__grade_level')
 
         class_counts = {}
         for student in students_with_class:
-            if hasattr(student, 'class_level') and student.class_level:
-                class_name = getattr(student.class_level, 'name', str(student.class_level))
+            if student.classroom and student.classroom.grade_level:
+                class_name = student.classroom.grade_level.alias or student.classroom.grade_level.default_name
+            elif student.classroom:
+                class_name = student.classroom.name
             else:
                 class_name = 'Unassigned'
             class_counts[class_name] = class_counts.get(class_name, 0) + 1
@@ -311,9 +313,16 @@ class DashboardStatsView(APIView):
             }
         ]
         
-        # ===== FINANCIAL STATS =====
+        # ===== FINANCIAL STATS (Scoped to Active Academic Session) =====
         try:
-            fee_assignments = StudentFeeAssignment.objects.filter(is_waived=False)
+            active_academic_year = AcademicYear.objects.filter(active_year=True).first()
+            if active_academic_year:
+                fee_assignments = StudentFeeAssignment.objects.filter(
+                    term__academic_year=active_academic_year,
+                    is_waived=False
+                )
+            else:
+                fee_assignments = StudentFeeAssignment.objects.filter(is_waived=False)
 
             total_expected = fee_assignments.aggregate(
                 total=Sum('amount_owed')
@@ -378,21 +387,23 @@ class DashboardStatsView(APIView):
 
         revenue_series = [revenue_dict.get((y, m), 0.0) for y, m in series_months]
 
-        # ===== ENROLLMENT TRENDS (12 Months of Academic Session) =====
-        academic_session_months = [
-            (9, 2025, 'Sep 2025', 'Sep'),
-            (10, 2025, 'Oct 2025', 'Oct'),
-            (11, 2025, 'Nov 2025', 'Nov'),
-            (12, 2025, 'Dec 2025', 'Dec'),
-            (1, 2026, 'Jan 2026', 'Jan'),
-            (2, 2026, 'Feb 2026', 'Feb'),
-            (3, 2026, 'Mar 2026', 'Mar'),
-            (4, 2026, 'Apr 2026', 'Apr'),
-            (5, 2026, 'May 2026', 'May'),
-            (6, 2026, 'Jun 2026', 'Jun'),
-            (7, 2026, 'Jul 2026', 'Jul'),
-            (8, 2026, 'Aug 2026', 'Aug'),
-        ]
+        # ===== ENROLLMENT TRENDS (12 Months of Active Academic Session) =====
+        import calendar
+        if active_academic_year and active_academic_year.start_date:
+            start_y = active_academic_year.start_date.year
+            start_m = active_academic_year.start_date.month
+        else:
+            start_y = today.year if today.month >= 9 else today.year - 1
+            start_m = 9
+
+        academic_session_months = []
+        for offset in range(12):
+            cur_m = (start_m - 1 + offset) % 12 + 1
+            cur_y = start_y + ((start_m - 1 + offset) // 12)
+            month_abbr = calendar.month_abbr[cur_m]
+            academic_session_months.append(
+                (cur_m, cur_y, f"{month_abbr} {cur_y}", month_abbr)
+            )
         
         enrollment_dict = {}
         try:
@@ -420,7 +431,7 @@ class DashboardStatsView(APIView):
 
         # ===== RECENT STUDENTS (TOP 10) =====
         recent_students_qs = Student.objects.filter(is_active=True).select_related(
-            'classroom', 'classroom__name'
+            'classroom', 'classroom__grade_level'
         ).order_by('-admission_date', '-id')[:10]
 
         recent_students_list = [
@@ -457,12 +468,12 @@ class DashboardStatsView(APIView):
         # ===== RECENT ADMISSIONS =====
         recent_admissions = Student.objects.filter(
             is_active=True
-        ).select_related('class_level').order_by('-admission_date')[:5]
+        ).select_related('classroom', 'classroom__grade_level').order_by('-admission_date')[:5]
 
         recent_admissions_list = []
         for student in recent_admissions:
-            if hasattr(student, 'class_level') and student.class_level:
-                class_name = getattr(student.class_level, 'name', str(student.class_level))
+            if student.classroom:
+                class_name = str(student.classroom)
             else:
                 class_name = 'Unassigned'
 
@@ -474,9 +485,9 @@ class DashboardStatsView(APIView):
                 'admission_date': student.admission_date.isoformat() if student.admission_date else None
             })
         
-        # ===== PERFORMANCE STATS =====
+        # ===== PERFORMANCE STATS (Scoped to Active Academic Year) =====
         try:
-            current_academic_year = AcademicYear.objects.filter(is_current=True).first()
+            current_academic_year = AcademicYear.objects.filter(active_year=True).first()
 
             if current_academic_year:
                 current_term = Term.objects.filter(

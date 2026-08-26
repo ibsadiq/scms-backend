@@ -119,5 +119,5 @@ class MessagingPolicy:
         if classroom_id:
             students = students.filter(classroom_id=classroom_id)
         return students.select_related(
-            "parent_guardian__user", "classroom__name"
+            "parent_guardian__user", "classroom__grade_level"
         ).order_by("classroom_id", "last_name", "first_name")

@@ -56,7 +56,7 @@ class TeacherMyClassesView(APIView):
 
         # If admin and no teacher profile, return all active classrooms
         if not teacher and is_admin:
-            all_classrooms = ClassRoom.objects.filter(is_active=True).select_related('name')
+            all_classrooms = ClassRoom.objects.filter(is_active=True).select_related('grade_level')
             homeroom_classes = []
             for classroom in all_classrooms:
                 student_count = Student.objects.filter(classroom=classroom, is_active=True).count()
@@ -64,7 +64,7 @@ class TeacherMyClassesView(APIView):
                     'id': f'homeroom_{classroom.id}',
                     'classroom_id': classroom.id,
                     'classroom_name': str(classroom),
-                    'grade_level_name': classroom.name.name if classroom.name else '',
+                    'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
                     'student_count': student_count,
                 })
             return Response({
@@ -76,7 +76,7 @@ class TeacherMyClassesView(APIView):
         homeroom_classes = []
         homeroom_classrooms = ClassRoom.objects.filter(
             class_teacher=teacher
-        ).select_related('name')
+        ).select_related('grade_level')
 
         for classroom in homeroom_classrooms:
             # Count active students in this classroom
@@ -89,7 +89,7 @@ class TeacherMyClassesView(APIView):
                 'id': f'homeroom_{classroom.id}',
                 'classroom_id': classroom.id,
                 'classroom_name': str(classroom),
-                'grade_level_name': classroom.name.name if classroom.name else '',
+                'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
                 'student_count': student_count,
             })
 
@@ -117,7 +117,7 @@ class TeacherMyClassesView(APIView):
                 'classroom_name': str(classroom),
                 'subject_id': allocation.subject.id if allocation.subject else None,
                 'subject_name': str(allocation.subject) if allocation.subject else '',
-                'grade_level_name': classroom.name.name if classroom.name else '',
+                'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
                 'student_count': student_count,
                 'is_class_teacher': classroom.class_teacher == teacher,
                 'schedule': []
@@ -224,8 +224,8 @@ class ClassroomStudentsView(APIView):
                 'phone': student['parent_contact'] or student['phone_number'] or '',
                 'photo': student['image'] if student['image'] else None,
                 'status': 'active',
-                'grade_level_name': classroom.name.name if classroom.name else '',
-                'classroom_name': getattr(classroom, 'name_display', None) or (classroom.name.name if classroom.name else str(classroom)),
+                'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
+                'classroom_name': str(classroom),
                 'score': score_data['score'],
                 'remarks': score_data['remarks']
             })
@@ -395,7 +395,7 @@ class TeacherMyScheduleView(APIView):
             'classroom',
             'subject',
             'subject__subject',
-            'classroom__name'
+            'classroom__grade_level'
         ).order_by('day_of_week', 'start_time')
 
         # Apply day filter if provided
@@ -412,7 +412,7 @@ class TeacherMyScheduleView(APIView):
                 'end_time': period.end_time.strftime('%H:%M:%S') if period.end_time else '',
                 'subject_name': period.subject.subject.name if period.subject and period.subject.subject else '',
                 'classroom_name': str(period.classroom) if period.classroom else '',
-                'grade_level_name': period.classroom.name.name if period.classroom and period.classroom.name else '',
+                'grade_level_name': period.classroom.grade_level.name if period.classroom and period.classroom.grade_level else '',
                 'room_number': period.room_number or '',
                 'is_active': period.is_active
             })

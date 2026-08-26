@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from school.testcases import TenantTestCase
 
 from academic.models import (
-    AdmissionStatus, ClassLevel, ClassRoom, GradeLevel, Parent, Student,
+    AdmissionStatus, ClassRoom, GradeLevel, Parent, Student,
     StudentClassEnrollment,
 )
 from academic.services.admission_enrollment_service import AdmissionEnrollmentService
@@ -40,7 +40,6 @@ class AdmissionEnrollmentTests(TenantTestCase):
         self.assertEqual(student.parent_guardian.phone_number, application.parent_phone)
         self.assertFalse(student.can_login)
         self.assertEqual(student.classroom, self.classroom)
-        self.assertEqual(student.class_level, self.classroom.name)
         self.assertEqual(self.classroom.occupied_sits, 1)
         self.assertEqual(StudentClassEnrollment.objects.filter(student=student, is_active=True).count(), 1)
         self.assertTrue(student.parent_guardian.user.has_usable_password() is False)
@@ -93,8 +92,7 @@ class AdmissionEnrollmentTests(TenantTestCase):
         other_grade = GradeLevel.objects.create(
             system_code="JSS_2", section="JSS", default_name="JSS 2", sequence_order=12,
         )
-        other_level = ClassLevel.objects.create(name="JSS 2 Other", grade_level=other_grade)
-        other_room = ClassRoom.objects.create(name=other_level)
+        other_room = ClassRoom.objects.create(name="JSS 2 Other", grade_level=other_grade)
         application = make_application(self.session, self.grade, status=AdmissionStatus.ACCEPTED)
         with self.assertRaises(ValidationError):
             AdmissionEnrollmentService.enroll(

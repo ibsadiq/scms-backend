@@ -246,12 +246,14 @@ class MessageToTeacherSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     """
     Canonical serializer for Staff identities in school management workflows.
-    Minimizes exposure of sensitive user/HR data while providing all necessary
-    fields for holder selection and identification.
+    Provides complete employment identity details with permission-gated salary access.
     """
     full_name = serializers.CharField(read_only=True)
     first_name = serializers.SerializerMethodField(read_only=True)
+    middle_name = serializers.SerializerMethodField(read_only=True)
     last_name = serializers.SerializerMethodField(read_only=True)
+    email = serializers.SerializerMethodField(read_only=True)
+    phone_number = serializers.SerializerMethodField(read_only=True)
     department_name = serializers.SerializerMethodField(read_only=True)
     role_display = serializers.CharField(source="get_role_display", read_only=True)
 
@@ -262,10 +264,18 @@ class StaffSerializer(serializers.ModelSerializer):
             "staff_id",
             "full_name",
             "first_name",
+            "middle_name",
             "last_name",
+            "email",
+            "phone_number",
             "role",
             "role_display",
             "designation",
+            "academic_qualification",
+            "state",
+            "address",
+            "date_of_birth",
+            "salary",
             "department",
             "department_name",
             "image",
@@ -273,11 +283,16 @@ class StaffSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = fields
+        read_only_fields = ["id", "staff_id", "created_at", "updated_at"]
 
     def get_first_name(self, obj):
         if obj.user and obj.user.first_name:
             return obj.user.first_name
+        return ""
+
+    def get_middle_name(self, obj):
+        if obj.user and obj.user.middle_name:
+            return obj.user.middle_name
         return ""
 
     def get_last_name(self, obj):
@@ -285,9 +300,41 @@ class StaffSerializer(serializers.ModelSerializer):
             return obj.user.last_name
         return ""
 
+    def get_email(self, obj):
+        if obj.user and obj.user.email:
+            return obj.user.email
+        return None
+
+    def get_phone_number(self, obj):
+        if obj.user and obj.user.phone_number:
+            return obj.user.phone_number
+        return ""
+
     def get_department_name(self, obj):
         if obj.department and obj.department.name:
             return obj.department.name.title()
         return None
 
+    def validate_date_of_birth(self, value):
+        from django.utils import timezone
+        if value and value > timezone.now().date():
+            raise serializers.ValidationError("Date of birth cannot be in the future.")
+        return value
+
+    def validate_salary(self, value):
+        from academic.permissions import can_view_staff_salary
+        request = self.context.get("request")
+        if not request or not can_view_staff_salary(getattr(request, "user", None)):
+            raise serializers.ValidationError("You do not have permission to modify salary.")
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Salary cannot be negative.")
+        return value
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        from academic.permissions import can_view_staff_salary
+        request = self.context.get("request")
+        if not request or not can_view_staff_salary(getattr(request, "user", None), instance.user):
+            data.pop("salary", None)
+        return data
 

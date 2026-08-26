@@ -395,7 +395,7 @@ class UnroutedLegacyDirectMessageViewSet(viewsets.ModelViewSet):
             'parent_guardian',
             'parent_guardian__user',
             'classroom',
-            'classroom__name'
+            'classroom__grade_level'
         )
         if classroom_id:
             queryset = queryset.filter(classroom_id=classroom_id)

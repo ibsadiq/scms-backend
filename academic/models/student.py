@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from administration.models import AcademicYear, Term
 from administration.common_objs import GENDER_CHOICE, PARENT_CHOICE, RELIGION_CHOICE
-from .structure import GradeLevel, ClassLevel, ClassYear, ClassRoom, ReasonLeft
+from .structure import GradeLevel, ClassYear, ClassRoom, ReasonLeft
 
 
 class Parent(models.Model):
@@ -167,9 +167,20 @@ class Student(models.Model):
         ReasonLeft, blank=True, null=True, on_delete=models.SET_NULL
     )
 
-    class_level = models.ForeignKey(ClassLevel, blank=True, null=True, on_delete=models.SET_NULL)
     class_of_year = models.ForeignKey(ClassYear, blank=True, null=True, on_delete=models.SET_NULL)
     classroom = models.ForeignKey(ClassRoom, blank=True, null=True, on_delete=models.SET_NULL, related_name="students")
+
+    @property
+    def grade_level(self):
+        """Return the GradeLevel of the student's current active classroom."""
+        if self.classroom and hasattr(self.classroom, "grade_level"):
+            return self.classroom.grade_level
+        return None
+
+    @property
+    def class_level(self):
+        """Compatibility property returning the grade level."""
+        return self.grade_level
 
     gender = models.CharField(max_length=10, choices=GENDER_CHOICE, blank=True, null=True)
     religion = models.CharField(max_length=50, choices=RELIGION_CHOICE, blank=True, null=True)
@@ -591,9 +602,9 @@ class StudentPromotion(models.Model):
 
     def clean(self):
         if self.from_class and not self.from_grade:
-            self.from_grade = self.from_class.name.grade_level
+            self.from_grade = self.from_class.grade_level
         if self.to_class and not self.to_grade:
-            self.to_grade = self.to_class.name.grade_level
+            self.to_grade = self.to_class.grade_level
 
         if self.status in ["PROMOTED", "DOUBLE_PROMOTION", "PROMOTED_ON_TRIAL"]:
             if not self.to_class:
@@ -616,9 +627,9 @@ class StudentPromotion(models.Model):
 
     def save(self, *args, **kwargs):
         if self.from_class:
-            self.from_grade = self.from_class.name.grade_level
+            self.from_grade = self.from_class.grade_level
         if self.to_class:
-            self.to_grade = self.to_class.name.grade_level
+            self.to_grade = self.to_class.grade_level
 
         if self.status in ["GRADUATED", "WITHDRAWN"]:
             self.to_grade = None
@@ -741,11 +752,9 @@ class StudentClassEnrollment(models.Model):
         if self.academic_year.active_year:
             snapshots = {
                 "classroom": self.classroom if self.is_active else None,
-                "class_level": self.classroom.name if self.is_active else None,
             }
             Student.objects.filter(pk=student.pk).update(**snapshots)
             student.classroom = snapshots["classroom"]
-            student.class_level = snapshots["class_level"]
         return result
 
     @transaction.atomic
@@ -759,7 +768,7 @@ class StudentClassEnrollment(models.Model):
             classroom.occupied_sits -= 1
             classroom.save(update_fields=("occupied_sits",))
         if enrollment.academic_year.active_year and student.classroom_id == enrollment.classroom_id:
-            Student.objects.filter(pk=student.pk).update(classroom=None, class_level=None)
+            Student.objects.filter(pk=student.pk).update(classroom=None)
         return super().delete(*args, **kwargs)
 
     def delete_queryset(self, request, queryset):

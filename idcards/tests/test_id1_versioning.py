@@ -228,6 +228,13 @@ class ID1TemplateTenantIsolationTests(TenantTransactionTestCase):
 
 
 class ID1TemplateMigrationTests(TenantTransactionTestCase):
+    def tearDown(self):
+        try:
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
+        finally:
+            super().tearDown()
+
     def test_legacy_templates_and_cards_are_backfilled_without_layout_conversion(self):
         old_target = [("idcards", "0003_active_card_replacement")]
         new_target = [("idcards", "0004_template_versioning_foundation")]
@@ -236,7 +243,6 @@ class ID1TemplateMigrationTests(TenantTransactionTestCase):
         old_apps = executor.loader.project_state(old_target).apps
         Template = old_apps.get_model("idcards", "IDCardTemplate")
         Card = old_apps.get_model("idcards", "IDCard")
-        Student = old_apps.get_model("academic", "Student")
         original_front = v1()
         original_back = {"schema_version": 1, "elements": []}
         active = Template.objects.create(
@@ -247,11 +253,14 @@ class ID1TemplateMigrationTests(TenantTransactionTestCase):
             name="Legacy Inactive", holder_type="STUDENT", is_active=False,
             front_layout=copy.deepcopy(original_front), back_layout=copy.deepcopy(original_back),
         )
-        student = Student.objects.create(
-            first_name="Legacy", last_name="Holder", parent_contact="08000000000",
-            admission_number="LEGACY-ID1",
-        )
-        card = Card.objects.create(student=student, template=active, card_number="IDC-LEGACY-1")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'INSERT INTO "academic_student" (student_id, first_name, last_name, parent_contact, admission_number, is_active, can_login) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
+                ["STU-LEGACY001", "Legacy", "Holder", "08000000000", "LEGACY-ID1", True, False],
+            )
+            student_id = cursor.fetchone()[0]
+        card = Card.objects.create(student_id=student_id, template=active, card_number="IDC-LEGACY-1")
 
         executor = MigrationExecutor(connection)
         executor.migrate(new_target)

@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 
 from academic.models import Student
 from academic.tests.admissions_support import make_admissions_structure
+from tenants.models import TenantStatus
 from school.testcases import TenantTestCase
 
 
@@ -11,6 +12,7 @@ class StudentPortalActivationTests(TenantTestCase):
     @classmethod
     def setup_tenant(cls, tenant):
         tenant.auto_create_schema = True
+        tenant.status = TenantStatus.ACTIVE
 
     def setUp(self):
         _, _, classroom, _ = make_admissions_structure()
@@ -21,7 +23,6 @@ class StudentPortalActivationTests(TenantTestCase):
             parent_contact="08055550101",
             phone_number="08055550202",
             classroom=classroom,
-            class_level=classroom.name,
             can_login=False,
         )
         self.url = "/api/academic/students/auth/register/"

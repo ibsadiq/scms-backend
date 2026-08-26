@@ -20,11 +20,11 @@ class FeeAssignmentService:
                 ).values_list("student_id", flat=True)
             )
         grade_levels = list(fee_structure.grade_levels.all())
-        class_levels = list(fee_structure.class_levels.all())
+        classrooms = list(fee_structure.classrooms.all())
         if grade_levels:
-            students = students.filter(classroom__class_level__grade_level__in=grade_levels)
-        if class_levels:
-            students = students.filter(classroom__class_level__in=class_levels)
+            students = students.filter(classroom__grade_level__in=grade_levels)
+        if classrooms:
+            students = students.filter(classroom__in=classrooms)
 
         terms = [fee_structure.term] if fee_structure.term_id else [term] if term else list(
             Term.objects.filter(academic_year=fee_structure.academic_year).order_by("start_date")[:1]

@@ -15,7 +15,6 @@ from django.core.exceptions import ValidationError
 from academic.models import (
     Student,
     ClassRoom,
-    ClassLevel,
     PromotionRule,
     StudentPromotion,
     Subject
@@ -487,15 +486,15 @@ class PromotionService:
         Returns:
             List of evaluation dictionaries
         """
-        # Get promotion rule for this classroom's class level
+        # Get promotion rule for this classroom's grade level
         try:
             promotion_rule = PromotionRule.objects.get(
-                from_class_level=classroom.name,
+                from_grade=classroom.grade_level,
                 is_active=True
             )
         except PromotionRule.DoesNotExist:
             raise ValidationError(
-                f"No active promotion rule found for class level: {classroom.name}"
+                f"No active promotion rule found for grade level: {classroom.grade_level}"
             )
 
         # Get all students in the classroom

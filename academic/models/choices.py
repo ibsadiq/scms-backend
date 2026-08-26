@@ -22,6 +22,7 @@ class StandardClassCode(models.TextChoices):
     PRE_NURSERY = "PRE_NURSERY", _("Pre-Nursery")
     NURSERY_1 = "NURSERY_1", _("Nursery 1")
     NURSERY_2 = "NURSERY_2", _("Nursery 2")
+    NURSERY_3 = "NURSERY_3", _("Nursery 3")
 
     # 2. Primary (Basic)
     BASIC_1 = "BASIC_1", _("Basic 1 (Primary 1)")

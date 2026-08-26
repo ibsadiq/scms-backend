@@ -23,9 +23,7 @@ class TermResultServiceTestCase(TestCase):
         self.term = Term.objects.create(academic_year=self.academic_year, name="Term 1", start_date="2024-09-01", end_date="2024-12-15")
         
         self.grade_level = GradeLevel.objects.create(system_code="JSS_1", default_name="JSS 1", section="JSS", sequence_order=1)
-        from academic.models import ClassLevel
-        self.class_level = ClassLevel.objects.create(name="JSS 1A", grade_level=self.grade_level)
-        self.classroom = ClassRoom.objects.create(name=self.class_level)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=self.grade_level)
         self.subject = Subject.objects.create(name="Mathematics", subject_code="MTH")
         self.subject2 = Subject.objects.create(name="English", subject_code="ENG")
         

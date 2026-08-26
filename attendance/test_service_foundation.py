@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from school.testcases import TenantTestCase
 
-from academic.models import ClassLevel, ClassRoom, GradeLevel, Staff, Student
+from academic.models import ClassRoom, GradeLevel, Staff, Student
 from administration.models import AcademicYear, Term
 from attendance.models import AttendanceEvent, AttendancePolicy, StaffAttendance, StudentAttendance
 from attendance.services import AttendanceEventService, StaffAttendanceService, StudentAttendanceService
@@ -31,8 +31,7 @@ class AttendanceServiceFoundationTests(TenantTestCase):
         grade = GradeLevel.objects.create(
             system_code="JSS_1", section="JSS", default_name="JSS 1", sequence_order=1
         )
-        level = ClassLevel.objects.create(name="JSS 1 A", grade_level=grade)
-        self.classroom = ClassRoom.objects.create(name=level)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=grade)
         self.student = Student.objects.create(
             first_name="Ibrahim", last_name="Musa", parent_contact="08010000001", classroom=self.classroom
         )

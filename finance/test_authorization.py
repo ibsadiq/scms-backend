@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from school.testcases import TenantTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from academic.models import ClassLevel, ClassRoom, GradeLevel, Parent, Student
+from academic.models import ClassRoom, GradeLevel, Parent, Student
 from administration.models import AcademicYear, Term
 from finance.models import FeeStructure, Receipt, StudentFeeAssignment
 from finance.views import ReceiptViewSet, StudentFeeAssignmentViewSet
@@ -31,8 +31,7 @@ class FinanceAuthorizationTests(TenantTestCase):
         year = AcademicYear.objects.create(name='2026/2027', start_date=date(2026, 9, 1), end_date=date(2027, 7, 1), active_year=True)
         term = Term.objects.create(name='First', academic_year=year, start_date=date(2026, 9, 1), end_date=date(2026, 12, 1))
         grade = GradeLevel.objects.create(system_code='JSS_1', section='JSS', default_name='JSS 1', sequence_order=1)
-        level = ClassLevel.objects.create(name='JSS 1 A', grade_level=grade)
-        classroom = ClassRoom.objects.create(name=level)
+        classroom = ClassRoom.objects.create(name='A', grade_level=grade)
         self.own_student = Student.objects.create(user=self.student_user, first_name='Own', last_name='Student', parent_contact=parent.phone_number, classroom=classroom)
         self.other_student = Student.objects.create(first_name='Other', last_name='Student', parent_contact='08000000103', classroom=classroom)
         fee = FeeStructure.objects.create(name='Tuition', amount=Decimal('1000'), academic_year=year, term=term, created_by=self.admin)

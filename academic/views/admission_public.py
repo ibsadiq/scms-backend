@@ -25,10 +25,10 @@ from academic.models import (
     AdmissionApplication,
     AdmissionDocument,
     AdmissionStatus,
-    ClassLevel,
+    GradeLevel,
 )
 from academic.serializers import (
-    ClassLevelSerializer,
+    GradeLevelSerializer,
     AdmissionSessionPublicSerializer,
     AdmissionFeeStructurePublicSerializer,
     AdmissionApplicationCreateSerializer,
@@ -669,15 +669,15 @@ class PublicAdmissionDocumentViewSet(viewsets.GenericViewSet):
         }, status=status.HTTP_204_NO_CONTENT)
 
 
-class PublicClassLevelViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+class PublicGradeLevelViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """
     Public endpoint to view available classes for application.
 
     GET /api/public/admissions/classes/ - List available classes
     """
     permission_classes = [AllowAny]
-    queryset = ClassLevel.objects.none()
-    serializer_class = ClassLevelSerializer
+    queryset = GradeLevel.objects.none()
+    serializer_class = GradeLevelSerializer
 
     def list(self, request):
         """List classes available for admission in active session"""

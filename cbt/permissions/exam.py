@@ -58,8 +58,8 @@ class CanManageCBTExam(BasePermission):
 
         # Check leadership authority
         section = None
-        if classroom and hasattr(classroom.name, "grade_level"):
-            section = classroom.name.grade_level.section
+        if classroom and hasattr(classroom, "grade_level") and classroom.grade_level:
+            section = classroom.grade_level.section
 
         academic_year = None
         session = getattr(obj, "session", None)
@@ -96,8 +96,8 @@ class CanPublishCBTExam(BasePermission):
         creator = getattr(obj, "created_by", None)
 
         section = None
-        if classroom and hasattr(classroom.name, "grade_level"):
-            section = classroom.name.grade_level.section
+        if classroom and hasattr(classroom, "grade_level") and classroom.grade_level:
+            section = classroom.grade_level.section
 
         academic_year = None
         session = getattr(obj, "session", None)

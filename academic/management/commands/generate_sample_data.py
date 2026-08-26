@@ -20,7 +20,7 @@ except ImportError:
 
 from users.models import CustomUser
 from academic.models import (
-    Department, Subject, GradeLevel, ClassLevel, ClassYear,
+    Department, Subject, GradeLevel, ClassYear,
     ClassRoom, Teacher, Parent, Student, StudentClassEnrollment,
     AllocatedSubject, Dormitory, ReasonLeft
 )
@@ -247,23 +247,7 @@ class Command(BaseCommand):
                 self.subjects.append(subject)
 
     def create_grade_levels(self):
-        self.stdout.write("3. Fetching Grade Levels and creating Class Levels...")
-        # Assume GradeLevel.initialize_defaults() ran, fetch them
-        jss1 = GradeLevel.objects.get(system_code='JSS_1')
-        jss2 = GradeLevel.objects.get(system_code='JSS_2')
-        jss3 = GradeLevel.objects.get(system_code='JSS_3')
-        ss1 = GradeLevel.objects.get(system_code='SS_1')
-        ss2 = GradeLevel.objects.get(system_code='SS_2')
-        ss3 = GradeLevel.objects.get(system_code='SS_3')
-        
-        classes = [
-            ('JSS 1A', jss1), ('JSS 1B', jss1), ('JSS 2A', jss2),
-            ('JSS 3A', jss3), ('SS 1A', ss1), ('SS 2A', ss2), ('SS 3A', ss3)
-        ]
-        
-        for cl_name, gl in classes:
-            ClassLevel.objects.get_or_create(name=cl_name, defaults={'grade_level': gl})
-
+        self.stdout.write("3. Initializing Class Years...")
         # Class years
         current_year = datetime.now().year
         for i in range(-1, 6):
@@ -380,11 +364,22 @@ class Command(BaseCommand):
 
     def create_classrooms(self):
         self.stdout.write("6. Creating Classrooms...")
-        class_levels = list(ClassLevel.objects.all())
+        jss1 = GradeLevel.objects.get(system_code='JSS_1')
+        jss2 = GradeLevel.objects.get(system_code='JSS_2')
+        jss3 = GradeLevel.objects.get(system_code='JSS_3')
+        ss1 = GradeLevel.objects.get(system_code='SS_1')
+        ss2 = GradeLevel.objects.get(system_code='SS_2')
+        ss3 = GradeLevel.objects.get(system_code='SS_3')
+
+        classes = [
+            ('A', jss1), ('B', jss1), ('A', jss2),
+            ('A', jss3), ('A', ss1), ('A', ss2), ('A', ss3)
+        ]
         t_idx = 0
-        for cl in class_levels:
+        for name, gl in classes:
             classroom, _ = ClassRoom.objects.get_or_create(
-                name=cl,
+                name=name,
+                grade_level=gl,
                 defaults={'class_teacher': self.teachers[t_idx % len(self.teachers)], 'capacity': 50}
             )
             self.classrooms.append(classroom)
@@ -716,7 +711,7 @@ class Command(BaseCommand):
         
     def _fill_scores(self, session, partial=False):
         for classroom in self.classrooms:
-            gl = classroom.name.grade_level
+            gl = classroom.grade_level
             scheme = GradingScheme.objects.filter(grade_level=gl, academic_year=self.academic_year).first()
             if not scheme:
                 continue

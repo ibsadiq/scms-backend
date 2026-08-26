@@ -1,7 +1,7 @@
 from django.db.models import Q
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
-from academic.models import AllocatedSubject, Student
+from academic.models import AllocatedSubject, ClassRoom, Student
 from academic.services.academic_authority_service import AcademicAuthorityService
 
 
@@ -13,13 +13,15 @@ def teacher_classroom_ids(user):
     teacher = getattr(user, "teacher", None)
     if not teacher:
         return []
-    return list(
+    allocated_ids = list(
         AllocatedSubject.objects.filter(teacher_name=teacher)
         .values_list("class_room_id", flat=True)
-        .union(
-            teacher.classroom_set.values_list("id", flat=True)
-        )
     )
+    homeroom_ids = list(
+        ClassRoom.objects.filter(class_teacher=teacher)
+        .values_list("id", flat=True)
+    )
+    return list(set(allocated_ids + homeroom_ids))
 
 
 def student_ids_for_user(user):

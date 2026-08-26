@@ -1,3 +1,4 @@
+from django.db import connection
 from django.urls import reverse
 from django_tenants.utils import schema_context
 
@@ -26,6 +27,7 @@ class ReportScopingTests(ReportsTestCase):
                 pk=900001, first_name="Other Tenant", last_name="Student",
                 parent_contact="08095550999",
             ).pk
+        connection.set_tenant(cls.tenant)
 
     @classmethod
     def tearDownClass(cls):
@@ -51,17 +53,17 @@ class ReportScopingTests(ReportsTestCase):
         self.assertEqual(response.data["results"], [])
         response = self.get_as(
             self.teacher_user, reverse("academic-report"),
-            {"class_level": self.other_class.name_id},
+            {"classroom": self.other_class.pk},
         )
         self.assertEqual(response.data["results"], [])
 
     def test_teacher_attendance_is_assigned_classroom_only(self):
         response = self.get_as(self.teacher_user, reverse("attendance-report"))
         names = {row["class_name"] for row in response.data["records"]}
-        self.assertEqual(names, {self.own_class.name.name})
+        self.assertEqual(names, {self.own_class.name})
         response = self.get_as(
             self.teacher_user, reverse("attendance-report"),
-            {"class_level": self.other_class.name_id},
+            {"classroom": self.other_class.pk},
         )
         self.assertEqual(response.data["records"], [])
 

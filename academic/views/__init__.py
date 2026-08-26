@@ -1,8 +1,6 @@
 from .structure import (
     DepartmentListCreateView,
     DepartmentDetailView,
-    ClassLevelListCreateView,
-    ClassLevelDetailView,
     SchoolSectionListView,
     SchoolSectionDetailView,
     GradeLevelListCreateView,
@@ -60,7 +58,7 @@ from .admission_public import (
     PublicAdmissionFeeStructureViewSet,
     PublicAdmissionApplicationViewSet,
     PublicAdmissionDocumentViewSet,
-    PublicClassLevelViewSet,
+    PublicGradeLevelViewSet,
 )
 
 from .promotions import (
@@ -99,8 +97,6 @@ __all__ = [
     # Structure
     "DepartmentListCreateView",
     "DepartmentDetailView",
-    "ClassLevelListCreateView",
-    "ClassLevelDetailView",
     "SchoolSectionListView",
     "SchoolSectionDetailView",
     "GradeLevelListCreateView",
@@ -146,7 +142,7 @@ __all__ = [
     "PublicAdmissionFeeStructureViewSet",
     "PublicAdmissionApplicationViewSet",
     "PublicAdmissionDocumentViewSet",
-    "PublicClassLevelViewSet",
+    "PublicGradeLevelViewSet",
     # Promotions
     "PromotionRuleViewSet",
     "StudentPromotionViewSet",

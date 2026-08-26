@@ -39,7 +39,7 @@ class CBTExamViewSet(viewsets.ModelViewSet):
         "session",
         "component",
         "subject",
-        "classroom__name",
+        "classroom__grade_level",
         "created_by__user",
         "blueprint",
     ).prefetch_related(
@@ -270,7 +270,7 @@ class CBTExamViewSet(viewsets.ModelViewSet):
         """
         user = request.user
         qs = CBTExam.objects.filter(status=CBTExamStatus.READY).select_related(
-            "session", "component", "subject", "classroom__name", "created_by__user"
+            "session", "component", "subject", "classroom__grade_level", "created_by__user"
         )
 
         if not AcademicAuthorityService.is_school_admin(user):
@@ -281,8 +281,8 @@ class CBTExamViewSet(viewsets.ModelViewSet):
             authorized_ids = []
             for exam in qs:
                 section = None
-                if exam.classroom and hasattr(exam.classroom.name, "grade_level"):
-                    section = exam.classroom.name.grade_level.section
+                if exam.classroom and exam.classroom.grade_level:
+                    section = exam.classroom.grade_level.section
                 academic_year = None
                 if exam.session and hasattr(exam.session, "academic_year"):
                     academic_year = exam.session.academic_year

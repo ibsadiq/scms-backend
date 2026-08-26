@@ -60,8 +60,8 @@ class CanGradeCBTExam(BasePermission):
 
         # Check leadership authority
         section = None
-        if classroom and hasattr(classroom.name, "grade_level"):
-            section = classroom.name.grade_level.section
+        if classroom and hasattr(classroom, "grade_level") and classroom.grade_level:
+            section = classroom.grade_level.section
 
         academic_year = None
         if exam.session and hasattr(exam.session, "academic_year"):
@@ -126,8 +126,8 @@ class CanPostCBTResult(BasePermission):
                 return True
 
         section = None
-        if classroom and hasattr(classroom.name, "grade_level"):
-            section = classroom.name.grade_level.section
+        if classroom and hasattr(classroom, "grade_level") and classroom.grade_level:
+            section = classroom.grade_level.section
 
         academic_year = None
         if exam.session and hasattr(exam.session, "academic_year"):

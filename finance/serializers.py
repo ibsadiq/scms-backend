@@ -77,7 +77,6 @@ class ParentFeesResponseSerializer(serializers.Serializer):
     children_fees = ParentChildFeesSerializer(many=True)
 # from academic.models import Student
 # from administration.models import Term, AcademicYear
-# from academic.models import GradeLevel, ClassLevel
 
 
 
@@ -111,9 +110,7 @@ class ServiceSubscriptionSerializer(serializers.ModelSerializer):
         if not obj.student:
             return None
         if hasattr(obj.student, 'classroom') and obj.student.classroom:
-            return getattr(obj.student.classroom, 'name_display', None) or (obj.student.classroom.name.name if obj.student.classroom.name else str(obj.student.classroom))
-        if hasattr(obj.student, 'class_level') and obj.student.class_level:
-            return obj.student.class_level.name
+            return str(obj.student.classroom)
         return None
 
 
@@ -129,7 +126,7 @@ class FeeStructureSerializer(serializers.ModelSerializer):
         allow_null=True
     )
     grade_level_names = serializers.SerializerMethodField()
-    class_level_names = serializers.SerializerMethodField()
+    classroom_names = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -145,8 +142,8 @@ class FeeStructureSerializer(serializers.ModelSerializer):
             'term_name',
             'grade_levels',
             'grade_level_names',
-            'class_levels',
-            'class_level_names',
+            'classrooms',
+            'classroom_names',
             'optional_service',
             'is_mandatory',
             'due_date',
@@ -159,11 +156,11 @@ class FeeStructureSerializer(serializers.ModelSerializer):
 
     def get_grade_level_names(self, obj):
         """Return list of grade level names."""
-        return [grade.default_name for grade in obj.grade_levels.all()]
+        return [grade.alias or grade.default_name for grade in obj.grade_levels.all()]
 
-    def get_class_level_names(self, obj):
-        """Return list of class level names."""
-        return [cls.name for cls in obj.class_levels.all()]
+    def get_classroom_names(self, obj):
+        """Return list of classroom names."""
+        return [cls.name for cls in obj.classrooms.all()]
 
     def get_created_by_name(self, obj):
         if obj.created_by:

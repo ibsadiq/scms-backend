@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from school.testcases import TenantTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from academic.models import AllocatedSubject, ClassLevel, ClassRoom, GradeLevel, Parent, Student, Subject, Teacher
+from academic.models import AllocatedSubject, ClassRoom, GradeLevel, Parent, Student, Subject, Teacher
 from administration.models import AcademicYear, Term
 from attendance.models import AttendanceEvent, StudentAttendance, TeachersAttendance
 from attendance.services import StudentAttendanceService
@@ -19,6 +19,7 @@ class AttendanceAuthorizationTests(TenantTestCase):
     @classmethod
     def setup_tenant(cls, tenant):
         tenant.auto_create_schema = True
+        tenant.status = "active"
         return super().setup_tenant(tenant)
 
     def setUp(self):
@@ -32,10 +33,8 @@ class AttendanceAuthorizationTests(TenantTestCase):
         year = AcademicYear.objects.create(name="2026/2027", start_date=date(2026, 9, 1), end_date=date(2027, 7, 1), active_year=True)
         self.term = Term.objects.create(name="First", academic_year=year, start_date=date(2026, 9, 1), end_date=date(2026, 12, 1))
         grade = GradeLevel.objects.create(system_code="JSS_1", section="JSS", default_name="JSS 1", sequence_order=1)
-        level_a = ClassLevel.objects.create(name="JSS 1 A", grade_level=grade)
-        level_b = ClassLevel.objects.create(name="JSS 1 B", grade_level=grade)
-        self.assigned_class = ClassRoom.objects.create(name=level_a, class_teacher=self.teacher)
-        self.other_class = ClassRoom.objects.create(name=level_b)
+        self.assigned_class = ClassRoom.objects.create(name="A", grade_level=grade, class_teacher=self.teacher)
+        self.other_class = ClassRoom.objects.create(name="B", grade_level=grade)
         subject = Subject.objects.create(name="Mathematics", subject_code="MTH")
         AllocatedSubject.objects.create(teacher_name=self.teacher, subject=subject, academic_year=year, term=self.term, class_room=self.assigned_class, weekly_periods=3)
         self.own_student = Student.objects.create(user=self.student_user, first_name="Own", last_name="Student", parent_contact=self.parent.phone_number, classroom=self.assigned_class)

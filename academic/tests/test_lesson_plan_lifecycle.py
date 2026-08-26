@@ -1,7 +1,7 @@
 from django.urls import reverse
 from school.testcases import TenantTestCase
 from rest_framework.test import APIClient
-from academic.models import LessonPlan, LessonPlanStatus, Teacher, Subject, Curriculum, CurriculumSubject, GradeLevel, SchoolSection, Term, ClassLevel, ClassRoom, AllocatedSubject, SchemeOfWork, SchemeOfWorkItem, CurriculumTopic, Topic, SchemeOfWorkStatus
+from academic.models import LessonPlan, LessonPlanStatus, Teacher, Subject, Curriculum, CurriculumSubject, GradeLevel, SchoolSection, Term, ClassRoom, AllocatedSubject, SchemeOfWork, SchemeOfWorkItem, CurriculumTopic, Topic, SchemeOfWorkStatus
 from administration.models import AcademicYear
 from users.models import CustomUser
 from tenants.models import TenantStatus
@@ -25,8 +25,7 @@ class LessonPlanLifecycleTests(TenantTestCase):
 
         self.section = SchoolSection.objects.create(system_code="SENIOR_SECONDARY", default_name="Secondary", sequence_order=4)
         self.grade = GradeLevel.objects.create(system_code="SS_1", default_name="SS 1", section="SSS", sequence_order=14)
-        self.classlevel = ClassLevel.objects.create(name="SS 1A", grade_level=self.grade)
-        self.classroom = ClassRoom.objects.create(name=self.classlevel)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=self.grade)
         self.year = AcademicYear.objects.create(name="2023/2024", start_date="2023-09-01", end_date="2024-07-31", active_year=True)
         self.term = Term.objects.create(name="First Term", academic_year=self.year, start_date="2023-09-01", end_date="2023-12-15")
         self.subject = Subject.objects.create(name="Mathematics")

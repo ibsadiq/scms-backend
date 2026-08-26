@@ -8,7 +8,6 @@ from academic.models import (
     Subject,
     Teacher,
     GradeLevel,
-    ClassLevel,
     ClassRoom,
     Curriculum,
     CurriculumSubject,
@@ -141,15 +140,13 @@ class CBTAPITestBase(TestCase):
             section=SectionType.JUNIOR_SECONDARY,
             sequence_order=11,
         )
-        self.class_level_jss1 = ClassLevel.objects.create(
-            name="JSS 1",
+        self.classroom_jss1 = ClassRoom.objects.create(
+            name="A",
             grade_level=self.grade_jss1,
         )
-        self.classroom_jss1 = ClassRoom.objects.create(
-            name=self.class_level_jss1,
-        )
         self.classroom_jss2 = ClassRoom.objects.create(
-            name=self.class_level_jss1,
+            name="B",
+            grade_level=self.grade_jss1,
         )
 
         # Students & Enrollments
@@ -161,7 +158,6 @@ class CBTAPITestBase(TestCase):
             last_name="Student",
             parent_contact="08012345678",
             classroom=self.classroom_jss1,
-            class_level=self.class_level_jss1,
         )
         self.enrollment = StudentClassEnrollment.objects.create(
             student=self.student,
@@ -178,7 +174,6 @@ class CBTAPITestBase(TestCase):
             last_name="Student",
             parent_contact="08087654321",
             classroom=self.classroom_jss2,
-            class_level=self.class_level_jss1,
         )
         self.other_enrollment = StudentClassEnrollment.objects.create(
             student=self.other_student,

@@ -8,7 +8,6 @@ from academic.models import (
     Subject,
     Teacher,
     GradeLevel,
-    ClassLevel,
     ClassRoom,
     Curriculum,
     CurriculumSubject,
@@ -139,15 +138,8 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             sequence_order=5,
         )
 
-        self.class_level_jss1 = ClassLevel.objects.create(
-            name="JSS 1A", grade_level=self.grade_jss1
-        )
-        self.classroom_jss1 = ClassRoom.objects.create(name=self.class_level_jss1)
-
-        self.class_level_pri1 = ClassLevel.objects.create(
-            name="Basic 1A", grade_level=self.grade_pri1
-        )
-        self.classroom_pri1 = ClassRoom.objects.create(name=self.class_level_pri1)
+        self.classroom_jss1 = ClassRoom.objects.create(name="A", grade_level=self.grade_jss1)
+        self.classroom_pri1 = ClassRoom.objects.create(name="A", grade_level=self.grade_pri1)
 
         # Curriculum
         self.curriculum = Curriculum.objects.create(name="National Curriculum")

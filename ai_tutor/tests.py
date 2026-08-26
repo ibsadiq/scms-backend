@@ -7,7 +7,6 @@ from academic.models import (
     Subject,
     Teacher,
     Student,
-    ClassLevel,
     ClassRoom,
     AllocatedSubject,
     StudentClassEnrollment,
@@ -117,11 +116,7 @@ class AITutorDomainTests(TestCase):
             section="JSS",
             sequence_order=1,
         )
-        self.class_level = ClassLevel.objects.create(
-            name="JSS 1A",
-            grade_level=self.grade_level,
-        )
-        self.classroom = ClassRoom.objects.create(name=self.class_level)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=self.grade_level)
 
         self.enrollment = StudentClassEnrollment.objects.create(
             student=self.student,
@@ -157,7 +152,7 @@ class AITutorDomainTests(TestCase):
         self.curriculum = Curriculum.objects.create(name="National Curriculum")
         self.curr_sub = CurriculumSubject.objects.create(
             curriculum=self.curriculum,
-            grade_level=self.class_level.grade_level,
+            grade_level=self.grade_level,
             subject=self.subject,
         )
         self.topic = Topic.objects.create(

@@ -328,15 +328,22 @@ class LoginResponseSerializer(UserSerializer):
 
 
 class TeacherSerializer(serializers.ModelSerializer):
-    # Explicitly declare user-related fields (these are properties on Teacher model)
+    # Explicitly declare user-related fields
     email = serializers.EmailField(required=True)
     first_name = serializers.CharField(required=True, max_length=100)
-    middle_name = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    middle_name = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
     last_name = serializers.CharField(required=True, max_length=100)
-    phone_number = serializers.CharField(required=False, allow_blank=True, max_length=15)
+    phone_number = serializers.CharField(required=False, allow_blank=True, max_length=15, default="")
     username = serializers.CharField(required=False, allow_blank=True, read_only=True)
     gender = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    # Canonical Staff employment fields
     date_of_birth = serializers.DateField(required=False, allow_null=True)
+    academic_qualification = serializers.CharField(required=False, allow_blank=True, max_length=255, default="")
+    state = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
+    address = serializers.CharField(required=False, allow_blank=True, max_length=255, default="")
+    designation = serializers.CharField(required=False, allow_blank=True, max_length=255, default="")
+    salary = serializers.DecimalField(required=False, allow_null=True, max_digits=12, decimal_places=2)
 
     subject_specialization = serializers.ListField(
         child=serializers.CharField(), write_only=True, required=True
@@ -360,26 +367,45 @@ class TeacherSerializer(serializers.ModelSerializer):
             "short_name",
             "subject_specialization",
             "subject_specialization_display",
-            "address",
             "gender",
             "national_id",
             "tin_number",
             "date_of_birth",
+            "academic_qualification",
+            "state",
+            "address",
+            "designation",
+            "salary",
             "image",
             "send_invitation",
         ]
 
+    def validate_date_of_birth(self, value):
+        from django.utils import timezone
+        if value and value > timezone.now().date():
+            raise serializers.ValidationError("Date of birth cannot be in the future.")
+        return value
+
+    def validate_salary(self, value):
+        from academic.permissions import can_view_staff_salary
+        request = self.context.get("request")
+        if not request or not can_view_staff_salary(getattr(request, "user", None)):
+            raise serializers.ValidationError("You do not have permission to modify salary.")
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Salary cannot be negative.")
+        return value
 
     def validate_email(self, value):
         request = self.context.get("request", None)
         teacher_id = (
             self.instance.id if self.instance else None
-        )  # Get teacher ID if updating
+        )
 
-        # Check if email already exists in CustomUser
-        if CustomUser.objects.filter(email=value).exists():
-            # If updating, check if it's the same user
+        existing_user = CustomUser.objects.filter(email=value).first()
+        if existing_user:
             if self.instance and self.instance.user and self.instance.user.email == value:
+                return value
+            if not self.instance and not Teacher.objects.filter(user=existing_user).exists():
                 return value
             raise serializers.ValidationError(
                 "A user with this email already exists."
@@ -390,12 +416,18 @@ class TeacherSerializer(serializers.ModelSerializer):
     def validate_phone_number(self, value):
         teacher_id = (
             self.instance.id if self.instance else None
-        )  # Get teacher ID if updating
+        )
 
-        # Check if phone number already exists in CustomUser
         if value and CustomUser.objects.filter(phone_number=value).exists():
-            # If updating, check if it's the same user
             if self.instance and self.instance.user and self.instance.user.phone_number == value:
+                return value
+            existing_user = CustomUser.objects.filter(phone_number=value).first()
+            if (
+                not self.instance
+                and existing_user
+                and existing_user.email == self.initial_data.get("email")
+                and not Teacher.objects.filter(user=existing_user).exists()
+            ):
                 return value
             raise serializers.ValidationError(
                 "A user with this phone number already exists."
@@ -404,38 +436,28 @@ class TeacherSerializer(serializers.ModelSerializer):
         return value
 
     def validate_subject_specialization(self, value):
-        """
-        Validate that all subjects in the input exist in the database.
-        Accepts both subject names (strings) and subject IDs (numbers).
-        Ensure it works for both create and update operations.
-        """
         if not isinstance(value, list):
             raise serializers.ValidationError(
                 "Subject specialization should be a list of subject names or IDs."
             )
 
-        # Separate into names and IDs
         subject_names = [v for v in value if isinstance(v, str)]
         subject_ids = [int(v) for v in value if str(v).isdigit()]
 
         existing_subjects = Subject.objects.none()
 
-        # Query by names if any
         if subject_names:
             existing_subjects = existing_subjects | Subject.objects.filter(name__in=subject_names)
 
-        # Query by IDs if any
         if subject_ids:
             existing_subjects = existing_subjects | Subject.objects.filter(id__in=subject_ids)
 
         existing_subjects = existing_subjects.distinct()
 
-        # Check if we found all requested subjects
         found_count = existing_subjects.count()
         requested_count = len(value)
 
         if found_count != requested_count:
-            # Identify what wasn't found
             found_names = set(existing_subjects.values_list("name", flat=True))
             found_ids = set(existing_subjects.values_list("id", flat=True))
             missing = []
@@ -448,107 +470,157 @@ class TeacherSerializer(serializers.ModelSerializer):
                 f"The following subjects do not exist: {', '.join(missing)}"
             )
 
-        return existing_subjects  # Return the queryset instead of a list of names/ids
+        return existing_subjects
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        staff = instance.staff
+        if staff:
+            data["date_of_birth"] = staff.date_of_birth
+            data["academic_qualification"] = staff.academic_qualification
+            data["state"] = staff.state
+            data["address"] = staff.address
+            data["designation"] = staff.designation
+            data["salary"] = staff.salary
+
+        from academic.permissions import can_view_staff_salary
+        request = self.context.get("request")
+        if not request or not can_view_staff_salary(getattr(request, "user", None), instance.user):
+            data.pop("salary", None)
+        return data
 
     @transaction.atomic
     def create(self, validated_data):
-        from django.utils.crypto import get_random_string
+        from academic.models import Staff
 
         subject_specialization_data = validated_data.pop("subject_specialization")
         send_invitation = validated_data.pop("send_invitation", False)
 
-        # Extract user fields (these are properties on Teacher, not actual fields)
-        email = validated_data.pop('email', None)
-        first_name = validated_data.pop('first_name', '')
-        middle_name = validated_data.pop('middle_name', '')
-        last_name = validated_data.pop('last_name', '')
-        phone_number = validated_data.pop('phone_number', '')
-        username = validated_data.pop('username', None)
-        gender = validated_data.pop('gender', None)
-        date_of_birth = validated_data.pop('date_of_birth', None)
+        # Extract user fields
+        email = validated_data.pop("email", None)
+        first_name = validated_data.pop("first_name", "")
+        middle_name = validated_data.pop("middle_name", "")
+        last_name = validated_data.pop("last_name", "")
+        phone_number = validated_data.pop("phone_number", "")
+        username = validated_data.pop("username", None)
+        gender = validated_data.pop("gender", None)
 
-        # Get empId for password generation
-        empId = validated_data.get('empId')
+        # Extract canonical Staff fields
+        has_date_of_birth = "date_of_birth" in validated_data
+        has_salary = "salary" in validated_data
+        date_of_birth = validated_data.pop("date_of_birth", None)
+        academic_qualification = validated_data.pop("academic_qualification", "")
+        state = validated_data.pop("state", "")
+        address = validated_data.pop("address", "")
+        designation = validated_data.pop("designation", "")
+        salary = validated_data.pop("salary", None)
 
-        # Email is required for user creation
+        empId = validated_data.get("empId")
+        image = validated_data.get("image")
+
         if not email:
             raise serializers.ValidationError({"email": "Email is required to create a teacher."})
 
-        # Check if a teacher with this email already exists
         existing_teacher = Teacher.objects.filter(user__email=email).first()
         if existing_teacher:
             raise serializers.ValidationError({
                 "email": f"A teacher with email '{email}' already exists (Emp ID: {existing_teacher.empId})."
             })
 
-        # Create or get CustomUser for the teacher
         user, created = CustomUser.objects.get_or_create(
             email=email,
             defaults={
-                'first_name': first_name,
-                'middle_name': middle_name,
-                'last_name': last_name,
-                'phone_number': phone_number,
-                'is_teacher': True,
+                "first_name": first_name,
+                "middle_name": middle_name,
+                "last_name": last_name,
+                "phone_number": phone_number,
+                "is_teacher": True,
             }
         )
 
         if created:
-            # Set default password for new users
             default_password = f"Complex.{empId[-4:] if empId and len(empId) >= 4 else '0000'}"
             user.set_password(default_password)
             user.save()
 
-            # Add user to "teacher" group
-            group, _ = Group.objects.get_or_create(name='teacher')
+            group, _ = Group.objects.get_or_create(name="teacher")
             user.groups.add(group)
         else:
-            # Update existing user to ensure they're marked as teacher
             if not user.is_teacher:
                 user.is_teacher = True
-                user.save()
+                user.save(update_fields=["is_teacher"])
 
-                # Add to teacher group
-                group, _ = Group.objects.get_or_create(name='teacher')
+                group, _ = Group.objects.get_or_create(name="teacher")
                 user.groups.add(group)
 
-        # Create teacher with the linked user (only include Teacher model fields)
-        teacher = Teacher.objects.create(user=user, **validated_data)
-        # subject_specialization_data is already a queryset from validation
+        # Create or update Staff record as canonical employee
+        staff = Staff.objects.filter(user=user).first()
+        if not staff:
+            staff = Staff(
+                user=user,
+                role=Staff.Role.TEACHER,
+                designation=designation or "Teacher",
+                academic_qualification=academic_qualification,
+                state=state,
+                address=address,
+                date_of_birth=date_of_birth,
+                salary=salary,
+                image=image,
+                is_active=True,
+            )
+            staff.save()
+        else:
+            if has_date_of_birth:
+                staff.date_of_birth = date_of_birth
+            if academic_qualification:
+                staff.academic_qualification = academic_qualification
+            if state:
+                staff.state = state
+            if address:
+                staff.address = address
+            if designation:
+                staff.designation = designation
+            if salary is not None:
+                staff.salary = salary
+            if image:
+                staff.image = image
+            staff.save()
+
+        teacher = Teacher.objects.create(
+            user=user,
+            staff=staff,
+            **validated_data
+        )
         teacher.subject_specialization.set(subject_specialization_data)
 
-        # If send_invitation is True, create an invitation for user to set their own password
         if send_invitation:
-            # Get the invited_by user from context (set by the view)
-            invited_by = self.context.get('request').user if self.context.get('request') else None
+            invited_by = self.context.get("request").user if self.context.get("request") else None
 
-            # Create invitation
             invitation = UserInvitation.objects.create(
                 email=email,
                 first_name=first_name,
                 last_name=last_name,
-                role='teacher',
+                role="teacher",
                 teacher_profile_id=teacher.id,
                 invited_by=invited_by
             )
 
-            # Send invitation email
             try:
                 from core.email_utils import send_teacher_invitation
                 send_teacher_invitation(invitation)
             except Exception as e:
-                # Log the error but don't fail the teacher creation
                 print(f"Failed to send invitation email: {str(e)}")
 
         return teacher
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        """Updates a Teacher and syncs changes to the associated CustomUser."""
-        subject_specialization_data = validated_data.pop("subject_specialization", None)
-        validated_data.pop("send_invitation", None)  # Remove send_invitation if present
+        from academic.models import Staff
+        from academic.permissions import can_view_staff_salary
 
-        # Extract user fields (these are properties on Teacher, not actual fields)
+        subject_specialization_data = validated_data.pop("subject_specialization", None)
+        validated_data.pop("send_invitation", None)
+
         email = validated_data.pop("email", None)
         first_name = validated_data.pop("first_name", None)
         middle_name = validated_data.pop("middle_name", None)
@@ -556,19 +628,23 @@ class TeacherSerializer(serializers.ModelSerializer):
         phone_number = validated_data.pop("phone_number", None)
         username = validated_data.pop("username", None)
         gender = validated_data.pop("gender", None)
-        date_of_birth = validated_data.pop("date_of_birth", None)
 
-        # Update Teacher instance (only actual Teacher model fields)
+        has_date_of_birth = "date_of_birth" in validated_data
+        has_salary = "salary" in validated_data
+        date_of_birth = validated_data.pop("date_of_birth", None)
+        academic_qualification = validated_data.pop("academic_qualification", None)
+        state = validated_data.pop("state", None)
+        address = validated_data.pop("address", None)
+        designation = validated_data.pop("designation", None)
+        salary = validated_data.pop("salary", None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Update subject specialization if provided
         if subject_specialization_data is not None:
-            # subject_specialization_data is already a queryset from validation
             instance.subject_specialization.set(subject_specialization_data)
 
-        # If the Teacher has an associated CustomUser, update it as well
         if instance.user:
             user = instance.user
             if email is not None:
@@ -582,6 +658,41 @@ class TeacherSerializer(serializers.ModelSerializer):
             if phone_number is not None:
                 user.phone_number = phone_number
             user.save()
+
+        # Update canonical Staff
+        staff = instance.staff
+        if not staff and instance.user:
+            staff = Staff.objects.filter(user=instance.user).first()
+            if not staff:
+                staff = Staff(
+                    user=instance.user,
+                    staff_id=instance.teacher_id or f"STF-{instance.id}",
+                    role=Staff.Role.TEACHER,
+                    is_active=not instance.inactive,
+                )
+                staff.save()
+            instance.staff = staff
+            instance.save(update_fields=["staff"])
+
+        if staff:
+            if has_date_of_birth:
+                staff.date_of_birth = date_of_birth
+            if academic_qualification is not None:
+                staff.academic_qualification = academic_qualification
+            if state is not None:
+                staff.state = state
+            if address is not None:
+                staff.address = address
+            if designation is not None:
+                staff.designation = designation
+
+            request = self.context.get("request")
+            if has_salary:
+                staff.salary = salary
+
+            if "image" in validated_data and validated_data["image"]:
+                staff.image = validated_data["image"]
+            staff.save()
 
         return instance
 
@@ -875,10 +986,58 @@ class AcceptInvitationSerializer(serializers.Serializer):
 
 
 class AccountantSerializer(serializers.ModelSerializer):
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    academic_qualification = serializers.CharField(required=False, allow_blank=True, max_length=255, default="")
+    state = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
+    address = serializers.CharField(required=False, allow_blank=True, max_length=255, default="")
+    designation = serializers.CharField(required=False, allow_blank=True, max_length=255, default="Accountant")
+    salary = serializers.DecimalField(required=False, allow_null=True, max_digits=12, decimal_places=2)
+    staff_id = serializers.CharField(read_only=True)
+    image = serializers.ImageField(required=False, allow_null=True)
+    gender = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    empId = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    national_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    tin_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = CustomUser
-        fields = ['id', 'first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'is_active']
-        read_only_fields = ['id']
+        fields = [
+            'id',
+            'staff_id',
+            'first_name',
+            'middle_name',
+            'last_name',
+            'email',
+            'phone_number',
+            'gender',
+            'empId',
+            'national_id',
+            'tin_number',
+            'date_of_birth',
+            'academic_qualification',
+            'state',
+            'address',
+            'designation',
+            'salary',
+            'image',
+            'is_active',
+        ]
+        read_only_fields = ['id', 'staff_id']
+
+    def validate_date_of_birth(self, value):
+        from django.utils import timezone
+        if value and value > timezone.now().date():
+            raise serializers.ValidationError("Date of birth cannot be in the future.")
+        return value
+
+    def validate_salary(self, value):
+        from academic.permissions import can_view_staff_salary
+        request = self.context.get("request")
+        if not request or not can_view_staff_salary(getattr(request, "user", None)):
+            raise serializers.ValidationError("You do not have permission to modify salary.")
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Salary cannot be negative.")
+        return value
 
     def validate_email(self, value):
         qs = CustomUser.objects.filter(email=value)
@@ -898,8 +1057,52 @@ class AccountantSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A user with this phone number already exists.")
         return value
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        staff = getattr(instance, "staff_profile", None)
+        if not staff:
+            from academic.models import Staff
+            staff = Staff.objects.filter(user=instance).first()
+
+        if staff:
+            data["staff_id"] = staff.staff_id
+            data["date_of_birth"] = staff.date_of_birth
+            data["academic_qualification"] = staff.academic_qualification
+            data["state"] = staff.state
+            data["address"] = staff.address
+            data["designation"] = staff.designation or "Accountant"
+            data["salary"] = staff.salary
+            if staff.image:
+                request = self.context.get("request")
+                try:
+                    data["image"] = request.build_absolute_uri(staff.image.url) if request else staff.image.url
+                except Exception:
+                    data["image"] = None
+
+        from academic.permissions import can_view_staff_salary
+        request = self.context.get("request")
+        if not request or not can_view_staff_salary(getattr(request, "user", None), instance):
+            data.pop("salary", None)
+        return data
+
     @transaction.atomic
     def create(self, validated_data):
+        from academic.models import Staff
+
+        has_date_of_birth = 'date_of_birth' in validated_data
+        has_salary = 'salary' in validated_data
+        date_of_birth = validated_data.pop('date_of_birth', None)
+        academic_qualification = validated_data.pop('academic_qualification', '')
+        state = validated_data.pop('state', '')
+        address = validated_data.pop('address', '')
+        designation = validated_data.pop('designation', 'Accountant')
+        salary = validated_data.pop('salary', None)
+        image = validated_data.pop('image', None)
+        validated_data.pop('gender', None)
+        validated_data.pop('empId', None)
+        validated_data.pop('national_id', None)
+        validated_data.pop('tin_number', None)
+
         user = CustomUser(
             email=validated_data['email'],
             first_name=validated_data.get('first_name', ''),
@@ -912,12 +1115,69 @@ class AccountantSerializer(serializers.ModelSerializer):
         user.save()
         group, _ = Group.objects.get_or_create(name='accountant')
         user.groups.add(group)
+
+        Staff.objects.create(
+            user=user,
+            role=Staff.Role.ACCOUNTANT,
+            designation=designation or 'Accountant',
+            academic_qualification=academic_qualification,
+            state=state,
+            address=address,
+            date_of_birth=date_of_birth,
+            salary=salary,
+            image=image,
+            is_active=True,
+        )
         return user
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        from academic.models import Staff
+        from academic.permissions import can_view_staff_salary
+
+        has_date_of_birth = 'date_of_birth' in validated_data
+        has_salary = 'salary' in validated_data
+        date_of_birth = validated_data.pop('date_of_birth', None)
+        academic_qualification = validated_data.pop('academic_qualification', None)
+        state = validated_data.pop('state', None)
+        address = validated_data.pop('address', None)
+        designation = validated_data.pop('designation', None)
+        salary = validated_data.pop('salary', None)
+        image = validated_data.pop('image', None)
+        validated_data.pop('gender', None)
+        validated_data.pop('empId', None)
+        validated_data.pop('national_id', None)
+        validated_data.pop('tin_number', None)
+
         for field in ['first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'is_active']:
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
         instance.save()
+
+        staff = getattr(instance, "staff_profile", None)
+        if not staff:
+            staff = Staff.objects.filter(user=instance).first()
+            if not staff:
+                staff = Staff(user=instance, role=Staff.Role.ACCOUNTANT)
+                staff.save()
+
+        if staff:
+            if has_date_of_birth:
+                staff.date_of_birth = date_of_birth
+            if academic_qualification is not None:
+                staff.academic_qualification = academic_qualification
+            if state is not None:
+                staff.state = state
+            if address is not None:
+                staff.address = address
+            if designation is not None:
+                staff.designation = designation
+            if image is not None:
+                staff.image = image
+
+            request = self.context.get('request')
+            if has_salary:
+                staff.salary = salary
+            staff.save()
+
         return instance

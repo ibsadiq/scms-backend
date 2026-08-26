@@ -404,154 +404,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ClassMovementPreview'
           description: ''
-  /api/academic/class-levels/:
-    get:
-      operationId: academic_class_levels_list
-      parameters:
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
-      tags:
-      - academic
-      security:
-      - tenantBearerAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedClassLevelList'
-          description: ''
-    post:
-      operationId: academic_class_levels_create
-      tags:
-      - academic
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ClassLevelRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/ClassLevelRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/ClassLevelRequest'
-        required: true
-      security:
-      - tenantBearerAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClassLevel'
-          description: ''
-  /api/academic/class-levels/{id}/:
-    get:
-      operationId: academic_class_levels_retrieve
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - academic
-      security:
-      - tenantBearerAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClassLevel'
-          description: ''
-    put:
-      operationId: academic_class_levels_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - academic
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ClassLevelRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/ClassLevelRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/ClassLevelRequest'
-        required: true
-      security:
-      - tenantBearerAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClassLevel'
-          description: ''
-    patch:
-      operationId: academic_class_levels_partial_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - academic
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedClassLevelRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedClassLevelRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedClassLevelRequest'
-      security:
-      - tenantBearerAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClassLevel'
-          description: ''
-    delete:
-      operationId: academic_class_levels_destroy
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - academic
-      security:
-      - tenantBearerAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/academic/class-years/:
     get:
       operationId: academic_class_years_list
@@ -2508,7 +2360,7 @@ paths:
         - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
         - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
         - GET /api/academic/promotion-rules/active/ - List only active rules
-        - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+        - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
       parameters:
       - name: page
         required: false
@@ -2545,7 +2397,7 @@ paths:
         - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
         - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
         - GET /api/academic/promotion-rules/active/ - List only active rules
-        - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+        - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
       tags:
       - academic
       requestBody:
@@ -2582,7 +2434,7 @@ paths:
         - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
         - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
         - GET /api/academic/promotion-rules/active/ - List only active rules
-        - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+        - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
       parameters:
       - in: path
         name: id
@@ -2613,7 +2465,7 @@ paths:
         - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
         - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
         - GET /api/academic/promotion-rules/active/ - List only active rules
-        - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+        - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
       parameters:
       - in: path
         name: id
@@ -2656,7 +2508,7 @@ paths:
         - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
         - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
         - GET /api/academic/promotion-rules/active/ - List only active rules
-        - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+        - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
       parameters:
       - in: path
         name: id
@@ -2698,7 +2550,7 @@ paths:
         - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
         - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
         - GET /api/academic/promotion-rules/active/ - List only active rules
-        - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+        - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
       parameters:
       - in: path
         name: id
@@ -3784,6 +3636,194 @@ paths:
               schema:
                 $ref: '#/components/schemas/SchoolSection'
           description: ''
+  /api/academic/staff/:
+    get:
+      operationId: academic_staff_list
+      description: |-
+        Canonical endpoint for Staff identity management, search, and detail.
+        Restricted to authenticated School Administrators.
+      parameters:
+      - in: query
+        name: department
+        schema:
+          type: number
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: role
+        schema:
+          type: string
+      - in: query
+        name: search
+        schema:
+          type: string
+      - in: query
+        name: staff_id
+        schema:
+          type: string
+      tags:
+      - academic
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStaffList'
+          description: ''
+    post:
+      operationId: academic_staff_create
+      description: |-
+        Canonical endpoint for Staff identity management, search, and detail.
+        Restricted to authenticated School Administrators.
+      tags:
+      - academic
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StaffRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StaffRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+          description: ''
+  /api/academic/staff/{id}/:
+    get:
+      operationId: academic_staff_retrieve
+      description: |-
+        Canonical endpoint for Staff identity management, search, and detail.
+        Restricted to authenticated School Administrators.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this staff.
+        required: true
+      tags:
+      - academic
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+          description: ''
+    put:
+      operationId: academic_staff_update
+      description: |-
+        Canonical endpoint for Staff identity management, search, and detail.
+        Restricted to authenticated School Administrators.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this staff.
+        required: true
+      tags:
+      - academic
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StaffRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StaffRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+          description: ''
+    patch:
+      operationId: academic_staff_partial_update
+      description: |-
+        Canonical endpoint for Staff identity management, search, and detail.
+        Restricted to authenticated School Administrators.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this staff.
+        required: true
+      tags:
+      - academic
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStaffRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedStaffRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedStaffRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+          description: ''
+    delete:
+      operationId: academic_staff_destroy
+      description: |-
+        Canonical endpoint for Staff identity management, search, and detail.
+        Restricted to authenticated School Administrators.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this staff.
+        required: true
+      tags:
+      - academic
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/academic/stream-assignments/{id}/prefer/:
     put:
       operationId: academic_stream_assignments_prefer_update
@@ -16626,6 +16666,191 @@ paths:
               schema:
                 $ref: '#/components/schemas/StudentFeeAssignment'
           description: ''
+  /api/idcards/assets/:
+    get:
+      operationId: idcards_assets_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIDCardDesignAssetList'
+          description: ''
+    post:
+      operationId: idcards_assets_create
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardDesignAsset'
+          description: ''
+  /api/idcards/assets/{id}/:
+    get:
+      operationId: idcards_assets_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card design asset.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardDesignAsset'
+          description: ''
+    put:
+      operationId: idcards_assets_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card design asset.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardDesignAsset'
+          description: ''
+    patch:
+      operationId: idcards_assets_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card design asset.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardDesignAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardDesignAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardDesignAssetRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardDesignAsset'
+          description: ''
+    delete:
+      operationId: idcards_assets_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card design asset.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/idcards/assets/{id}/archive/:
+    post:
+      operationId: idcards_assets_archive_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card design asset.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IDCardDesignAssetRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardDesignAsset'
+          description: ''
   /api/idcards/cards/:
     get:
       operationId: idcards_cards_list
@@ -16668,7 +16893,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/IDCardRequest'
-        required: true
       security:
       - tenantBearerAuth: []
       responses:
@@ -16722,7 +16946,27 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/IDCardRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCard'
+          description: ''
+  /api/idcards/cards/{id}/preview/:
+    get:
+      operationId: idcards_cards_preview_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card.
         required: true
+      tags:
+      - idcards
       security:
       - tenantBearerAuth: []
       responses:
@@ -16735,6 +16979,27 @@ paths:
   /api/idcards/cards/{id}/preview-context/:
     get:
       operationId: idcards_cards_preview_context_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCard'
+          description: ''
+  /api/idcards/cards/{id}/print/:
+    get:
+      operationId: idcards_cards_print_retrieve
       parameters:
       - in: path
         name: id
@@ -16776,7 +17041,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/IDCardRequest'
-        required: true
       security:
       - tenantBearerAuth: []
       responses:
@@ -16925,6 +17189,484 @@ paths:
               schema:
                 $ref: '#/components/schemas/RFIDCredential'
           description: ''
+  /api/idcards/signature-versions/:
+    get:
+      operationId: idcards_signature_versions_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthorizedSignatureVersionList'
+          description: ''
+  /api/idcards/signature-versions/{id}/:
+    get:
+      operationId: idcards_signature_versions_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature
+          version.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignatureVersion'
+          description: ''
+  /api/idcards/signatures/:
+    get:
+      operationId: idcards_signatures_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthorizedSignatureList'
+          description: ''
+    post:
+      operationId: idcards_signatures_create
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+  /api/idcards/signatures/{id}/:
+    get:
+      operationId: idcards_signatures_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+    put:
+      operationId: idcards_signatures_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+    patch:
+      operationId: idcards_signatures_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAuthorizedSignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAuthorizedSignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAuthorizedSignatureRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+    delete:
+      operationId: idcards_signatures_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/idcards/signatures/{id}/activate/:
+    post:
+      operationId: idcards_signatures_activate_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+  /api/idcards/signatures/{id}/deactivate/:
+    post:
+      operationId: idcards_signatures_deactivate_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+  /api/idcards/signatures/{id}/replace/:
+    post:
+      operationId: idcards_signatures_replace_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this authorized signature.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthorizedSignatureRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizedSignature'
+          description: ''
+  /api/idcards/template-assignments/:
+    get:
+      operationId: idcards_template_assignments_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIDCardTemplateAssignmentList'
+          description: ''
+    post:
+      operationId: idcards_template_assignments_create
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateAssignment'
+          description: ''
+  /api/idcards/template-assignments/{id}/:
+    get:
+      operationId: idcards_template_assignments_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template assignment.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateAssignment'
+          description: ''
+    put:
+      operationId: idcards_template_assignments_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template assignment.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateAssignment'
+          description: ''
+    patch:
+      operationId: idcards_template_assignments_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template assignment.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardTemplateAssignmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardTemplateAssignmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardTemplateAssignmentRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateAssignment'
+          description: ''
+    delete:
+      operationId: idcards_template_assignments_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template assignment.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/idcards/template-assignments/resolve/:
+    post:
+      operationId: idcards_template_assignments_resolve_create
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IDCardTemplateAssignmentRequest'
+        required: true
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateAssignment'
+          description: ''
   /api/idcards/template-fields/:
     get:
       operationId: idcards_template_fields_list
@@ -16946,6 +17688,116 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/IDCardTemplateField'
+          description: ''
+  /api/idcards/template-versions/:
+    get:
+      operationId: idcards_template_versions_list
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IDCardTemplateVersion'
+          description: ''
+  /api/idcards/template-versions/{id}/:
+    get:
+      operationId: idcards_template_versions_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template version.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateVersion'
+          description: ''
+    patch:
+      operationId: idcards_template_versions_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template version.
+        required: true
+      tags:
+      - idcards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardTemplateVersionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardTemplateVersionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedIDCardTemplateVersionRequest'
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateVersion'
+          description: ''
+  /api/idcards/template-versions/{id}/archive/:
+    post:
+      operationId: idcards_template_versions_archive_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template version.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateVersion'
+          description: ''
+  /api/idcards/template-versions/{id}/publish/:
+    post:
+      operationId: idcards_template_versions_publish_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template version.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateVersion'
           description: ''
   /api/idcards/templates/:
     get:
@@ -17095,18 +17947,6 @@ paths:
         required: true
       tags:
       - idcards
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/IDCardTemplateRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/IDCardTemplateRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/IDCardTemplateRequest'
-        required: true
       security:
       - tenantBearerAuth: []
       responses:
@@ -17115,6 +17955,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IDCardTemplate'
+          description: ''
+  /api/idcards/templates/{id}/archive/:
+    post:
+      operationId: idcards_templates_archive_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplate'
+          description: ''
+  /api/idcards/templates/{id}/create-draft/:
+    post:
+      operationId: idcards_templates_create_draft_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template.
+        required: true
+      tags:
+      - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplateVersion'
           description: ''
   /api/idcards/templates/{id}/deactivate/:
     post:
@@ -17128,17 +18010,38 @@ paths:
         required: true
       tags:
       - idcards
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IDCardTemplate'
+          description: ''
+  /api/idcards/templates/{id}/duplicate/:
+    post:
+      operationId: idcards_templates_duplicate_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this id card template.
+        required: true
+      tags:
+      - idcards
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IDCardTemplateRequest'
+              $ref: '#/components/schemas/TemplateDuplicateRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/IDCardTemplateRequest'
+              $ref: '#/components/schemas/TemplateDuplicateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/IDCardTemplateRequest'
+              $ref: '#/components/schemas/TemplateDuplicateRequest'
         required: true
       security:
       - tenantBearerAuth: []
@@ -18411,7 +19314,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedClassLevelList'
+                $ref: '#/components/schemas/PaginatedGradeLevelList'
           description: ''
   /api/public/admissions/fee-structures/:
     get:
@@ -18704,7 +19607,11 @@ paths:
       - tenantBearerAuth: []
       responses:
         '201':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScopedStudentRead'
+          description: ''
   /api/sis/students/{id}/:
     get:
       operationId: sis_students_retrieve
@@ -18902,6 +19809,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/StudentsMedicalHistory'
           description: ''
+  /api/sis/students/{id}/portal-access/:
+    patch:
+      operationId: sis_students_portal_access_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - sis
+      security:
+      - tenantBearerAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/sis/students/bulk-upload/:
     post:
       operationId: sis_students_bulk_upload_create
@@ -21177,6 +22100,14 @@ paths:
       operationId: users_teachers_list
       parameters:
       - in: query
+        name: academic_qualification
+        schema:
+          type: string
+      - in: query
+        name: designation
+        schema:
+          type: string
+      - in: query
         name: first_name
         schema:
           type: string
@@ -21204,6 +22135,10 @@ paths:
         required: false
         in: query
         description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: state
         schema:
           type: string
       tags:
@@ -21341,7 +22276,8 @@ paths:
   /api/users/teachers/bulk-upload/:
     post:
       operationId: users_teachers_bulk_upload_create
-      description: API View to handle bulk uploading of teachers from an Excel file.
+      description: API View to handle bulk uploading of teachers from an Excel file
+        with Staff integration.
       tags:
       - users
       requestBody:
@@ -21688,6 +22624,9 @@ components:
         id:
           type: integer
           readOnly: true
+        staff_id:
+          type: string
+          readOnly: true
         first_name:
           type: string
           nullable: true
@@ -21709,11 +22648,53 @@ components:
           type: string
           nullable: true
           maxLength: 15
+        gender:
+          type: string
+          nullable: true
+        empId:
+          type: string
+          nullable: true
+        national_id:
+          type: string
+          nullable: true
+        tin_number:
+          type: string
+          nullable: true
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        academic_qualification:
+          type: string
+          default: ''
+          maxLength: 255
+        state:
+          type: string
+          default: ''
+          maxLength: 100
+        address:
+          type: string
+          default: ''
+          maxLength: 255
+        designation:
+          type: string
+          default: Accountant
+          maxLength: 255
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        image:
+          type: string
+          format: uri
+          nullable: true
         is_active:
           type: boolean
       required:
       - email
       - id
+      - staff_id
     AccountantRequest:
       type: object
       properties:
@@ -21739,6 +22720,47 @@ components:
           type: string
           nullable: true
           maxLength: 15
+        gender:
+          type: string
+          nullable: true
+        empId:
+          type: string
+          nullable: true
+        national_id:
+          type: string
+          nullable: true
+        tin_number:
+          type: string
+          nullable: true
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        academic_qualification:
+          type: string
+          default: ''
+          maxLength: 255
+        state:
+          type: string
+          default: ''
+          maxLength: 100
+        address:
+          type: string
+          default: ''
+          maxLength: 255
+        designation:
+          type: string
+          default: Accountant
+          maxLength: 255
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        image:
+          type: string
+          format: binary
+          nullable: true
         is_active:
           type: boolean
       required:
@@ -24526,7 +25548,7 @@ components:
           type: array
           items:
             type: integer
-          description: Which class levels can use this template
+          description: Which grade levels can use this template
       required:
       - applicable_classes_names
       - assessment_type
@@ -24574,7 +25596,7 @@ components:
           type: array
           items:
             type: integer
-          description: Which class levels can use this template
+          description: Which grade levels can use this template
       required:
       - assessment_type
       - name
@@ -24598,6 +25620,18 @@ components:
         * `practical` - Practical Assessment
         * `psychometric` - Psychometric Test
         * `portfolio_review` - Portfolio Review
+    AssetTypeEnum:
+      enum:
+      - IMAGE
+      - BACKGROUND
+      - WATERMARK
+      - DECORATIVE_GRAPHIC
+      type: string
+      description: |-
+        * `IMAGE` - Image
+        * `BACKGROUND` - Background
+        * `WATERMARK` - Watermark
+        * `DECORATIVE_GRAPHIC` - Decorative Graphic
     AssignedStreamEnum:
       enum:
       - science
@@ -25369,6 +26403,163 @@ components:
         * `STATE` - State Ministry / Education Authority
         * `SCHOOL` - School
         * `OTHER` - Other
+    AuthorizedSignature:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        public_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Internal label, e.g. 'Principal Signature'
+          maxLength: 120
+        signatory_name:
+          type: string
+          description: Official name of signatory, e.g. 'Mrs. Amina Yusuf'
+          maxLength: 120
+        signatory_title:
+          type: string
+          description: Signatory designation, e.g. 'Principal'
+          maxLength: 120
+        description:
+          type: string
+        is_active:
+          type: boolean
+        current_version:
+          allOf:
+          - $ref: '#/components/schemas/AuthorizedSignatureVersion'
+          readOnly: true
+        current_version_id:
+          type: integer
+          nullable: true
+          readOnly: true
+        versions_count:
+          type: string
+          readOnly: true
+        created_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by
+      - current_version
+      - current_version_id
+      - id
+      - name
+      - public_id
+      - signatory_name
+      - signatory_title
+      - updated_at
+      - versions_count
+    AuthorizedSignatureRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Internal label, e.g. 'Principal Signature'
+          maxLength: 120
+        signatory_name:
+          type: string
+          minLength: 1
+          description: Official name of signatory, e.g. 'Mrs. Amina Yusuf'
+          maxLength: 120
+        signatory_title:
+          type: string
+          minLength: 1
+          description: Signatory designation, e.g. 'Principal'
+          maxLength: 120
+        description:
+          type: string
+        is_active:
+          type: boolean
+      required:
+      - name
+      - signatory_name
+      - signatory_title
+    AuthorizedSignatureVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        public_id:
+          type: string
+          format: uuid
+          readOnly: true
+        signature:
+          type: integer
+          readOnly: true
+        version_number:
+          type: integer
+          readOnly: true
+        image:
+          type: string
+          format: uri
+        image_url:
+          type: string
+          readOnly: true
+        mime_type:
+          type: string
+          readOnly: true
+        width:
+          type: integer
+          readOnly: true
+          nullable: true
+        height:
+          type: integer
+          readOnly: true
+          nullable: true
+        file_size:
+          type: integer
+          readOnly: true
+          description: File size in bytes
+        content_hash:
+          type: string
+          readOnly: true
+        uploaded_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content_hash
+      - created_at
+      - file_size
+      - height
+      - id
+      - image
+      - image_url
+      - mime_type
+      - public_id
+      - signature
+      - uploaded_by
+      - version_number
+      - width
+    AuthorizedSignatureVersionRequest:
+      type: object
+      properties:
+        image:
+          type: string
+          format: binary
+      required:
+      - image
     AvailableRolesEnum:
       enum:
       - admin
@@ -25966,39 +27157,6 @@ components:
           format: binary
       required:
       - picture
-    ClassLevel:
-      type: object
-      properties:
-        id:
-          type: integer
-          readOnly: true
-        name:
-          type: string
-          description: e.g. JSS 1 Gold
-          maxLength: 150
-        grade_level:
-          type: integer
-        grade_level_name:
-          type: string
-          readOnly: true
-      required:
-      - grade_level
-      - grade_level_name
-      - id
-      - name
-    ClassLevelRequest:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          description: e.g. JSS 1 Gold
-          maxLength: 150
-        grade_level:
-          type: integer
-      required:
-      - grade_level
-      - name
     ClassMovementExecutionRequest:
       type: object
       properties:
@@ -26098,13 +27256,23 @@ components:
           type: integer
           readOnly: true
         name:
+          type: string
+          description: Classroom name (e.g. 'Oleander', 'A', 'Gold')
+          maxLength: 150
+        grade_level:
           type: integer
+          description: Academic stage (e.g. JSS 1 / Year 7)
+        grade_level_name:
+          type: string
+          nullable: true
+          readOnly: true
         name_display:
           type: string
           readOnly: true
         stream:
           type: integer
           nullable: true
+          description: Optional academic pathway (e.g. Science, Commercial, Arts)
         stream_name:
           type: string
           nullable: true
@@ -26138,6 +27306,8 @@ components:
       - available_sits
       - class_status
       - class_teacher_name
+      - grade_level
+      - grade_level_name
       - id
       - name
       - name_display
@@ -26148,10 +27318,17 @@ components:
       type: object
       properties:
         name:
+          type: string
+          minLength: 1
+          description: Classroom name (e.g. 'Oleander', 'A', 'Gold')
+          maxLength: 150
+        grade_level:
           type: integer
+          description: Academic stage (e.g. JSS 1 / Year 7)
         stream:
           type: integer
           nullable: true
+          description: Optional academic pathway (e.g. Science, Commercial, Arts)
         class_teacher:
           type: integer
           nullable: true
@@ -26164,6 +27341,7 @@ components:
           maximum: 2147483647
           minimum: 0
       required:
+      - grade_level
       - name
       - stream
     ClassYear:
@@ -27373,12 +28551,13 @@ components:
         grade_level_names:
           type: string
           readOnly: true
-        class_levels:
+        classrooms:
           type: array
           items:
             type: integer
-          description: Leave blank to apply to all class levels
-        class_level_names:
+          description: Leave blank to apply to all classrooms in the selected grade
+            levels
+        classroom_names:
           type: string
           readOnly: true
         optional_service:
@@ -27412,7 +28591,7 @@ components:
       - academic_year
       - academic_year_name
       - amount
-      - class_level_names
+      - classroom_names
       - created_at
       - created_by_name
       - grade_level_names
@@ -27446,11 +28625,12 @@ components:
           items:
             type: integer
           description: Leave blank to apply to all grade levels
-        class_levels:
+        classrooms:
           type: array
           items:
             type: integer
-          description: Leave blank to apply to all class levels
+          description: Leave blank to apply to all classrooms in the selected grade
+            levels
         optional_service:
           type: integer
           nullable: true
@@ -27768,6 +28948,7 @@ components:
             * `PRE_NURSERY` - Pre-Nursery
             * `NURSERY_1` - Nursery 1
             * `NURSERY_2` - Nursery 2
+            * `NURSERY_3` - Nursery 3
             * `BASIC_1` - Basic 1 (Primary 1)
             * `BASIC_2` - Basic 2 (Primary 2)
             * `BASIC_3` - Basic 3 (Primary 3)
@@ -27832,6 +29013,7 @@ components:
             * `PRE_NURSERY` - Pre-Nursery
             * `NURSERY_1` - Nursery 1
             * `NURSERY_2` - Nursery 2
+            * `NURSERY_3` - Nursery 3
             * `BASIC_1` - Basic 1 (Primary 1)
             * `BASIC_2` - Basic 2 (Primary 2)
             * `BASIC_3` - Basic 3 (Primary 3)
@@ -27880,6 +29062,7 @@ components:
       - PRE_NURSERY
       - NURSERY_1
       - NURSERY_2
+      - NURSERY_3
       - BASIC_1
       - BASIC_2
       - BASIC_3
@@ -27898,6 +29081,7 @@ components:
         * `PRE_NURSERY` - Pre-Nursery
         * `NURSERY_1` - Nursery 1
         * `NURSERY_2` - Nursery 2
+        * `NURSERY_3` - Nursery 3
         * `BASIC_1` - Basic 1 (Primary 1)
         * `BASIC_2` - Basic 2 (Primary 2)
         * `BASIC_3` - Basic 3 (Primary 3)
@@ -28124,6 +29308,9 @@ components:
         card_number:
           type: string
           readOnly: true
+        template_version:
+          type: integer
+          readOnly: true
         verification_token:
           type: string
           format: uuid
@@ -28179,12 +29366,31 @@ components:
           type: integer
           readOnly: true
           nullable: true
+        holder_name:
+          type: string
+          readOnly: true
+        holder_identifier:
+          type: string
+          readOnly: true
+        holder_context:
+          type: string
+          readOnly: true
+        template_name:
+          type: string
+          readOnly: true
+        active_rfid:
+          type: string
+          readOnly: true
       required:
+      - active_rfid
       - card_number
       - created_at
       - deactivated_at
       - deactivation_reason
       - effective_status
+      - holder_context
+      - holder_identifier
+      - holder_name
       - holder_type
       - id
       - issued_at
@@ -28194,9 +29400,94 @@ components:
       - replacement_reason
       - replaces
       - status
-      - template
+      - template_name
+      - template_version
       - updated_at
       - verification_token
+    IDCardDesignAsset:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        public_id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 120
+        asset_type:
+          $ref: '#/components/schemas/AssetTypeEnum'
+        file:
+          type: string
+          format: uri
+        file_url:
+          type: string
+          readOnly: true
+        mime_type:
+          type: string
+          readOnly: true
+        width:
+          type: integer
+          readOnly: true
+          nullable: true
+        height:
+          type: integer
+          readOnly: true
+          nullable: true
+        file_size:
+          type: integer
+          readOnly: true
+          description: File size in bytes
+        content_hash:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+        uploaded_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content_hash
+      - created_at
+      - file
+      - file_size
+      - file_url
+      - height
+      - id
+      - mime_type
+      - name
+      - public_id
+      - updated_at
+      - uploaded_by
+      - width
+    IDCardDesignAssetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        asset_type:
+          $ref: '#/components/schemas/AssetTypeEnum'
+        file:
+          type: string
+          format: binary
+        is_active:
+          type: boolean
+      required:
+      - file
+      - name
     IDCardRequest:
       type: object
       properties:
@@ -28212,8 +29503,6 @@ components:
           type: string
           format: date-time
           nullable: true
-      required:
-      - template
     IDCardStatusEnum:
       enum:
       - ACTIVE
@@ -28232,11 +29521,22 @@ components:
         id:
           type: integer
           readOnly: true
+        public_id:
+          type: string
+          format: uuid
+          readOnly: true
         name:
           type: string
           maxLength: 120
         holder_type:
           $ref: '#/components/schemas/HolderTypeEnum'
+        description:
+          type: string
+        is_archived:
+          type: boolean
+          readOnly: true
+        is_active:
+          type: boolean
         width_mm:
           type: string
           format: decimal
@@ -28247,8 +29547,98 @@ components:
           pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
         front_layout: {}
         back_layout: {}
+        current_draft_version:
+          type: integer
+          readOnly: true
+          nullable: true
+        current_published_version:
+          type: integer
+          readOnly: true
+          nullable: true
+        current_draft:
+          allOf:
+          - $ref: '#/components/schemas/IDCardTemplateVersion'
+          readOnly: true
+        current_published:
+          allOf:
+          - $ref: '#/components/schemas/IDCardTemplateVersion'
+          readOnly: true
+        created_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        assignment_count:
+          type: integer
+          readOnly: true
+      required:
+      - assignment_count
+      - created_at
+      - created_by
+      - current_draft
+      - current_draft_version
+      - current_published
+      - current_published_version
+      - holder_type
+      - id
+      - is_archived
+      - name
+      - public_id
+      - updated_at
+    IDCardTemplateAssignment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        public_id:
+          type: string
+          format: uuid
+          readOnly: true
+        holder_type:
+          $ref: '#/components/schemas/HolderTypeEnum'
+        scope_type:
+          $ref: '#/components/schemas/ScopeTypeEnum'
+        template:
+          type: integer
+        template_name:
+          type: string
+          readOnly: true
+        published_version:
+          type: integer
+          readOnly: true
+        section:
+          type: integer
+          nullable: true
+        grade_level:
+          type: integer
+          nullable: true
+        classroom:
+          type: integer
+          nullable: true
+        department:
+          type: integer
+          nullable: true
+        staff_role:
+          oneOf:
+          - $ref: '#/components/schemas/StaffRoleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        target_label:
+          type: string
+          readOnly: true
         is_active:
           type: boolean
+        created_by:
+          type: integer
+          readOnly: true
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -28259,10 +29649,47 @@ components:
           readOnly: true
       required:
       - created_at
+      - created_by
       - holder_type
       - id
-      - name
+      - public_id
+      - published_version
+      - scope_type
+      - target_label
+      - template
+      - template_name
       - updated_at
+    IDCardTemplateAssignmentRequest:
+      type: object
+      properties:
+        holder_type:
+          $ref: '#/components/schemas/HolderTypeEnum'
+        scope_type:
+          $ref: '#/components/schemas/ScopeTypeEnum'
+        template:
+          type: integer
+        section:
+          type: integer
+          nullable: true
+        grade_level:
+          type: integer
+          nullable: true
+        classroom:
+          type: integer
+          nullable: true
+        department:
+          type: integer
+          nullable: true
+        staff_role:
+          oneOf:
+          - $ref: '#/components/schemas/StaffRoleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_active:
+          type: boolean
+      required:
+      - holder_type
+      - scope_type
+      - template
     IDCardTemplateField:
       type: object
       properties:
@@ -28270,11 +29697,23 @@ components:
           type: string
         label:
           type: string
+        group:
+          type: string
         type:
           $ref: '#/components/schemas/TypeEnum'
+        example_value:
+          type: string
+        max_expected_length:
+          type: integer
+        sensitivity:
+          type: string
       required:
+      - example_value
+      - group
       - key
       - label
+      - max_expected_length
+      - sensitivity
       - type
     IDCardTemplateRequest:
       type: object
@@ -28285,6 +29724,10 @@ components:
           maxLength: 120
         holder_type:
           $ref: '#/components/schemas/HolderTypeEnum'
+        description:
+          type: string
+        is_active:
+          type: boolean
         width_mm:
           type: string
           format: decimal
@@ -28295,11 +29738,98 @@ components:
           pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
         front_layout: {}
         back_layout: {}
-        is_active:
-          type: boolean
       required:
       - holder_type
       - name
+    IDCardTemplateVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        template:
+          type: integer
+          readOnly: true
+        version_number:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/IDCardTemplateVersionStatusEnum'
+          readOnly: true
+        width_mm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+        height_mm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+        orientation:
+          $ref: '#/components/schemas/OrientationEnum'
+        front_layout: {}
+        back_layout: {}
+        created_from_version:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        published_by:
+          type: integer
+          readOnly: true
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by
+      - created_from_version
+      - id
+      - published_at
+      - published_by
+      - status
+      - template
+      - updated_at
+      - version_number
+    IDCardTemplateVersionRequest:
+      type: object
+      properties:
+        width_mm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+        height_mm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+        orientation:
+          $ref: '#/components/schemas/OrientationEnum'
+        front_layout: {}
+        back_layout: {}
+    IDCardTemplateVersionStatusEnum:
+      enum:
+      - DRAFT
+      - PUBLISHED
+      - ARCHIVED
+      type: string
+      description: |-
+        * `DRAFT` - Draft
+        * `PUBLISHED` - Published
+        * `ARCHIVED` - Archived
     Inspector:
       type: object
       description: Read serializer — used for list and detail views.
@@ -29587,6 +31117,14 @@ components:
       required:
       - fee_type
       - name
+    OrientationEnum:
+      enum:
+      - LANDSCAPE
+      - PORTRAIT
+      type: string
+      description: |-
+        * `LANDSCAPE` - Landscape
+        * `PORTRAIT` - Portrait
     PaginatedAcademicTranscriptList:
       type: object
       required:
@@ -30093,6 +31631,52 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AttendanceScan'
+    PaginatedAuthorizedSignatureList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthorizedSignature'
+    PaginatedAuthorizedSignatureVersionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthorizedSignatureVersion'
     PaginatedCBTExamManagementList:
       type: object
       required:
@@ -30139,29 +31723,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CarouselImage'
-    PaginatedClassLevelList:
-      type: object
-      required:
-      - count
-      - results
-      properties:
-        count:
-          type: integer
-          example: 123
-        next:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=4
-        previous:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=2
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/ClassLevel'
     PaginatedClassRoomList:
       type: object
       required:
@@ -30507,6 +32068,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GradingScheme'
+    PaginatedIDCardDesignAssetList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/IDCardDesignAsset'
     PaginatedIDCardList:
       type: object
       required:
@@ -30530,6 +32114,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/IDCard'
+    PaginatedIDCardTemplateAssignmentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/IDCardTemplateAssignment'
     PaginatedIDCardTemplateList:
       type: object
       required:
@@ -31266,6 +32873,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ServiceSubscription'
+    PaginatedStaffList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Staff'
     PaginatedStreamList:
       type: object
       required:
@@ -32294,6 +33924,47 @@ components:
           type: string
           nullable: true
           maxLength: 15
+        gender:
+          type: string
+          nullable: true
+        empId:
+          type: string
+          nullable: true
+        national_id:
+          type: string
+          nullable: true
+        tin_number:
+          type: string
+          nullable: true
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        academic_qualification:
+          type: string
+          default: ''
+          maxLength: 255
+        state:
+          type: string
+          default: ''
+          maxLength: 100
+        address:
+          type: string
+          default: ''
+          maxLength: 255
+        designation:
+          type: string
+          default: Accountant
+          maxLength: 255
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        image:
+          type: string
+          format: binary
+          nullable: true
         is_active:
           type: boolean
     PatchedAdmissionApplicationNumberPolicyRequest:
@@ -32800,7 +34471,7 @@ components:
           type: array
           items:
             type: integer
-          description: Which class levels can use this template
+          description: Which grade levels can use this template
     PatchedAssignmentRequest:
       type: object
       description: Serializer for Assignment model
@@ -32881,6 +34552,28 @@ components:
           maxLength: 160
         is_active:
           type: boolean
+    PatchedAuthorizedSignatureRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Internal label, e.g. 'Principal Signature'
+          maxLength: 120
+        signatory_name:
+          type: string
+          minLength: 1
+          description: Official name of signatory, e.g. 'Mrs. Amina Yusuf'
+          maxLength: 120
+        signatory_title:
+          type: string
+          minLength: 1
+          description: Signatory designation, e.g. 'Principal'
+          maxLength: 120
+        description:
+          type: string
+        is_active:
+          type: boolean
     PatchedCBTExamManagementRequest:
       type: object
       properties:
@@ -32922,24 +34615,21 @@ components:
         picture:
           type: string
           format: binary
-    PatchedClassLevelRequest:
+    PatchedClassRoomRequest:
       type: object
       properties:
         name:
           type: string
           minLength: 1
-          description: e.g. JSS 1 Gold
+          description: Classroom name (e.g. 'Oleander', 'A', 'Gold')
           maxLength: 150
         grade_level:
           type: integer
-    PatchedClassRoomRequest:
-      type: object
-      properties:
-        name:
-          type: integer
+          description: Academic stage (e.g. JSS 1 / Year 7)
         stream:
           type: integer
           nullable: true
+          description: Optional academic pathway (e.g. Science, Commercial, Arts)
         class_teacher:
           type: integer
           nullable: true
@@ -33060,11 +34750,12 @@ components:
           items:
             type: integer
           description: Leave blank to apply to all grade levels
-        class_levels:
+        classrooms:
           type: array
           items:
             type: integer
-          description: Leave blank to apply to all class levels
+          description: Leave blank to apply to all classrooms in the selected grade
+            levels
         optional_service:
           type: integer
           nullable: true
@@ -33094,6 +34785,7 @@ components:
             * `PRE_NURSERY` - Pre-Nursery
             * `NURSERY_1` - Nursery 1
             * `NURSERY_2` - Nursery 2
+            * `NURSERY_3` - Nursery 3
             * `BASIC_1` - Basic 1 (Primary 1)
             * `BASIC_2` - Basic 2 (Primary 2)
             * `BASIC_3` - Basic 3 (Primary 3)
@@ -33181,6 +34873,47 @@ components:
           type: integer
         is_active:
           type: boolean
+    PatchedIDCardDesignAssetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        asset_type:
+          $ref: '#/components/schemas/AssetTypeEnum'
+        file:
+          type: string
+          format: binary
+        is_active:
+          type: boolean
+    PatchedIDCardTemplateAssignmentRequest:
+      type: object
+      properties:
+        holder_type:
+          $ref: '#/components/schemas/HolderTypeEnum'
+        scope_type:
+          $ref: '#/components/schemas/ScopeTypeEnum'
+        template:
+          type: integer
+        section:
+          type: integer
+          nullable: true
+        grade_level:
+          type: integer
+          nullable: true
+        classroom:
+          type: integer
+          nullable: true
+        department:
+          type: integer
+          nullable: true
+        staff_role:
+          oneOf:
+          - $ref: '#/components/schemas/StaffRoleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_active:
+          type: boolean
     PatchedIDCardTemplateRequest:
       type: object
       properties:
@@ -33190,6 +34923,10 @@ components:
           maxLength: 120
         holder_type:
           $ref: '#/components/schemas/HolderTypeEnum'
+        description:
+          type: string
+        is_active:
+          type: boolean
         width_mm:
           type: string
           format: decimal
@@ -33200,8 +34937,21 @@ components:
           pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
         front_layout: {}
         back_layout: {}
-        is_active:
-          type: boolean
+    PatchedIDCardTemplateVersionRequest:
+      type: object
+      properties:
+        width_mm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+        height_mm:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+        orientation:
+          $ref: '#/components/schemas/OrientationEnum'
+        front_layout: {}
+        back_layout: {}
     PatchedInspectorUpdateRequest:
       type: object
       description: |-
@@ -33988,6 +35738,44 @@ components:
           type: integer
         service:
           type: integer
+    PatchedStaffRequest:
+      type: object
+      description: |-
+        Canonical serializer for Staff identities in school management workflows.
+        Provides complete employment identity details with permission-gated salary access.
+      properties:
+        role:
+          $ref: '#/components/schemas/Role84aEnum'
+        designation:
+          type: string
+          maxLength: 255
+        academic_qualification:
+          type: string
+          maxLength: 255
+        state:
+          type: string
+          maxLength: 100
+        address:
+          type: string
+          maxLength: 255
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        department:
+          type: integer
+          nullable: true
+        image:
+          type: string
+          format: binary
+          nullable: true
+        is_active:
+          type: boolean
     PatchedStreamRequest:
       type: object
       properties:
@@ -34145,9 +35933,11 @@ components:
           nullable: true
           minLength: 1
           maxLength: 150
-        admission_number:
+        phone_number:
           type: string
-          maxLength: 100
+          nullable: true
+          description: Student's phone number for login/notifications
+          maxLength: 20
         parent_contact:
           type: string
           nullable: true
@@ -34182,9 +35972,6 @@ components:
         is_active:
           type: boolean
           description: Indicates whether the student is currently active.
-        classroom:
-          type: integer
-          nullable: true
         classroom_id:
           type: integer
           writeOnly: true
@@ -34325,6 +36112,7 @@ components:
           maxLength: 100
         middle_name:
           type: string
+          default: ''
           maxLength: 100
         last_name:
           type: string
@@ -34336,6 +36124,7 @@ components:
           minLength: 1
         phone_number:
           type: string
+          default: ''
           maxLength: 15
         empId:
           type: string
@@ -34351,9 +36140,6 @@ components:
             type: string
             minLength: 1
           writeOnly: true
-        address:
-          type: string
-          maxLength: 255
         gender:
           type: string
           nullable: true
@@ -34368,6 +36154,27 @@ components:
         date_of_birth:
           type: string
           format: date
+          nullable: true
+        academic_qualification:
+          type: string
+          default: ''
+          maxLength: 255
+        state:
+          type: string
+          default: ''
+          maxLength: 100
+        address:
+          type: string
+          default: ''
+          maxLength: 255
+        designation:
+          type: string
+          default: ''
+          maxLength: 255
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
           nullable: true
         image:
           type: string
@@ -36628,6 +38435,18 @@ components:
       required:
       - amount
       - fee_type
+    Role84aEnum:
+      enum:
+      - TEACHER
+      - ADMINISTRATOR
+      - ACCOUNTANT
+      - OTHER
+      type: string
+      description: |-
+        * `TEACHER` - Teacher
+        * `ADMINISTRATOR` - Administrator
+        * `ACCOUNTANT` - Accountant
+        * `OTHER` - Other
     RoleChoiceRequest:
       type: object
       properties:
@@ -37207,6 +39026,22 @@ components:
       - admin_last_name
       - school_name
       - subdomain
+    ScopeTypeEnum:
+      enum:
+      - DEFAULT
+      - SECTION
+      - GRADE_LEVEL
+      - CLASSROOM
+      - DEPARTMENT
+      - STAFF_ROLE
+      type: string
+      description: |-
+        * `DEFAULT` - Default
+        * `SECTION` - School section
+        * `GRADE_LEVEL` - Grade level
+        * `CLASSROOM` - Classroom
+        * `DEPARTMENT` - Department
+        * `STAFF_ROLE` - Staff role
     ScopedStudentRead:
       type: object
       description: Minimal student identity/class data for non-admin SIS readers.
@@ -37433,6 +39268,145 @@ components:
         * `SSYNC` - SSync daily attendance
         * `MANUAL` - Manual
         * `IMPORTED` - Imported
+    Staff:
+      type: object
+      description: |-
+        Canonical serializer for Staff identities in school management workflows.
+        Provides complete employment identity details with permission-gated salary access.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        staff_id:
+          type: string
+          readOnly: true
+        full_name:
+          type: string
+          readOnly: true
+        first_name:
+          type: string
+          readOnly: true
+        middle_name:
+          type: string
+          readOnly: true
+        last_name:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          readOnly: true
+        phone_number:
+          type: string
+          readOnly: true
+        role:
+          $ref: '#/components/schemas/Role84aEnum'
+        role_display:
+          type: string
+          readOnly: true
+        designation:
+          type: string
+          maxLength: 255
+        academic_qualification:
+          type: string
+          maxLength: 255
+        state:
+          type: string
+          maxLength: 100
+        address:
+          type: string
+          maxLength: 255
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        department:
+          type: integer
+          nullable: true
+        department_name:
+          type: string
+          readOnly: true
+        image:
+          type: string
+          format: uri
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - department_name
+      - email
+      - first_name
+      - full_name
+      - id
+      - last_name
+      - middle_name
+      - phone_number
+      - role_display
+      - staff_id
+      - updated_at
+    StaffRequest:
+      type: object
+      description: |-
+        Canonical serializer for Staff identities in school management workflows.
+        Provides complete employment identity details with permission-gated salary access.
+      properties:
+        role:
+          $ref: '#/components/schemas/Role84aEnum'
+        designation:
+          type: string
+          maxLength: 255
+        academic_qualification:
+          type: string
+          maxLength: 255
+        state:
+          type: string
+          maxLength: 100
+        address:
+          type: string
+          maxLength: 255
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+        department:
+          type: integer
+          nullable: true
+        image:
+          type: string
+          format: binary
+          nullable: true
+        is_active:
+          type: boolean
+    StaffRoleEnum:
+      enum:
+      - TEACHER
+      - ADMINISTRATOR
+      - ACCOUNTANT
+      - OTHER
+      type: string
+      description: |-
+        * `TEACHER` - Teacher
+        * `ADMINISTRATOR` - Administrator
+        * `ACCOUNTANT` - Accountant
+        * `OTHER` - Other
     Status1f0Enum:
       enum:
       - PENDING
@@ -37630,7 +39604,12 @@ components:
           maxLength: 150
         admission_number:
           type: string
-          maxLength: 100
+          readOnly: true
+        phone_number:
+          type: string
+          nullable: true
+          description: Student's phone number for login/notifications
+          maxLength: 20
         parent_contact:
           type: string
           nullable: true
@@ -37691,6 +39670,7 @@ components:
           readOnly: true
         classroom:
           type: integer
+          readOnly: true
           nullable: true
         class_of_year:
           type: string
@@ -37722,9 +39702,19 @@ components:
           type: string
           format: date-time
           nullable: true
+        can_login:
+          type: boolean
+          readOnly: true
+          description: Allow student to access student portal
+        portal_account_created:
+          type: string
+          readOnly: true
       required:
+      - admission_number
+      - can_login
       - class_level_display
       - class_of_year_display
+      - classroom
       - classroom_display
       - classroom_name
       - full_name
@@ -37732,6 +39722,7 @@ components:
       - grade_level_name
       - id
       - parent_guardian_display
+      - portal_account_created
       - siblings
       - status
     StudentAcademicRecords:
@@ -38613,9 +40604,11 @@ components:
           nullable: true
           minLength: 1
           maxLength: 150
-        admission_number:
+        phone_number:
           type: string
-          maxLength: 100
+          nullable: true
+          description: Student's phone number for login/notifications
+          maxLength: 20
         parent_contact:
           type: string
           nullable: true
@@ -38650,9 +40643,6 @@ components:
         is_active:
           type: boolean
           description: Indicates whether the student is currently active.
-        classroom:
-          type: integer
-          nullable: true
         classroom_id:
           type: integer
           writeOnly: true
@@ -39140,6 +41130,7 @@ components:
           maxLength: 100
         middle_name:
           type: string
+          default: ''
           maxLength: 100
         last_name:
           type: string
@@ -39149,6 +41140,7 @@ components:
           format: email
         phone_number:
           type: string
+          default: ''
           maxLength: 15
         empId:
           type: string
@@ -39163,9 +41155,6 @@ components:
           items:
             type: string
           readOnly: true
-        address:
-          type: string
-          maxLength: 255
         gender:
           type: string
           nullable: true
@@ -39180,6 +41169,27 @@ components:
         date_of_birth:
           type: string
           format: date
+          nullable: true
+        academic_qualification:
+          type: string
+          default: ''
+          maxLength: 255
+        state:
+          type: string
+          default: ''
+          maxLength: 100
+        address:
+          type: string
+          default: ''
+          maxLength: 255
+        designation:
+          type: string
+          default: ''
+          maxLength: 255
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
           nullable: true
         image:
           type: string
@@ -39542,6 +41552,7 @@ components:
           maxLength: 100
         middle_name:
           type: string
+          default: ''
           maxLength: 100
         last_name:
           type: string
@@ -39553,6 +41564,7 @@ components:
           minLength: 1
         phone_number:
           type: string
+          default: ''
           maxLength: 15
         empId:
           type: string
@@ -39568,9 +41580,6 @@ components:
             type: string
             minLength: 1
           writeOnly: true
-        address:
-          type: string
-          maxLength: 255
         gender:
           type: string
           nullable: true
@@ -39585,6 +41594,27 @@ components:
         date_of_birth:
           type: string
           format: date
+          nullable: true
+        academic_qualification:
+          type: string
+          default: ''
+          maxLength: 255
+        state:
+          type: string
+          default: ''
+          maxLength: 100
+        address:
+          type: string
+          default: ''
+          maxLength: 255
+        designation:
+          type: string
+          default: ''
+          maxLength: 255
+        salary:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
           nullable: true
         image:
           type: string
@@ -39676,6 +41706,15 @@ components:
         * `socratic` - Socratic & Inquisitive (Asks guiding questions)
         * `step_by_step` - Structured & Analytical (Step-by-step breakdowns)
         * `simplified` - Simple & Intuitive (Rich analogies for younger pupils)
+    TemplateDuplicateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+      required:
+      - name
     TemplateTypeEnum:
       enum:
       - attendance

@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from academic.models import (
     AdmissionApplication, AdmissionFeeStructure, AdmissionSession,
-    ClassLevel, ClassRoom, GradeLevel,
+    ClassRoom, GradeLevel,
 )
 from administration.models import AcademicYear
 
@@ -18,8 +18,7 @@ def make_admissions_structure(*, year_name="2035/2036", year_start=date(2035, 9,
         system_code="JSS_1",
         defaults={"section": "JSS", "default_name": "JSS 1", "sequence_order": 11},
     )[0]
-    level = ClassLevel.objects.create(name=f"JSS 1 {year_start.year}", grade_level=grade)
-    classroom = ClassRoom.objects.create(name=level, capacity=5)
+    classroom = ClassRoom.objects.create(name=f"JSS 1 {year_start.year}", grade_level=grade, capacity=5)
     today = timezone.localdate()
     session = AdmissionSession.objects.create(
         academic_year=year, name=f"{year_name} Admissions",

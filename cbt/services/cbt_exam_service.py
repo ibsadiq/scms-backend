@@ -26,8 +26,8 @@ class CBTExamService:
         CBTExamService.validate_for_publish(exam)
 
         section = None
-        if exam.classroom and hasattr(exam.classroom.name, 'grade_level'):
-            section = exam.classroom.name.grade_level.section
+        if exam.classroom and hasattr(exam.classroom, 'grade_level') and exam.classroom.grade_level:
+            section = exam.classroom.grade_level.section
 
         academic_year = None
         if exam.session and hasattr(exam.session, 'academic_year'):

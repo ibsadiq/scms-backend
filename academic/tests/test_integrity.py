@@ -3,7 +3,7 @@ from datetime import date
 from django.core.exceptions import ValidationError
 from school.testcases import TenantTestCase
 
-from academic.models import ClassLevel, ClassRoom, GradeLevel, Student
+from academic.models import ClassRoom, GradeLevel, Student
 from academic.services.enrollment_service import EnrollmentService
 from administration.models import AcademicYear
 
@@ -19,13 +19,11 @@ class AcademicIntegrityTests(TenantTestCase):
             name="2028/2029", start_date=date(2028, 9, 1),
             end_date=date(2029, 7, 1), active_year=True,
         )
-        grade = GradeLevel.objects.create(
+        self.grade = GradeLevel.objects.create(
             system_code="JSS_2", section="JSS", default_name="JSS 2", sequence_order=2
         )
-        self.level_a = ClassLevel.objects.create(name="JSS 2 A", grade_level=grade)
-        self.level_b = ClassLevel.objects.create(name="JSS 2 B", grade_level=grade)
-        self.room_a = ClassRoom.objects.create(name=self.level_a)
-        self.room_b = ClassRoom.objects.create(name=self.level_b)
+        self.room_a = ClassRoom.objects.create(name="A", grade_level=self.grade)
+        self.room_b = ClassRoom.objects.create(name="B", grade_level=self.grade)
 
     def make_student(self, suffix):
         return Student.objects.create(
@@ -54,7 +52,8 @@ class AcademicIntegrityTests(TenantTestCase):
         student.refresh_from_db()
         self.room_a.refresh_from_db()
         self.assertTrue(created)
-        self.assertEqual((student.classroom, student.class_level), (self.room_a, self.level_a))
+        self.assertEqual(student.classroom, self.room_a)
+        self.assertEqual(student.grade_level, self.grade)
         self.assertEqual(self.room_a.occupied_sits, 1)
 
         moved, created = EnrollmentService.enroll(
@@ -65,7 +64,8 @@ class AcademicIntegrityTests(TenantTestCase):
         self.room_b.refresh_from_db()
         self.assertFalse(created)
         self.assertEqual(moved.pk, enrollment.pk)
-        self.assertEqual((student.classroom, student.class_level), (self.room_b, self.level_b))
+        self.assertEqual(student.classroom, self.room_b)
+        self.assertEqual(student.grade_level, self.grade)
         self.assertEqual(self.room_a.occupied_sits, 0)
         self.assertEqual(self.room_b.occupied_sits, 1)
 
@@ -73,7 +73,7 @@ class AcademicIntegrityTests(TenantTestCase):
         student.refresh_from_db()
         self.room_b.refresh_from_db()
         self.assertIsNone(student.classroom)
-        self.assertIsNone(student.class_level)
+        self.assertIsNone(student.grade_level)
         self.assertEqual(self.room_b.occupied_sits, 0)
 
     def test_enrollment_cannot_exceed_locked_classroom_capacity(self):
@@ -98,8 +98,8 @@ class AcademicIntegrityTests(TenantTestCase):
             for student in students
         ])
         self.assertEqual(
-            set(Student.objects.filter(pk__in=[s.pk for s in students]).values_list("classroom_id", "class_level_id")),
-            {(self.room_a.pk, self.level_a.pk)},
+            set(Student.objects.filter(pk__in=[s.pk for s in students]).values_list("classroom_id", flat=True)),
+            {self.room_a.pk},
         )
 
     def test_failed_movement_rolls_back_enrollment_and_snapshot(self):
@@ -118,6 +118,19 @@ class AcademicIntegrityTests(TenantTestCase):
         self.room_a.refresh_from_db()
         self.room_b.refresh_from_db()
         self.assertEqual(enrollment.classroom_id, self.room_a.pk)
-        self.assertEqual((student.classroom_id, student.class_level_id), (self.room_a.pk, self.level_a.pk))
         self.assertEqual(self.room_a.occupied_sits, 1)
         self.assertEqual(self.room_b.occupied_sits, self.room_b.capacity)
+
+    def test_grade_level_defaults_include_nursery_3_in_correct_sequence(self):
+        GradeLevel.initialize_defaults()
+        codes = list(GradeLevel.objects.order_by("sequence_order").values_list("system_code", flat=True))
+        expected = [
+            "CRECHE", "PRE_NURSERY", "NURSERY_1", "NURSERY_2", "NURSERY_3",
+            "BASIC_1", "BASIC_2", "BASIC_3", "BASIC_4", "BASIC_5", "BASIC_6",
+            "JSS_1", "JSS_2", "JSS_3", "SS_1", "SS_2", "SS_3",
+        ]
+        self.assertEqual(codes, expected)
+        nursery_3 = GradeLevel.objects.get(system_code="NURSERY_3")
+        self.assertEqual(nursery_3.section, "PRE_PRIMARY")
+        self.assertEqual(nursery_3.default_name, "Nursery 3")
+        self.assertEqual(nursery_3.sequence_order, 5)

@@ -13,7 +13,7 @@ import openpyxl
 from io import BytesIO
 
 from academic.models import (
-    Student, ClassRoom, ClassLevel, Stream, Teacher,
+    Student, ClassRoom, GradeLevel, Stream, Teacher,
     StudentClassEnrollment
 )
 from users.models import CustomUser as User
@@ -83,7 +83,7 @@ def bulk_upload_students_task(self, schema_name, file_content, academic_year_id,
                         raise ValueError(f"Row {i}: Classroom name is required")
 
                     classroom = ClassRoom.objects.filter(
-                        name__name=classroom_name.lower()
+                        name__iexact=classroom_name
                     ).first()
 
                     if not classroom:
@@ -177,7 +177,7 @@ def bulk_upload_classrooms_task(self, schema_name, file_content):
             workbook = openpyxl.load_workbook(BytesIO(file_content))
             sheet = workbook.active
 
-            columns = ["name", "stream", "class_teacher"]
+            columns = ["grade_level", "name", "stream", "class_teacher"]
 
             classrooms_to_create = []
 
@@ -193,28 +193,46 @@ def bulk_upload_classrooms_task(self, schema_name, file_content):
                 classroom_data = dict(zip(columns, row))
 
                 try:
-                    # Validate ClassLevel
-                    name = ClassLevel.objects.get(name=classroom_data["name"].lower())
+                    # Validate GradeLevel
+                    gl_raw = str(classroom_data.get("grade_level") or "").strip()
+                    grade_level = (
+                        GradeLevel.objects.filter(system_code__iexact=gl_raw).first()
+                        or GradeLevel.objects.filter(alias__iexact=gl_raw).first()
+                        or GradeLevel.objects.filter(default_name__iexact=gl_raw).first()
+                    )
+                    if not grade_level:
+                        raise ValueError(f"Row {i}: Grade level '{gl_raw}' not found")
 
-                    # Check if classroom already exists
-                    if ClassRoom.objects.filter(name=name).exists():
-                        raise ValueError(f"Row {i}: Classroom with name '{name}' already exists")
+                    name_str = str(classroom_data.get("name") or "").strip()
+                    if not name_str:
+                        raise ValueError(f"Row {i}: Classroom name is required")
 
                     # Handle stream (optional)
                     stream = None
-                    if classroom_data.get("stream") and classroom_data["stream"].strip():
-                        stream = Stream.objects.get(name=classroom_data["stream"].strip())
+                    if classroom_data.get("stream") and str(classroom_data["stream"]).strip():
+                        stream_name = str(classroom_data["stream"]).strip().upper()
+                        stream = Stream.objects.filter(name=stream_name).first()
+                        if not stream:
+                            stream = Stream.objects.create(name=stream_name)
 
-                    # Validate teacher
-                    teacher_name = classroom_data["class_teacher"]
-                    first_name, last_name = teacher_name.rsplit(" ", 1)
-                    class_teacher = Teacher.objects.get(
-                        first_name=first_name.strip(),
-                        last_name=last_name.strip()
-                    )
+                    # Check if classroom already exists
+                    if ClassRoom.objects.filter(grade_level=grade_level, stream=stream, name__iexact=name_str).exists():
+                        raise ValueError(f"Row {i}: Classroom '{name_str}' already exists for {grade_level}")
+
+                    # Validate teacher (optional)
+                    class_teacher = None
+                    if classroom_data.get("class_teacher") and str(classroom_data["class_teacher"]).strip():
+                        teacher_name = str(classroom_data["class_teacher"]).strip()
+                        if " " in teacher_name:
+                            first_name, last_name = teacher_name.rsplit(" ", 1)
+                            class_teacher = Teacher.objects.filter(
+                                first_name__iexact=first_name.strip(),
+                                last_name__iexact=last_name.strip()
+                            ).first()
 
                     classroom = ClassRoom(
-                        name=name,
+                        name=name_str,
+                        grade_level=grade_level,
                         stream=stream,
                         class_teacher=class_teacher
                     )

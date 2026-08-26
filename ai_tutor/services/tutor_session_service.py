@@ -32,7 +32,7 @@ class TutorSessionService:
         enrollment = (
             StudentClassEnrollment.objects
             .filter(student=student, is_active=True)
-            .select_related("classroom", "classroom__name__grade_level", "academic_year")
+            .select_related("classroom", "classroom__grade_level", "academic_year")
             .order_by("-academic_year__start_date")
             .first()
         )
@@ -109,8 +109,8 @@ class TutorSessionService:
 
         # 4. Validate curriculum topic
         grade_level = (
-            enrollment.classroom.name.grade_level
-            if enrollment.classroom.name and enrollment.classroom.name.grade_level
+            enrollment.classroom.grade_level
+            if enrollment.classroom and enrollment.classroom.grade_level
             else None
         )
         if curriculum_topic:

@@ -1,7 +1,6 @@
 from .structure import (
     ClassYearSerializer,
     DepartmentSerializer,
-    ClassLevelSerializer,
     StreamSerializer,
     SchoolSectionSerializer,
     GradeLevelSerializer,
@@ -102,7 +101,6 @@ __all__ = [
     # Structure
     "ClassYearSerializer",
     "DepartmentSerializer",
-    "ClassLevelSerializer",
     "StreamSerializer",
     "SchoolSectionSerializer",
     "GradeLevelSerializer",

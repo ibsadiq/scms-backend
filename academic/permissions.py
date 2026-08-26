@@ -244,6 +244,18 @@ class CanAccessStudentPortal(permissions.BasePermission):
         return True
 
 
+def can_view_staff_salary(request_user, target_user=None) -> bool:
+    """
+    Evaluates whether the requesting user is authorized to view staff salary information.
+    - Superusers and School Administrators (is_admin=True) can view.
+    - Other roles (including the employee viewing their own record) cannot view.
+    """
+    if not request_user or not request_user.is_authenticated:
+        return False
+    from academic.services.academic_authority_service import AcademicAuthorityService
+    return AcademicAuthorityService.is_school_admin(request_user)
+
+
 class IsSchoolAdmin(permissions.BasePermission):
     """Allows access only to authenticated school administrators."""
     def has_permission(self, request, view):
@@ -270,7 +282,7 @@ class CanReviewLessonPlan(permissions.BasePermission):
         from academic.services.academic_authority_service import AcademicAuthorityService
 
         subject = obj.allocation.subject
-        section = obj.allocation.class_room.name.grade_level.section
+        section = obj.allocation.class_room.grade_level.section
         academic_year = obj.allocation.academic_year
         creator = obj.allocation.teacher_name
 

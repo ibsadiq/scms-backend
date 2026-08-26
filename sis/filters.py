@@ -18,8 +18,9 @@ class StudentFilter(FilterSet):
     id = NumberFilter(field_name="id")
     student = NumberFilter(field_name="id")
     classroom = NumberFilter(field_name="classroom_id")
-    grade_level = NumberFilter(field_name="class_level__grade_level_id")
-    class_level = NumberFilter(field_name="class_level_id")
+    grade_level = NumberFilter(field_name="classroom__grade_level_id")
+    # Backward-compatible query parameter: class_level now means grade level.
+    class_level = NumberFilter(field_name="classroom__grade_level_id")
     admission_date__year = NumberFilter(field_name="admission_date", lookup_expr="year")
     admission_date__month = NumberFilter(field_name="admission_date", lookup_expr="month")
     search = CharFilter(method="filter_search")

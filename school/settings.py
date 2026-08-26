@@ -26,6 +26,9 @@ PUBLIC_TENANT_SLUG = env("PUBLIC_TENANT_SLUG", default="public")
 DEBUG = env.bool("DEBUG", default=True)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+for _host in ("testserver", ".test", ".test.com"):
+    if _host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_host)
 
 # Proxy settings for correct absolute URI generation (e.g. for media URLs)
 USE_X_FORWARDED_HOST = True

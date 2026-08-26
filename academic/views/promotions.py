@@ -17,7 +17,7 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from academic.models import PromotionRule, StudentPromotion, ClassRoom, ClassLevel, Student
+from academic.models import PromotionRule, StudentPromotion, ClassRoom, Student
 from administration.models import AcademicYear
 from academic.serializers import (
     PromotionRuleSerializer,
@@ -38,7 +38,7 @@ class PromotionRuleViewSet(viewsets.ModelViewSet):
     - PUT/PATCH /api/academic/promotion-rules/{id}/ - Update rule
     - DELETE /api/academic/promotion-rules/{id}/ - Delete rule
     - GET /api/academic/promotion-rules/active/ - List only active rules
-    - GET /api/academic/promotion-rules/by_class_level/?class_level_id=1 - Get rule for class
+    - GET /api/academic/promotion-rules/by_grade/?grade_id=1 - Get rule for grade
     """
     queryset = PromotionRule.objects.all()
     serializer_class = PromotionRuleSerializer
@@ -47,9 +47,9 @@ class PromotionRuleViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter queryset based on query parameters"""
         queryset = PromotionRule.objects.select_related(
-            'from_class_level',
-            'to_class_level'
-        ).order_by('from_class_level__id')
+            'from_grade',
+            'to_grade'
+        ).order_by('from_grade__sequence_order')
 
         # Filter by active status
         active_only = self.request.query_params.get('active_only')
@@ -201,11 +201,10 @@ class StudentPromotionViewSet(viewsets.ModelViewSet):
         except AcademicYear.DoesNotExist:
             return Response({'error': f'Academic year {academic_year_id} not found'}, status=404)
 
-        # 1. NEW: Identify the Grade Level (e.g., JSS 1) from the Class (e.g., JSS 1 Gold)
-        # Path: ClassRoom -> ClassLevel (name) -> GradeLevel
-        current_grade = classroom.name.grade_level
+        # 1. Identify the Grade Level (e.g., JSS 1) directly from the ClassRoom
+        current_grade = classroom.grade_level
 
-        # 2. NEW: Fail fast if no rule exists for this Grade
+        # 2. Fail fast if no rule exists for this Grade
         rule = PromotionRule.objects.filter(from_grade=current_grade, is_active=True).first()
         if not rule:
             return Response(

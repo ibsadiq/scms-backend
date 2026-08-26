@@ -10,7 +10,7 @@ from academic.views import (
     PublicAdmissionFeeStructureViewSet,
     PublicAdmissionApplicationViewSet,
     PublicAdmissionDocumentViewSet,
-    PublicClassLevelViewSet,
+    PublicGradeLevelViewSet,
 )
 
 # Create router
@@ -34,7 +34,7 @@ router.register(
 )
 router.register(
     r'classes',
-    PublicClassLevelViewSet,
+    PublicGradeLevelViewSet,
     basename='public-admission-class'
 )
 

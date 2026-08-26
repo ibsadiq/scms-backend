@@ -15,8 +15,7 @@ class GradingSchemeResolver:
         if scheme:
             return scheme
 
-        class_level = classroom.name          # ClassRoom.name -> ClassLevel
-        grade_level = class_level.grade_level  # ClassLevel.grade_level -> GradeLevel (master config)
+        grade_level = classroom.grade_level
 
         scheme = GradingScheme.objects.filter(
             grade_level=grade_level, academic_year=academic_year, is_active=True

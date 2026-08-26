@@ -82,7 +82,7 @@ class BlueprintValidationService:
         exam = rule.blueprint.cbt_exam
 
         exam_grade_level = (
-            exam.classroom.name.grade_level
+            exam.classroom.grade_level
         )
 
         if rule.topic_id:
@@ -173,7 +173,7 @@ class BlueprintValidationService:
         exam = rule.blueprint.cbt_exam
 
         exam_grade_level = (
-            exam.classroom.name.grade_level
+            exam.classroom.grade_level
         )
 
         candidates = (

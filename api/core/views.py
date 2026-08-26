@@ -106,21 +106,21 @@ def _fetch_student_academic_records(student_id: str) -> dict:
     from academic.models import Student, StudentClassEnrollment
 
     student = Student.objects.select_related(
-        'classroom', 'class_level', 'class_of_year'
+        'classroom', 'classroom__grade_level', 'class_of_year'
     ).get(student_id=student_id)
 
     # ── Enrollment history ────────────────────────────────────────────────────
     enrollments = (
         StudentClassEnrollment.objects
         .filter(student=student)
-        .select_related('classroom', 'classroom__class_level', 'academic_year')
+        .select_related('classroom', 'classroom__grade_level', 'academic_year')
         .order_by('-academic_year__start_date')
     )
     enrollment_history = [
         {
             'academic_year': str(e.academic_year),
             'classroom':     str(e.classroom),
-            'class_level':   str(e.classroom.class_level) if e.classroom.class_level else None,
+            'class_level':   str(e.classroom.grade_level) if e.classroom and e.classroom.grade_level else None,
             'is_active':     e.is_active,
             'notes':         e.notes,
         }
@@ -156,7 +156,7 @@ def _fetch_student_academic_records(student_id: str) -> dict:
         'gender':           student.gender,
         'blood_group':      student.blood_group,
         'current_class':    str(student.classroom)   if student.classroom   else None,
-        'current_level':    str(student.class_level) if student.class_level else None,
+        'current_level':    str(student.grade_level) if student.grade_level else None,
         'status':           student.status,
         'enrollment_history': enrollment_history,
         'term_results':       term_results,

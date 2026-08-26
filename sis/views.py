@@ -10,7 +10,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 
 
-from academic.models import Student, ClassLevel, ClassRoom, Parent
+from academic.models import Student, ClassRoom, Parent
 from academic.permissions import IsSchoolAdmin
 from academic.services.academic_authority_service import AcademicAuthorityService
 from academic.services.student_creation_service import StudentCreationService
@@ -37,14 +37,12 @@ class StudentPagination(PageNumberPagination):
 
 class StudentListView(generics.ListCreateAPIView):
     queryset = Student.objects.all().select_related(
-        'class_level',
-        'class_level__grade_level',
         'classroom',
-        'classroom__name',
+        'classroom__grade_level',
         'classroom__stream',
         'parent_guardian',
         'reason_left'
-    ).prefetch_related('siblings__class_level')
+    ).prefetch_related('siblings__classroom')
     serializer_class = StudentSerializer
     permission_classes = [SISStudentPermission]
     filter_backends = [DjangoFilterBackend]
@@ -89,9 +87,9 @@ class StudentDetailView(views.APIView):
             return student_queryset_for_user(
                 request.user,
                 Student.objects.select_related(
-                    "class_level__grade_level", "classroom__name", "classroom__stream",
+                    "classroom", "classroom__grade_level", "classroom__stream",
                     "parent_guardian", "class_of_year", "reason_left",
-                ).prefetch_related("siblings__class_level"),
+                ).prefetch_related("siblings__classroom"),
             ).get(pk=pk)
         except Student.DoesNotExist:
             raise Http404

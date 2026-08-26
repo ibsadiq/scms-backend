@@ -10,18 +10,13 @@ from .access import ReportAccessService
 
 
 def _student_filters(queryset, filters):
-    class_level = filters.get("class_level")
+    classroom = filters.get("classroom") or filters.get("class_level")
     grade_level = filters.get("grade_level")
     student = filters.get("student")
-    if class_level:
-        queryset = queryset.filter(
-            Q(class_level=class_level) | Q(classroom__name=class_level)
-        )
+    if classroom:
+        queryset = queryset.filter(classroom=classroom)
     if grade_level:
-        queryset = queryset.filter(
-            Q(class_level__grade_level=grade_level)
-            | Q(classroom__name__grade_level=grade_level)
-        )
+        queryset = queryset.filter(classroom__grade_level=grade_level)
     if student:
         queryset = queryset.filter(pk=student.pk)
     if filters.get("academic_year"):
@@ -47,18 +42,17 @@ def scoped_students(user, filters, *, product):
         "academic": ReportAccessService.academic_students,
     }[product]
     return _student_filters(source(user), filters).select_related(
-        "classroom__name__grade_level", "class_level__grade_level"
+        "classroom__grade_level", "classroom__stream"
     ).order_by("admission_number", "pk")
 
 
 def student_identity(student):
     classroom = student.classroom
-    class_level = classroom.name if classroom else student.class_level
-    grade = class_level.grade_level if class_level else None
+    grade = classroom.grade_level if classroom else None
     return {
         "admission_number": student.admission_number or "",
         "full_name": student.full_name,
-        "class_name": str(class_level) if class_level else "",
+        "class_name": str(classroom) if classroom else "",
         "grade_level": (grade.alias or grade.default_name) if grade else "",
         "status": student.status,
     }
@@ -169,12 +163,14 @@ def financial_report_data(user, filters):
 
 
 def attendance_report_data(user, filters):
-    records = StudentAttendance.objects.select_related("student", "ClassRoom__name", "status")
+    records = StudentAttendance.objects.select_related("student", "ClassRoom", "status")
     classroom_ids = ReportAccessService.attendance_classroom_ids(user)
     if classroom_ids is not None:
         records = records.filter(ClassRoom_id__in=classroom_ids)
-    if filters.get("class_level"):
-        records = records.filter(ClassRoom__name=filters["class_level"])
+    if filters.get("classroom"):
+        records = records.filter(ClassRoom=filters["classroom"])
+    elif filters.get("class_level"):
+        records = records.filter(ClassRoom=filters["class_level"])
     if filters.get("student"):
         records = records.filter(student=filters["student"])
     if filters.get("term"):
@@ -186,7 +182,7 @@ def attendance_report_data(user, filters):
     if filters.get("date_to"):
         records = records.filter(date__lte=filters["date_to"])
     absent_statuses = AttendanceStatus.objects.filter(absent=True)
-    grouped = records.values("date", "ClassRoom_id", "ClassRoom__name__name").annotate(
+    grouped = records.values("date", "ClassRoom_id", "ClassRoom__name").annotate(
         total_students=Count("student_id", distinct=True),
         absent=Count("pk", filter=Q(status__in=absent_statuses)),
     ).order_by("date", "ClassRoom_id")
@@ -195,7 +191,7 @@ def attendance_report_data(user, filters):
         total = item["total_students"]
         present = max(0, total - item["absent"])
         rows.append({
-            "date": item["date"], "class_name": item["ClassRoom__name__name"],
+            "date": item["date"], "class_name": item["ClassRoom__name"],
             "total_students": total, "present": present, "absent": item["absent"],
             "attendance_rate": round(present / total * 100, 2) if total else 0,
         })

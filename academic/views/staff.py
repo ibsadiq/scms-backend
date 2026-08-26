@@ -26,6 +26,8 @@ class StaffFilter(FilterSet):
         return queryset.filter(
             Q(staff_id__icontains=val)
             | Q(designation__icontains=val)
+            | Q(academic_qualification__icontains=val)
+            | Q(state__icontains=val)
             | Q(user__first_name__icontains=val)
             | Q(user__last_name__icontains=val)
             | Q(user__email__icontains=val)
@@ -33,9 +35,9 @@ class StaffFilter(FilterSet):
         ).distinct()
 
 
-class StaffViewSet(viewsets.ReadOnlyModelViewSet):
+class StaffViewSet(viewsets.ModelViewSet):
     """
-    Canonical ReadOnly endpoint for Staff identity search and detail.
+    Canonical endpoint for Staff identity management, search, and detail.
     Restricted to authenticated School Administrators.
     """
     queryset = Staff.objects.select_related("user", "department").all()

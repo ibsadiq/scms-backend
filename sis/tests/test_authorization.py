@@ -1,4 +1,4 @@
-from academic.models import StudentsMedicalHistory, StudentsPreviousAcademicHistory
+from academic.models import Student, StudentsMedicalHistory, StudentsPreviousAcademicHistory
 
 from .support import SISAccessTestCase
 

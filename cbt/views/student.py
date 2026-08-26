@@ -59,7 +59,7 @@ class StudentExamViewSet(viewsets.ReadOnlyModelViewSet):
             status=CBTExamStatus.PUBLISHED,
             classroom_id__in=active_classroom_ids,
             session__academic_year_id__in=active_year_ids,
-        ).select_related("subject", "classroom__name", "session").prefetch_related("attempts")
+        ).select_related("subject", "classroom__grade_level", "session").prefetch_related("attempts")
 
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
@@ -94,7 +94,7 @@ class StudentAttemptViewSet(viewsets.ReadOnlyModelViewSet):
 
         return ExamAttempt.objects.filter(student=student).select_related(
             "cbt_exam__subject",
-            "cbt_exam__classroom__name",
+            "cbt_exam__classroom__grade_level",
         ).prefetch_related(
             "attempt_questions__exam_question__question_version__question",
             "attempt_questions__option_order__question_option",

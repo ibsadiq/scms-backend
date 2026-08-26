@@ -50,7 +50,7 @@ class StudentCreationService:
             raise ValidationError("An active academic year is required to enroll the student.")
             
         # Lock the classroom to ensure we have the most up-to-date capacity info
-        classroom = ClassRoom.objects.select_for_update().select_related("name").filter(pk=classroom.pk).first()
+        classroom = ClassRoom.objects.select_for_update().filter(pk=classroom.pk).first()
         
         parent = ParentIdentityService.resolve_parent(
             phone_number=parent_phone,
@@ -73,7 +73,6 @@ class StudentCreationService:
             "parent_contact": parent_phone,
             "phone_number": student_phone,
             "parent_guardian": parent,
-            "class_level": classroom.name, # Sync class level
             "can_login": False,
         }
         

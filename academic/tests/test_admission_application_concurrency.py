@@ -19,7 +19,6 @@ from users.models import CustomUser
 
 
 class AdmissionApplicationConcurrencyTests(TenantTransactionTestCase):
-    reset_sequences = True
 
     @classmethod
     def setup_tenant(cls, tenant):
@@ -95,8 +94,6 @@ class AdmissionApplicationConcurrencyTests(TenantTransactionTestCase):
 
 
 class AdmissionEnrollmentConcurrencyTests(TenantTransactionTestCase):
-    reset_sequences = True
-
     @classmethod
     def setup_tenant(cls, tenant):
         tenant.name = "Admissions Enrollment Concurrency School"

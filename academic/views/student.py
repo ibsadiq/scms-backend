@@ -11,7 +11,6 @@ from academic.models import (
     StudentClassEnrollment as StudentClass,
     Student,
     ClassRoom,
-    ClassLevel,
     Parent,
 )
 from academic.serializers import (
@@ -65,7 +64,7 @@ class BulkUploadStudentClassView(APIView):
                 try:
                     try:
                         classroom = ClassRoom.objects.get(
-                            name__name=row_data["classroom_name"].strip().lower(),
+                            name__iexact=row_data["classroom_name"].strip(),
                         )
                     except ClassRoom.DoesNotExist:
                         raise ValidationError(
@@ -100,9 +99,9 @@ class BulkUploadStudentClassView(APIView):
                             f"Row {i}: No student found with the name '{full_name}'."
                         )
 
-                    if classroom.name != student.class_level:
+                    if not student.classroom or student.classroom.grade_level_id != classroom.grade_level_id:
                         raise ValidationError(
-                            f"Row {i}: The classroom '{row_data['classroom_name']}' does not match the student's class level '{student.class_level}'."
+                            f"Row {i}: The classroom '{row_data['classroom_name']}' does not match the student's grade level '{student.grade_level}'."
                         )
 
                     if StudentClass.objects.filter(
@@ -185,13 +184,13 @@ class BulkUploadStudentsProfileView(APIView):
                 try:
                     if not row_data.get("first_name") or not row_data.get("last_name"):
                         raise ValidationError(f"Row {i}: First Name and Last Name are required.")
-                    if not row_data.get("class_level"):
-                        raise ValidationError(f"Row {i}: Class Level is required.")
 
-                    try:
-                        class_level = ClassLevel.objects.get(name__iexact=str(row_data["class_level"]).strip())
-                    except ClassLevel.DoesNotExist:
-                        raise ValidationError(f"Row {i}: Class Level '{row_data['class_level']}' does not exist.")
+                    classroom = None
+                    if row_data.get("classroom"):
+                        cr_raw = str(row_data["classroom"]).strip()
+                        classroom = ClassRoom.objects.filter(name__iexact=cr_raw).first()
+                        if not classroom:
+                            raise ValidationError(f"Row {i}: Classroom '{cr_raw}' does not exist.")
 
                     parent = None
                     if row_data.get("parent_contact"):
@@ -206,7 +205,7 @@ class BulkUploadStudentsProfileView(APIView):
                         last_name=str(row_data["last_name"]).strip(),
                         gender=str(row_data.get("gender") or "").strip().capitalize(),
                         date_of_birth=row_data.get("date_of_birth"),
-                        class_level=class_level,
+                        classroom=classroom,
                         parent_guardian=parent,
                         parent_contact=str(row_data.get("parent_contact") or "").strip(),
                         is_active=True,

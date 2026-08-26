@@ -3,18 +3,107 @@ import copy
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from idcards.models import (
+    AuthorizedSignature, AuthorizedSignatureVersion, IDCard, IDCardDesignAsset,
+    IDCardTemplate, IDCardTemplateAssignment, IDCardTemplateVersion, RFIDCredential,
+)
+from idcards.services import (
+    AuthorizedSignatureService, CardService, IDCardAssetService,
+    IDCardTemplateLifecycleService, RFIDCredentialService,
+)
+
+
+class AuthorizedSignatureVersionSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AuthorizedSignatureVersion
+        fields = (
+            "id", "public_id", "signature", "version_number", "image", "image_url",
+            "mime_type", "width", "height", "file_size", "content_hash",
+            "uploaded_by", "created_at",
+        )
+        read_only_fields = (
+            "public_id", "signature", "version_number", "mime_type", "width",
+            "height", "file_size", "content_hash", "uploaded_by", "created_at",
+        )
+
+    def get_image_url(self, obj):
+        return obj.image.url if obj.image else ""
+
+
+class AuthorizedSignatureSerializer(serializers.ModelSerializer):
+    current_version = AuthorizedSignatureVersionSerializer(read_only=True)
+    versions_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AuthorizedSignature
+        fields = (
+            "id", "public_id", "name", "signatory_name", "signatory_title",
+            "description", "is_active", "current_version", "current_version_id",
+            "versions_count", "created_by", "created_at", "updated_at",
+        )
+        read_only_fields = (
+            "public_id", "current_version", "current_version_id", "versions_count",
+            "created_by", "created_at", "updated_at",
+        )
+
+    def get_versions_count(self, obj):
+        return obj.versions.count()
+
+
+class AuthorizedSignatureCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=120)
+    signatory_name = serializers.CharField(max_length=120)
+    signatory_title = serializers.CharField(max_length=120)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    image = serializers.ImageField()
+
+
+class AuthorizedSignatureReplaceSerializer(serializers.Serializer):
+    image = serializers.ImageField()
+
 
 class IDCardTemplateFieldSerializer(serializers.Serializer):
     key = serializers.CharField()
     label = serializers.CharField()
+    group = serializers.CharField()
     type = serializers.ChoiceField(choices=("text", "image", "date"))
+    example_value = serializers.CharField(allow_blank=True)
+    max_expected_length = serializers.IntegerField()
+    sensitivity = serializers.CharField()
+
+
+class IDCardDesignAssetSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IDCardDesignAsset
+        fields = (
+            "id", "public_id", "name", "asset_type", "file", "file_url",
+            "mime_type", "width", "height", "file_size", "content_hash",
+            "is_active", "uploaded_by", "created_at", "updated_at",
+        )
+        read_only_fields = (
+            "public_id", "mime_type", "width", "height", "file_size",
+            "content_hash", "uploaded_by", "created_at", "updated_at",
+        )
+
+    def get_file_url(self, obj):
+        return obj.file.url if obj.file else ""
+
+
+class IDCardDesignAssetUploadSerializer(serializers.Serializer):
+    file = serializers.ImageField()
+    name = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    asset_type = serializers.ChoiceField(
+        choices=IDCardDesignAsset.AssetType.choices,
+        default=IDCardDesignAsset.AssetType.IMAGE,
+    )
 
 
 class TemplateDuplicateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=120)
-
-from idcards.models import IDCard, IDCardTemplate, IDCardTemplateVersion, RFIDCredential
-from idcards.services import CardService, IDCardTemplateLifecycleService, RFIDCredentialService
 
 
 class IDCardTemplateVersionSerializer(serializers.ModelSerializer):
@@ -40,6 +129,7 @@ class IDCardTemplateVersionSerializer(serializers.ModelSerializer):
 class IDCardTemplateSerializer(serializers.ModelSerializer):
     current_draft = IDCardTemplateVersionSerializer(source="current_draft_version", read_only=True)
     current_published = IDCardTemplateVersionSerializer(source="current_published_version", read_only=True)
+    assignment_count = serializers.IntegerField(source="assignments.count", read_only=True)
 
     class Meta:
         model = IDCardTemplate
@@ -48,6 +138,7 @@ class IDCardTemplateSerializer(serializers.ModelSerializer):
             "is_active", "width_mm", "height_mm", "front_layout", "back_layout",
             "current_draft_version", "current_published_version", "current_draft",
             "current_published", "created_by", "created_at", "updated_at",
+            "assignment_count",
         )
         read_only_fields = (
             "public_id", "is_archived", "current_draft_version", "current_published_version",
@@ -97,6 +188,37 @@ class IDCardTemplateSerializer(serializers.ModelSerializer):
         return instance
 
 
+class IDCardTemplateAssignmentSerializer(serializers.ModelSerializer):
+    template_name = serializers.CharField(source="template.name", read_only=True)
+    published_version = serializers.IntegerField(source="template.current_published_version.version_number", read_only=True)
+    target_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IDCardTemplateAssignment
+        fields = ("id", "public_id", "holder_type", "scope_type", "template", "template_name",
+                  "published_version", "section", "grade_level", "classroom", "department",
+                  "staff_role", "target_label", "is_active", "created_by", "created_at", "updated_at")
+        read_only_fields = ("public_id", "template_name", "published_version", "target_label", "created_by", "created_at", "updated_at")
+
+    def get_target_label(self, obj):
+        target = obj.section or obj.grade_level or obj.classroom or obj.department
+        return str(target) if target else (obj.get_staff_role_display() if obj.staff_role else "All holders")
+
+    def validate(self, attrs):
+        instance = copy.copy(self.instance) if self.instance else IDCardTemplateAssignment()
+        for key, value in attrs.items():
+            setattr(instance, key, value)
+        try:
+            instance.full_clean(exclude=("id",), validate_unique=True, validate_constraints=True)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
+        return attrs
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
+
+
 class IDCardSerializer(serializers.ModelSerializer):
     holder_type = serializers.CharField(read_only=True)
     effective_status = serializers.CharField(read_only=True)
@@ -122,6 +244,7 @@ class IDCardSerializer(serializers.ModelSerializer):
             "deactivation_reason", "issued_by", "created_at", "updated_at",
             "replaces", "replacement_reason", "replaced_at", "replaced_by",
         )
+        extra_kwargs = {"template": {"required": False}}
 
     def get_holder_name(self, obj):
         return obj.student.full_name if obj.student_id else obj.staff.full_name

@@ -24,7 +24,7 @@ class LessonPlanService:
             )
 
         allocation_grade = (
-            allocation.class_room.name.grade_level
+            allocation.class_room.grade_level
         )
 
         if (
@@ -138,7 +138,7 @@ class LessonPlanService:
         from .academic_authority_service import AcademicAuthorityService
 
         subject = plan.allocation.subject
-        section = plan.allocation.class_room.name.grade_level.section
+        section = plan.allocation.class_room.grade_level.section
         academic_year = plan.allocation.academic_year
         creator = plan.allocation.teacher_name
 
@@ -194,7 +194,7 @@ class LessonPlanService:
         from .academic_authority_service import AcademicAuthorityService
 
         subject = plan.allocation.subject
-        section = plan.allocation.class_room.name.grade_level.section
+        section = plan.allocation.class_room.grade_level.section
         academic_year = plan.allocation.academic_year
         creator = plan.allocation.teacher_name
 

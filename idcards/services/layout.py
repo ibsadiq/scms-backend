@@ -5,16 +5,28 @@ from numbers import Integral, Real
 from django.core.exceptions import ValidationError
 
 from idcards.services.fields import DynamicFieldRegistry
+from idcards.services.icons import IconRegistry
 
 
 class LayoutValidator:
     """Version-aware, non-mutating validation for persisted layouts."""
 
-    ELEMENT_TYPES = {"text", "dynamic_text", "photo", "school_logo", "image", "shape", "qr", "barcode", "signature"}
+    ELEMENT_TYPES = {
+        "text", "dynamic_text", "photo", "school_logo", "image",
+        "shape", "qr", "barcode", "icon", "signature",
+    }
     MAX_ELEMENTS = 200
     MAX_LAYOUT_BYTES = 256 * 1024
     DESIGN_MAJOR_AXIS = 10000
     MIN_ELEMENT_SIZE = 1
+
+    FONT_ALLOWLIST = {
+        "Inter", "Roboto", "Outfit", "Open Sans", "Montserrat",
+        "Merriweather", "Playfair Display", "JetBrains Mono", "Fira Code",
+        "system-ui", "sans-serif", "serif", "monospace",
+    }
+    OVERFLOW_MODES = {"AUTO_FIT", "WRAP", "TRUNCATE"}
+    IMAGE_FIT_MODES = {"contain", "cover", "fill"}
 
     @classmethod
     def canvas_dimensions(cls, width_mm, height_mm, orientation):
@@ -97,9 +109,19 @@ class LayoutValidator:
             raise ValidationError("coordinate_system.unit must be 'design_unit'.")
         if coordinates.get("width") != canvas_width or coordinates.get("height") != canvas_height:
             raise ValidationError(f"coordinate_system must be {canvas_width} × {canvas_height}.")
-        for field in ("background", "safe_area"):
-            if not isinstance(layout.get(field), dict):
-                raise ValidationError(f"{field} must be an object.")
+
+        # Background validation
+        bg = layout.get("background")
+        if not isinstance(bg, dict):
+            raise ValidationError("background must be an object.")
+        bg_type = bg.get("type", "color")
+        if bg_type not in {"color", "image"}:
+            raise ValidationError(f"Unsupported background type '{bg_type}'.")
+
+        # Safe area validation
+        safe_area = layout.get("safe_area")
+        if not isinstance(safe_area, dict):
+            raise ValidationError("safe_area must be an object.")
 
         seen, seen_z = set(), set()
         for index, element in enumerate(cls._elements(layout)):
@@ -131,6 +153,50 @@ class LayoutValidator:
             for field in ("style", "constraints"):
                 if not isinstance(element.get(field), dict):
                     raise ValidationError(f"Element '{element_id}' requires object {field}.")
+
+            style = element.get("style", {})
+
+            # Validate Icon
+            if element.get("type") == "icon":
+                icon_key = element.get("icon") or style.get("icon_key")
+                if not icon_key:
+                    raise ValidationError(f"Element '{element_id}' requires an icon key.")
+                IconRegistry.require(icon_key)
+
+            # Validate Typography / Text styling
+            if element.get("type") in {"text", "dynamic_text"}:
+                font_family = style.get("font_family")
+                if font_family:
+                    if any(bad in str(font_family).lower() for bad in ("url(", "javascript:", "<", ">", ";", "{", "}")):
+                        raise ValidationError(f"Element '{element_id}' has invalid font_family.")
+                overflow = style.get("overflow")
+                if overflow and overflow not in cls.OVERFLOW_MODES:
+                    raise ValidationError(f"Element '{element_id}' has invalid overflow mode '{overflow}'.")
+
+            # Validate Image styling
+            if element.get("type") in {"photo", "school_logo", "image"}:
+                fit = style.get("fit")
+                if fit and fit not in cls.IMAGE_FIT_MODES:
+                    raise ValidationError(f"Element '{element_id}' has invalid fit mode '{fit}'.")
+
+            # Validate Signature element
+            if element.get("type") == "signature":
+                sig_ver_id = element.get("signature_version_id")
+                if not sig_ver_id:
+                    raise ValidationError(f"Element '{element_id}' requires 'signature_version_id'.")
+                try:
+                    ver_id_int = int(sig_ver_id)
+                except (ValueError, TypeError):
+                    raise ValidationError(f"Element '{element_id}' has invalid 'signature_version_id'.")
+
+                from idcards.models import AuthorizedSignatureVersion
+                if not AuthorizedSignatureVersion.objects.filter(pk=ver_id_int).exists():
+                    raise ValidationError(f"Element '{element_id}' references non-existent signature version {ver_id_int}.")
+
+                for bool_flag in ("show_signatory_name", "show_signatory_title", "show_signature_line"):
+                    if bool_flag in element and not isinstance(element[bool_flag], bool):
+                        raise ValidationError(f"Element '{element_id}' {bool_flag} must be a boolean.")
+
             cls._validate_v2_binding(element, holder_type, element_id)
         return layout
 
@@ -186,7 +252,7 @@ class TemplateService:
     def dynamic_keys(cls, template_or_version):
         keys = []
         for layout in (template_or_version.front_layout, template_or_version.back_layout):
-            for element in layout["elements"]:
+            for element in layout.get("elements", []):
                 binding = element.get("binding") or {}
                 field = element.get("field") or binding.get("field")
                 if field and field not in keys:

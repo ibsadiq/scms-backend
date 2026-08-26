@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 from school.testcases import TenantTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from academic.models import ClassLevel, ClassRoom, GradeLevel, Student
+from academic.models import ClassRoom, GradeLevel, Student
 from administration.models import AcademicYear, Term
 from attendance.models import AttendanceStatus, StudentAttendance, StudentTermAttendanceSummary
 from attendance.services import AttendanceSummaryService
@@ -41,8 +41,7 @@ class StudentTermAttendanceSummaryTests(TenantTestCase):
         grade = GradeLevel.objects.create(
             system_code="JSS_1", section="JSS", default_name="JSS 1", sequence_order=1
         )
-        level = ClassLevel.objects.create(name="JSS 1 A", grade_level=grade)
-        self.classroom = ClassRoom.objects.create(name=level)
+        self.classroom = ClassRoom.objects.create(name="A", grade_level=grade)
         self.student = Student.objects.create(
             first_name="Amina", last_name="Bello", parent_contact="08020000001", classroom=self.classroom
         )

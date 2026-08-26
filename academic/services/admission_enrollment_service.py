@@ -28,9 +28,9 @@ class AdmissionEnrollmentService:
         if not academic_year:
             raise ValidationError("An active academic year is required for enrollment.")
         classroom = ClassRoom.objects.select_for_update().select_related(
-            "name__grade_level"
+            "grade_level"
         ).filter(pk=classroom.pk).first()
-        if not classroom or classroom.name.grade_level_id != application.applying_for_class_id:
+        if not classroom or classroom.grade_level_id != application.applying_for_class_id:
             raise ValidationError("The classroom must match the application's accepted grade level.")
 
         parent = ParentIdentityService.resolve_parent(

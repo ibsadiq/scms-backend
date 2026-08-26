@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from academic.models import Staff, Student
+from academic.models import ClassRoom, Department, GradeLevel, SchoolSection, Staff, Student
 
 
 def empty_layout():
@@ -27,6 +27,15 @@ def empty_layout_v2():
 class HolderType(models.TextChoices):
     STUDENT = "STUDENT", "Student"
     STAFF = "STAFF", "Staff"
+
+
+class AssignmentScope(models.TextChoices):
+    DEFAULT = "DEFAULT", "Default"
+    SECTION = "SECTION", "School section"
+    GRADE_LEVEL = "GRADE_LEVEL", "Grade level"
+    CLASSROOM = "CLASSROOM", "Classroom"
+    DEPARTMENT = "DEPARTMENT", "Department"
+    STAFF_ROLE = "STAFF_ROLE", "Staff role"
 
 
 class IDCardTemplate(models.Model):
@@ -171,6 +180,58 @@ class IDCardTemplateVersion(models.Model):
         return f"{self.template.name} v{self.version_number} ({self.get_status_display()})"
 
 
+class IDCardTemplateAssignment(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    holder_type = models.CharField(max_length=10, choices=HolderType.choices, db_index=True)
+    scope_type = models.CharField(max_length=20, choices=AssignmentScope.choices, db_index=True)
+    template = models.ForeignKey(IDCardTemplate, on_delete=models.PROTECT, related_name="assignments")
+    section = models.ForeignKey(SchoolSection, on_delete=models.CASCADE, null=True, blank=True)
+    grade_level = models.ForeignKey(GradeLevel, on_delete=models.CASCADE, null=True, blank=True)
+    classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, null=True, blank=True)
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, null=True, blank=True)
+    staff_role = models.CharField(max_length=20, choices=Staff.Role.choices, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="created_idcard_template_assignments")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("holder_type", "scope_type", "id")
+        constraints = [
+            models.UniqueConstraint(fields=("holder_type",), condition=Q(scope_type="DEFAULT", is_active=True), name="one_active_idcard_default_assignment"),
+            models.UniqueConstraint(fields=("classroom",), condition=Q(scope_type="CLASSROOM", is_active=True), name="one_active_idcard_classroom_assignment"),
+            models.UniqueConstraint(fields=("grade_level",), condition=Q(scope_type="GRADE_LEVEL", is_active=True), name="one_active_idcard_grade_assignment"),
+            models.UniqueConstraint(fields=("section",), condition=Q(scope_type="SECTION", is_active=True), name="one_active_idcard_section_assignment"),
+            models.UniqueConstraint(fields=("department",), condition=Q(scope_type="DEPARTMENT", is_active=True), name="one_active_idcard_department_assignment"),
+            models.UniqueConstraint(fields=("staff_role",), condition=Q(scope_type="STAFF_ROLE", is_active=True), name="one_active_idcard_staff_role_assignment"),
+        ]
+
+    def clean(self):
+        targets = {"SECTION": "section", "GRADE_LEVEL": "grade_level", "CLASSROOM": "classroom",
+                   "DEPARTMENT": "department", "STAFF_ROLE": "staff_role"}
+        populated = {name for name in ("section", "grade_level", "classroom", "department", "staff_role") if getattr(self, name)}
+        expected = targets.get(self.scope_type)
+        if populated != ({expected} if expected else set()):
+            raise ValidationError("Assignment scope must contain exactly its matching target.")
+        student_scopes = {AssignmentScope.DEFAULT, AssignmentScope.SECTION, AssignmentScope.GRADE_LEVEL, AssignmentScope.CLASSROOM}
+        staff_scopes = {AssignmentScope.DEFAULT, AssignmentScope.DEPARTMENT, AssignmentScope.STAFF_ROLE}
+        allowed = student_scopes if self.holder_type == HolderType.STUDENT else staff_scopes
+        if self.scope_type not in allowed:
+            raise ValidationError({"scope_type": "This scope is not valid for the holder type."})
+        if self.template_id and self.template.holder_type != self.holder_type:
+            raise ValidationError({"template": "Template holder type does not match the assignment."})
+        if self.is_active and self.template_id:
+            if self.template.is_archived or not self.template.is_active:
+                raise ValidationError({"template": "Only active, non-archived templates can be assigned."})
+            if not self.template.current_published_version_id:
+                raise ValidationError({"template": "The template must have a published version before assignment."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
 class IDCard(models.Model):
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE", "Active"
@@ -292,3 +353,97 @@ class RFIDCredential(models.Model):
 
     def __str__(self):
         return f"{self.id_card.card_number} – {self.masked_uid}"
+
+
+class IDCardDesignAsset(models.Model):
+    """Uploaded school-level image, background, or watermark for ID-card layouts."""
+
+    class AssetType(models.TextChoices):
+        IMAGE = "IMAGE", "Image"
+        BACKGROUND = "BACKGROUND", "Background"
+        WATERMARK = "WATERMARK", "Watermark"
+        DECORATIVE_GRAPHIC = "DECORATIVE_GRAPHIC", "Decorative Graphic"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    name = models.CharField(max_length=120)
+    asset_type = models.CharField(max_length=25, choices=AssetType.choices, default=AssetType.IMAGE, db_index=True)
+    file = models.ImageField(upload_to="idcard_assets/")
+    mime_type = models.CharField(max_length=50)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    file_size = models.PositiveIntegerField(default=0, help_text="File size in bytes")
+    content_hash = models.CharField(max_length=64, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="uploaded_idcard_assets",
+        null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [
+            models.Index(fields=("asset_type", "is_active")),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_asset_type_display()})"
+
+
+class AuthorizedSignature(models.Model):
+    """Authorized school signatory identity (e.g. Principal, Registrar) for ID cards."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    name = models.CharField(max_length=120, help_text="Internal label, e.g. 'Principal Signature'")
+    signatory_name = models.CharField(max_length=120, help_text="Official name of signatory, e.g. 'Mrs. Amina Yusuf'")
+    signatory_title = models.CharField(max_length=120, help_text="Signatory designation, e.g. 'Principal'")
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    current_version = models.ForeignKey(
+        "AuthorizedSignatureVersion", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="current_for_signatures",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="created_authorized_signatures",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [
+            models.Index(fields=("is_active",)),
+        ]
+
+    def __str__(self):
+        return f"{self.name} — {self.signatory_name} ({self.signatory_title})"
+
+
+class AuthorizedSignatureVersion(models.Model):
+    """Immutable raster signature image version."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    signature = models.ForeignKey(AuthorizedSignature, on_delete=models.CASCADE, related_name="versions")
+    version_number = models.PositiveIntegerField()
+    image = models.ImageField(upload_to="idcard_signatures/")
+    mime_type = models.CharField(max_length=50)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    file_size = models.PositiveIntegerField(default=0, help_text="File size in bytes")
+    content_hash = models.CharField(max_length=64, blank=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="uploaded_signature_versions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-version_number", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=("signature", "version_number"), name="unique_signature_version_number"),
+        ]
+
+    def __str__(self):
+        return f"{self.signature.name} (v{self.version_number})"

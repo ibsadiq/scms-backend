@@ -9,8 +9,6 @@ from academic.views import (
     BulkUploadClassRoomsView,
     DepartmentListCreateView,
     DepartmentDetailView,
-    ClassLevelListCreateView,
-    ClassLevelDetailView,
     GradeLevelListCreateView,
     GradeLevelDetailView,
     SchoolSectionListView,
@@ -93,17 +91,6 @@ urlpatterns = [
         "departments/<int:pk>/",
         DepartmentDetailView.as_view(),
         name="department-detail",
-    ),
-    # ClassLevel URLs
-    path(
-        "class-levels/",
-        ClassLevelListCreateView.as_view(),
-        name="class-level-list-create",
-    ),
-    path(
-        "class-levels/<int:pk>/",
-        ClassLevelDetailView.as_view(),
-        name="class-level-detail",
     ),
     # SchoolSection URLs
     path(

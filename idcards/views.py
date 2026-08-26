@@ -1,13 +1,29 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from academic.permissions import IsSchoolAdmin
-from idcards.models import HolderType, IDCard, IDCardTemplate, IDCardTemplateVersion, RFIDCredential
-from idcards.serializers import CardDeactivateSerializer, CardReplaceSerializer, IDCardSerializer, IDCardTemplateSerializer, IDCardTemplateFieldSerializer, IDCardTemplateVersionSerializer, RFIDCredentialSerializer, RFIDReplaceSerializer, RFIDRevokeSerializer, TemplateDuplicateSerializer
-from idcards.services import CardService, DynamicFieldRegistry, IDCardTemplateLifecycleService, RFIDCredentialService
+from academic.models import Staff, Student
+from idcards.models import (
+    AuthorizedSignature, AuthorizedSignatureVersion, HolderType, IDCard,
+    IDCardDesignAsset, IDCardTemplate, IDCardTemplateAssignment, IDCardTemplateVersion, RFIDCredential,
+)
+from idcards.serializers import (
+    AuthorizedSignatureCreateSerializer, AuthorizedSignatureReplaceSerializer,
+    AuthorizedSignatureSerializer, AuthorizedSignatureVersionSerializer,
+    CardDeactivateSerializer, CardReplaceSerializer, IDCardDesignAssetSerializer,
+    IDCardDesignAssetUploadSerializer, IDCardSerializer, IDCardTemplateAssignmentSerializer, IDCardTemplateSerializer,
+    IDCardTemplateFieldSerializer, IDCardTemplateVersionSerializer, RFIDCredentialSerializer,
+    RFIDReplaceSerializer, RFIDRevokeSerializer, TemplateDuplicateSerializer,
+)
+from idcards.services import (
+    AuthorizedSignatureService, CardService, DynamicFieldRegistry,
+    IDCardAssetService, IDCardRenderService, IDCardTemplateLifecycleService, IDCardTemplateResolver,
+    RFIDCredentialService,
+)
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 
 
@@ -145,9 +161,44 @@ class IDCardTemplateVersionViewSet(viewsets.GenericViewSet):
         return Response(self.get_serializer(version).data)
 
 
+class IDCardTemplateAssignmentViewSet(viewsets.ModelViewSet):
+    queryset = IDCardTemplateAssignment.objects.select_related(
+        "template__current_published_version", "section", "grade_level", "classroom__grade_level", "department"
+    )
+    serializer_class = IDCardTemplateAssignmentSerializer
+    permission_classes = (IsAuthenticated, IsSchoolAdmin)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        holder_type = self.request.query_params.get("holder_type")
+        return queryset.filter(holder_type=holder_type) if holder_type else queryset
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=("is_active", "updated_at"))
+
+    @action(detail=False, methods=("post",), url_path="resolve")
+    def resolve(self, request):
+        holder_type, holder_id = request.data.get("holder_type"), request.data.get("holder_id")
+        model = Student if holder_type == HolderType.STUDENT else Staff if holder_type == HolderType.STAFF else None
+        if not model:
+            return Response({"detail": "A valid holder_type is required."}, status=400)
+        try:
+            holder = model.objects.get(pk=holder_id)
+            result = IDCardTemplateResolver.resolve_for_holder(holder_type, holder)
+        except model.DoesNotExist:
+            return Response({"detail": "Holder not found."}, status=404)
+        except DjangoValidationError as exc:
+            return Response({"detail": exc.messages}, status=400)
+        return Response({"template": IDCardTemplateSerializer(result.template).data,
+                         "template_version": IDCardTemplateVersionSerializer(result.template_version).data,
+                         "matched_scope": result.matched_scope,
+                         "assignment": self.get_serializer(result.assignment).data, "path": result.path})
+
+
 class IDCardViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = IDCard.objects.select_related(
-        "student__classroom__name", "student__classroom__stream",
+        "student__classroom__grade_level", "student__classroom__stream",
         "staff__user", "staff__department", "template", "template_version", "issued_by",
     ).prefetch_related("rfid_credentials")
     serializer_class = IDCardSerializer
@@ -204,6 +255,23 @@ class IDCardViewSet(viewsets.ReadOnlyModelViewSet):
     def preview_context(self, request, pk=None):
         context = CardService.prepare_card_context(self.get_object())
         return Response({"template": IDCardTemplateSerializer(context["template"]).data, "values": context["values"]})
+
+    @action(detail=True, methods=("get",), url_path="preview")
+    def preview(self, request, pk=None):
+        card = self.get_object()
+        data = IDCardRenderService.get_preview_data(card)
+        return Response(data)
+
+    @action(detail=True, methods=("get",), url_path="print")
+    def print_card(self, request, pk=None):
+        card = self.get_object()
+        pdf_bytes = IDCardRenderService.generate_pdf(card)
+        download = request.query_params.get("download", "").lower() in ("true", "1", "yes")
+        disposition = "attachment" if download else "inline"
+        filename = f"id-card-{card.card_number}.pdf"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'{disposition}; filename="{filename}"'
+        return response
 
 
 @extend_schema(
@@ -262,3 +330,134 @@ class RFIDCredentialViewSet(viewsets.ReadOnlyModelViewSet):
         except DjangoValidationError as exc:
             return Response({"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages}, status=400)
         return Response(self.get_serializer(credential).data, status=status.HTTP_201_CREATED)
+
+
+class IDCardDesignAssetViewSet(viewsets.ModelViewSet):
+    queryset = IDCardDesignAsset.objects.all()
+    serializer_class = IDCardDesignAssetSerializer
+    permission_classes = (IsAuthenticated, IsSchoolAdmin)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        asset_type = self.request.query_params.get("asset_type")
+        if asset_type:
+            queryset = queryset.filter(asset_type=asset_type)
+        if self.request.query_params.get("all", "").lower() != "true":
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = IDCardDesignAssetUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            asset = IDCardAssetService.create_asset(
+                file=serializer.validated_data["file"],
+                name=serializer.validated_data.get("name") or serializer.validated_data["file"].name,
+                asset_type=serializer.validated_data.get("asset_type", IDCardDesignAsset.AssetType.IMAGE),
+                user=request.user,
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(IDCardDesignAssetSerializer(asset).data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        asset = self.get_object()
+        try:
+            IDCardAssetService.delete_asset(asset)
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.messages if hasattr(exc, "messages") else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=("post",))
+    def archive(self, request, pk=None):
+        asset = IDCardAssetService.archive_asset(self.get_object())
+        return Response(self.get_serializer(asset).data)
+
+
+class AuthorizedSignatureViewSet(viewsets.ModelViewSet):
+    queryset = AuthorizedSignature.objects.select_related("current_version").prefetch_related("versions")
+    serializer_class = AuthorizedSignatureSerializer
+    permission_classes = (IsAuthenticated, IsSchoolAdmin)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.query_params.get("all", "").lower() != "true":
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = AuthorizedSignatureCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            signature = AuthorizedSignatureService.create_signature(
+                name=serializer.validated_data["name"],
+                signatory_name=serializer.validated_data["signatory_name"],
+                signatory_title=serializer.validated_data["signatory_title"],
+                description=serializer.validated_data.get("description", ""),
+                file=serializer.validated_data["image"],
+                user=request.user,
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(AuthorizedSignatureSerializer(signature).data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        signature = self.get_object()
+        try:
+            AuthorizedSignatureService.delete_signature(signature)
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.messages if hasattr(exc, "messages") else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=("post",))
+    def replace(self, request, pk=None):
+        signature = self.get_object()
+        serializer = AuthorizedSignatureReplaceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            new_version = AuthorizedSignatureService.replace_signature_image(
+                signature,
+                file=serializer.validated_data["image"],
+                user=request.user,
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(AuthorizedSignatureVersionSerializer(new_version).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=("post",))
+    def activate(self, request, pk=None):
+        signature = AuthorizedSignatureService.activate_signature(self.get_object())
+        return Response(self.get_serializer(signature).data)
+
+    @action(detail=True, methods=("post",))
+    def deactivate(self, request, pk=None):
+        signature = AuthorizedSignatureService.deactivate_signature(self.get_object())
+        return Response(self.get_serializer(signature).data)
+
+
+class AuthorizedSignatureVersionViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = AuthorizedSignatureVersion.objects.select_related("signature")
+    serializer_class = AuthorizedSignatureVersionSerializer
+    permission_classes = (IsAuthenticated, IsSchoolAdmin)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        signature_id = self.request.query_params.get("signature")
+        if signature_id:
+            queryset = queryset.filter(signature_id=signature_id)
+        return queryset
