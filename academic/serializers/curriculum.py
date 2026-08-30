@@ -40,8 +40,6 @@ class CurriculumClassSerializer(serializers.ModelSerializer):
 class CurriculumSubjectSummarySerializer(serializers.ModelSerializer):
     """Lightweight subject navigation data for one curriculum grade level."""
 
-    name = serializers.CharField(source="subject.name", read_only=True)
-    code = serializers.CharField(source="subject.subject_code", read_only=True)
     description = serializers.SerializerMethodField()
     themes_count = serializers.IntegerField(read_only=True, default=0)
     topics_count = serializers.IntegerField(read_only=True, default=0)
@@ -61,14 +59,13 @@ class CurriculumSubjectSummarySerializer(serializers.ModelSerializer):
         ]
 
     def get_description(self, obj) -> str:
-        return obj.description or obj.subject.description
+        return obj.description or (obj.subject.description if obj.subject else "")
 
 
 class CurriculumTopicSummarySerializer(serializers.ModelSerializer):
     """Lightweight topic navigation data without nested curriculum content."""
 
-    topic_id = serializers.IntegerField(source="topic.id", read_only=True)
-    name = serializers.CharField(source="topic.name", read_only=True)
+    topic_id = serializers.IntegerField(source="topic.id", read_only=True, allow_null=True)
     subtopics_count = serializers.IntegerField(read_only=True, default=0)
     objectives_count = serializers.IntegerField(read_only=True, default=0)
     has_guidance = serializers.BooleanField(read_only=True, default=False)
@@ -98,7 +95,7 @@ class SubTopicSerializer(serializers.ModelSerializer):
 class TopicSerializer(serializers.ModelSerializer):
     subtopics = SubTopicSerializer(many=True, read_only=True)
     grade_level_name = serializers.CharField(source="grade_level.__str__", read_only=True)
-    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True, allow_null=True)
 
     class Meta:
         model = Topic
@@ -150,7 +147,7 @@ class CurriculumGuidanceSerializer(serializers.ModelSerializer):
 
 
 class LearningObjectiveDetailSerializer(serializers.ModelSerializer):
-    subtopic_name = serializers.CharField(source="subtopic.name", read_only=True)
+    subtopic_name = serializers.CharField(source="subtopic.name", read_only=True, allow_null=True)
     import_batch_id = serializers.IntegerField(source="last_import_batch_id", read_only=True)
 
     class Meta:
@@ -163,9 +160,8 @@ class LearningObjectiveDetailSerializer(serializers.ModelSerializer):
 
 
 class CurriculumTopicDetailSerializer(serializers.ModelSerializer):
-    topic_id = serializers.IntegerField(source="topic.id", read_only=True)
-    name = serializers.CharField(source="topic.name", read_only=True)
-    subtopics = SubTopicSerializer(source="topic.subtopics", many=True, read_only=True)
+    topic_id = serializers.IntegerField(source="topic.id", read_only=True, allow_null=True)
+    subtopics = SubTopicSerializer(many=True, read_only=True)
     learning_objectives = LearningObjectiveDetailSerializer(many=True, read_only=True)
     guidance = CurriculumGuidanceSerializer(read_only=True)
     source_title = serializers.CharField(source="source.title", read_only=True)
@@ -187,7 +183,7 @@ class CurriculumTopicDetailSerializer(serializers.ModelSerializer):
 
 
 class CurriculumTopicSerializer(serializers.ModelSerializer):
-    topic_name = serializers.CharField(source="topic.name", read_only=True)
+    topic_name = serializers.CharField(source="name", read_only=True)
     guidance = CurriculumGuidanceSerializer(read_only=True)
     learning_objectives = LearningObjectiveSerializer(many=True, read_only=True)
 
@@ -196,6 +192,7 @@ class CurriculumTopicSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "curriculum_subject",
+            "name",
             "topic",
             "topic_name",
             "theme",
@@ -211,7 +208,7 @@ class CurriculumTopicSerializer(serializers.ModelSerializer):
 
 
 class CurriculumSubjectSerializer(serializers.ModelSerializer):
-    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True, allow_null=True)
     grade_level_name = serializers.CharField(source="grade_level.__str__", read_only=True)
 
     class Meta:
@@ -219,6 +216,8 @@ class CurriculumSubjectSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "curriculum",
+            "name",
+            "code",
             "subject",
             "subject_name",
             "grade_level",
@@ -279,7 +278,7 @@ class CurriculumSerializer(serializers.ModelSerializer):
 
 class PublishedSchemeEntrySerializer(serializers.ModelSerializer):
     entry_type_display = serializers.CharField(source="get_entry_type_display", read_only=True)
-    topic_name = serializers.CharField(source="curriculum_topic.topic.name", read_only=True)
+    topic_name = serializers.CharField(source="curriculum_topic.name", read_only=True)
     subtopic_details = SubTopicSerializer(source="subtopics", many=True, read_only=True)
     objective_details = LearningObjectiveDetailSerializer(
         source="learning_objectives", many=True, read_only=True
@@ -316,7 +315,7 @@ class PublishedSchemeSerializer(serializers.ModelSerializer):
 
 class CurriculumResourceSerializer(serializers.ModelSerializer):
     resource_type_display = serializers.CharField(source="get_resource_type_display", read_only=True)
-    topic_name = serializers.CharField(source="curriculum_topic.topic.name", read_only=True)
+    topic_name = serializers.CharField(source="curriculum_topic.name", read_only=True)
     published_entry_title = serializers.CharField(
         source="published_scheme_entry.title", read_only=True
     )

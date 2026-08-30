@@ -228,7 +228,7 @@ class SchemeOfWorkItem(models.Model):
         placement = "Unscheduled" if self.week_start is None else f"Week {self.week_start}"
         if self.week_end and self.week_end != self.week_start:
             placement = f"Weeks {self.week_start}-{self.week_end}"
-        label = self.title or (self.curriculum_topic.topic.name if self.curriculum_topic_id else self.get_entry_type_display())
+        label = self.title or (self.curriculum_topic.name if self.curriculum_topic_id else self.get_entry_type_display())
         return f"{placement} - {label}"
 
 
@@ -305,7 +305,7 @@ class LessonPlan(models.Model):
     def __str__(self):
         return (
             self.title
-            or f"{self.scheme_item.curriculum_topic.topic.name} - {self.allocation.class_room} - {self.lesson_date}"
+            or f"{self.scheme_item.curriculum_topic.name if self.scheme_item.curriculum_topic_id else self.scheme_item.get_entry_type_display()} - {self.allocation.class_room} - {self.lesson_date}"
         )
 
     def clean(self):

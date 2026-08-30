@@ -143,6 +143,14 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
         self.assertEqual(adopted.created_by, self.admin_user)
         self.assertIsNone(adopted.responsible_teacher)
 
+    def test_admin_can_adopt_into_existing_scheme_without_teacher_profile(self):
+        published, _, _ = self._published_scheme()
+        payload = {"published_scheme": published.id, "academic_year": self.year.id, "term": self.term.id}
+        response = self.admin_client.post(reverse("scheme-of-work-adopt-published"), payload, format="json")
+        self.assertIn(response.status_code, [200, 201], response.data)
+        self.scheme.refresh_from_db()
+        self.assertEqual(self.scheme.responsible_teacher, self.owner)
+
     def test_adoption_policy_allows_allocated_teacher_and_denies_other_actors(self):
         published, _, _ = self._published_scheme()
         payload = {"published_scheme": published.id, "academic_year": self.year.id, "term": self.term.id}

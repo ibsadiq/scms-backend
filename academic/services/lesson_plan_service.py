@@ -29,7 +29,7 @@ class LessonPlanService:
         cls.validate_context(scheme_item=scheme_item, allocation=allocation)
         title = scheme_item.title
         if not title and scheme_item.curriculum_topic_id:
-            title = scheme_item.curriculum_topic.topic.name
+            title = scheme_item.curriculum_topic.name
         if not title:
             title = scheme_item.get_entry_type_display()
         plan = LessonPlan(

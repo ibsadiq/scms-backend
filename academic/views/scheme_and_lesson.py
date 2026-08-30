@@ -54,12 +54,15 @@ class SchemeOfWorkViewSet(viewsets.ModelViewSet):
         ).filter(AcademicPlanningAccessService.scheme_scope(self.request.user)).distinct().order_by("id")
 
     def perform_create(self, serializer):
-        teacher = AcademicAuthorityService.get_teacher(self.request.user)
-        if not AcademicAuthorityService.is_school_admin(self.request.user) and not teacher:
-            raise PermissionDenied("A teacher profile is required to create a scheme of work.")
+        if AcademicAuthorityService.is_school_admin(self.request.user):
+            teacher = None
+        else:
+            teacher = AcademicAuthorityService.get_teacher(self.request.user)
+            if not teacher:
+                raise PermissionDenied("A teacher profile is required to create a scheme of work.")
         serializer.save(
             created_by=self.request.user,
-            responsible_teacher=None if AcademicAuthorityService.is_school_admin(self.request.user) else teacher,
+            responsible_teacher=teacher,
         )
 
     def perform_update(self, serializer):

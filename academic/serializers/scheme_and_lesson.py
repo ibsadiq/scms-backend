@@ -43,7 +43,7 @@ class CurriculumResourceMaterialSerializer(serializers.Serializer):
 
 class SchemeOfWorkItemSerializer(serializers.ModelSerializer):
     topic_name = serializers.CharField(
-        source="curriculum_topic.topic.name", read_only=True, allow_null=True
+        source="curriculum_topic.name", read_only=True, allow_null=True
     )
     subtopic_details = serializers.SerializerMethodField()
     objective_details = serializers.SerializerMethodField()
@@ -162,7 +162,7 @@ class SchemeOfWorkSerializer(serializers.ModelSerializer):
     items = SchemeOfWorkItemSerializer(many=True, read_only=True)
     academic_year_name = serializers.CharField(source="academic_year.name", read_only=True)
     term_name = serializers.CharField(source="term.name", read_only=True)
-    subject_name = serializers.CharField(source="curriculum_subject.subject.name", read_only=True)
+    subject_name = serializers.CharField(source="curriculum_subject.name", read_only=True)
     created_by_name = serializers.CharField(source="created_by.__str__", read_only=True)
     responsible_teacher_name = serializers.CharField(source="responsible_teacher.__str__", read_only=True)
     reviewed_by_name = serializers.CharField(source="reviewed_by.__str__", read_only=True)
@@ -323,7 +323,7 @@ class LessonPlanSerializer(serializers.ModelSerializer):
             "entry_type": item.entry_type,
             "week_start": item.week_start,
             "week_end": item.week_end,
-            "topic_name": item.curriculum_topic.topic.name if item.curriculum_topic_id else None,
+            "topic_name": item.curriculum_topic.name if item.curriculum_topic_id else None,
             "school_title": item.title,
             "official_scheme_name": official.published_scheme.name if official else None,
             "official_scheme_version": official.published_scheme.version if official else None,

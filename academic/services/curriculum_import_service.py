@@ -737,7 +737,7 @@ class CurriculumImportService:
                     continue
 
                 subject_obj = cls.resolve_subject(subject_str)
-                if not subject_obj:
+                if not subject_obj and not cls._is_v2(data):
                     errors.append(
                         f"Subject '{subject_str}' in Grade '{grade_str}' does not exist in canonical catalog."
                     )
@@ -745,12 +745,14 @@ class CurriculumImportService:
 
                 cs_mapping = CurriculumSubject.objects.filter(
                     curriculum=curriculum_obj,
-                    subject=subject_obj,
                     grade_level=grade_obj,
+                ).filter(
+                    Q(name__iexact=subject_str)
+                    | (Q(subject=subject_obj) if subject_obj else Q(pk__isnull=True))
                 ).first()
-                if not cs_mapping:
+                if not cs_mapping and not cls._is_v2(data):
                     errors.append(
-                        f"CurriculumSubject mapping missing for {subject_obj.name} -> {grade_obj.system_code} "
+                        f"CurriculumSubject mapping missing for {subject_str} -> {grade_obj.system_code} "
                         f"in curriculum '{curriculum_obj}'. Run Phase 1 setup first."
                     )
                     continue
@@ -1208,11 +1210,24 @@ class CurriculumImportService:
                     continue
 
                 subject_obj = cls.resolve_subject(subject_str)
-                cs_mapping = CurriculumSubject.objects.get(
+                cs_mapping = CurriculumSubject.objects.filter(
                     curriculum=curriculum,
-                    subject=subject_obj,
                     grade_level=grade_obj,
-                )
+                ).filter(
+                    Q(name__iexact=subject_str)
+                    | (Q(subject=subject_obj) if subject_obj else Q(pk__isnull=True))
+                ).first()
+                if not cs_mapping:
+                    cs_name = subject_obj.name if subject_obj else subject_str
+                    cs_code = subject_obj.subject_code if subject_obj else ""
+                    cs_mapping = CurriculumSubject.objects.create(
+                        curriculum=curriculum,
+                        grade_level=grade_obj,
+                        name=cs_name,
+                        code=cs_code,
+                        subject=subject_obj,
+                        is_active=True,
+                    )
 
                 topics_data = subject_item.get("topics", [])
 
@@ -1221,8 +1236,9 @@ class CurriculumImportService:
                     CurriculumTopic.objects.filter(curriculum_subject=cs_mapping)
                 )
                 orig_ct_data = {
-                    ct.topic_id: {
+                    ct.id: {
                         "order": ct.order,
+                        "name": ct.name,
                         "theme": ct.theme,
                         "content_summary": ct.content_summary,
                         "source_id": ct.source_id,
@@ -1252,26 +1268,28 @@ class CurriculumImportService:
                     src_ref = normalize_text(topic_src.get("reference") or topic_src.get("source_reference"))
 
                     # 1. Topic
-                    topic_obj = Topic.objects.filter(
-                        grade_level=grade_obj,
-                        subject=subject_obj,
-                        name__iexact=topic_name,
-                    ).first()
-
-                    if topic_obj:
-                        metrics.record("Topic", "REUSED")
-                    else:
-                        topic_obj = Topic(
+                    topic_obj = None
+                    if subject_obj:
+                        topic_obj = Topic.objects.filter(
                             grade_level=grade_obj,
                             subject=subject_obj,
-                            name=topic_name,
-                            is_active=True,
-                        )
-                        topic_obj.full_clean()
-                        topic_obj.save()
-                        metrics.record("Topic", "CREATED")
+                            name__iexact=topic_name,
+                        ).first()
 
-                    processed_topic_ids.add(topic_obj.id)
+                        if topic_obj:
+                            metrics.record("Topic", "REUSED")
+                        else:
+                            topic_obj = Topic(
+                                grade_level=grade_obj,
+                                subject=subject_obj,
+                                name=topic_name,
+                                is_active=True,
+                            )
+                            topic_obj.full_clean()
+                            topic_obj.save()
+                            metrics.record("Topic", "CREATED")
+
+                        processed_topic_ids.add(topic_obj.id)
 
                     # 2. SubTopics
                     subtopic_map = {}
@@ -1289,7 +1307,6 @@ class CurriculumImportService:
                         )
 
                         if len(full_sub_name) > max_subtopic_length:
-                            # Preserve a readable deterministic label.
                             suffix = "…"
                             sub_name = (
                                 full_sub_name[
@@ -1298,8 +1315,6 @@ class CurriculumImportService:
                                 + suffix
                             )
 
-                            # Preserve the complete source text in the curriculum topic
-                            # content summary when it is not already present.
                             if full_sub_name not in content_summary:
                                 content_summary = (
                                     f"{content_summary}\n\n"
@@ -1309,10 +1324,19 @@ class CurriculumImportService:
                             sub_name = full_sub_name
                         if not sub_name:
                             continue
-                        sub_obj = SubTopic.objects.filter(
-                            topic=topic_obj,
-                            name__iexact=sub_name,
-                        ).first()
+
+                        sub_obj = None
+                        if topic_obj:
+                            sub_obj = SubTopic.objects.filter(
+                                topic=topic_obj,
+                                name__iexact=sub_name,
+                            ).first()
+                        if not sub_obj:
+                            sub_obj = SubTopic.objects.filter(
+                                curriculum_topics__curriculum_subject=cs_mapping,
+                                curriculum_topics__name__iexact=topic_name,
+                                name__iexact=sub_name,
+                            ).distinct().first()
 
                         if sub_obj:
                             metrics.record("SubTopic", "REUSED")
@@ -1330,15 +1354,21 @@ class CurriculumImportService:
                     # 3. CurriculumTopic
                     ct_obj = CurriculumTopic.objects.filter(
                         curriculum_subject=cs_mapping,
-                        topic=topic_obj,
+                        name__iexact=topic_name,
                     ).first()
+                    if not ct_obj and topic_obj:
+                        ct_obj = CurriculumTopic.objects.filter(
+                            curriculum_subject=cs_mapping,
+                            topic=topic_obj,
+                        ).first()
 
                     target_source = source if source is not None else (ct_obj.source if ct_obj else None)
 
                     if ct_obj:
-                        orig = orig_ct_data.get(topic_obj.id, {})
+                        orig = orig_ct_data.get(ct_obj.id, {})
                         changed = (
                             orig.get("order") != target_order
+                            or orig.get("name") != topic_name
                             or orig.get("theme") != theme
                             or orig.get("content_summary") != content_summary
                             or not orig.get("is_active", True)
@@ -1347,6 +1377,9 @@ class CurriculumImportService:
                             or orig.get("source_page_end") != p_end
                             or orig.get("source_reference") != src_ref
                         )
+                        ct_obj.name = topic_name
+                        if topic_obj:
+                            ct_obj.topic = topic_obj
                         ct_obj.order = target_order
                         ct_obj.theme = theme
                         ct_obj.content_summary = content_summary
@@ -1363,6 +1396,7 @@ class CurriculumImportService:
                     else:
                         ct_obj = CurriculumTopic(
                             curriculum_subject=cs_mapping,
+                            name=topic_name,
                             topic=topic_obj,
                             order=target_order,
                             theme=theme,
@@ -1377,6 +1411,9 @@ class CurriculumImportService:
                         ct_obj.full_clean()
                         ct_obj.save()
                         metrics.record("CurriculumTopic", "CREATED")
+
+                    if subtopic_map:
+                        ct_obj.subtopics.add(*subtopic_map.values())
 
                     # 4. LearningObjectives
                     for lo_item in topic_item.get("learning_objectives", []):
@@ -1475,7 +1512,7 @@ class CurriculumImportService:
                     if ct.topic_id not in processed_topic_ids:
                         ct.refresh_from_db()
                         if ct.order > 50000:
-                            ct.order = orig_ct_data[ct.topic_id]["order"]
+                            ct.order = orig_ct_data[ct.id]["order"]
                             ct.save(update_fields=["order"])
 
     # =========================================================================
@@ -1488,7 +1525,7 @@ class CurriculumImportService:
         *,
         subject_item: dict[str, Any],
         cs_mapping: "CurriculumSubject",
-        subject_obj: "Subject",
+        subject_obj: "Subject | None",
         grade_obj: "GradeLevel",
         source: "CurriculumSource | None",
         batch: "CurriculumImportBatch | None",
@@ -1505,8 +1542,9 @@ class CurriculumImportService:
         # ── Phase A: Shift existing CurriculumTopic orders to avoid unique collisions ──
         existing_cts = list(CurriculumTopic.objects.filter(curriculum_subject=cs_mapping))
         orig_ct_data = {
-            ct.topic_id: {
+            ct.id: {
                 "order": ct.order,
+                "name": ct.name,
                 "theme": ct.theme,
                 "content_summary": ct.content_summary,
                 "source_id": ct.source_id,
@@ -1542,27 +1580,29 @@ class CurriculumImportService:
             p_end = topic_src.get("page_end")
             src_ref = normalize_text(topic_src.get("reference") or topic_src.get("source_reference") or "")
 
-            # 1. Topic
-            topic_obj = Topic.objects.filter(
-                grade_level=grade_obj,
-                subject=subject_obj,
-                name__iexact=topic_name,
-            ).first()
-
-            if topic_obj:
-                metrics.record("Topic", "REUSED")
-            else:
-                topic_obj = Topic(
+            # 1. Topic (optional operational mapping)
+            topic_obj = None
+            if subject_obj:
+                topic_obj = Topic.objects.filter(
                     grade_level=grade_obj,
                     subject=subject_obj,
-                    name=topic_name,
-                    is_active=True,
-                )
-                topic_obj.full_clean()
-                topic_obj.save()
-                metrics.record("Topic", "CREATED")
+                    name__iexact=topic_name,
+                ).first()
 
-            processed_topic_ids.add(topic_obj.id)
+                if topic_obj:
+                    metrics.record("Topic", "REUSED")
+                else:
+                    topic_obj = Topic(
+                        grade_level=grade_obj,
+                        subject=subject_obj,
+                        name=topic_name,
+                        is_active=True,
+                    )
+                    topic_obj.full_clean()
+                    topic_obj.save()
+                    metrics.record("Topic", "CREATED")
+
+                processed_topic_ids.add(topic_obj.id)
 
             # 2. SubTopics (V2: object list; V1 strings normalised to objects)
             subtopics_raw = topic_item.get("subtopics") or []
@@ -1589,9 +1629,17 @@ class CurriculumImportService:
                 else:
                     sub_name = full_sub_name
 
-                sub_obj = SubTopic.objects.filter(
-                    topic=topic_obj, name__iexact=sub_name
-                ).first()
+                sub_obj = None
+                if topic_obj:
+                    sub_obj = SubTopic.objects.filter(
+                        topic=topic_obj, name__iexact=sub_name
+                    ).first()
+                if not sub_obj:
+                    sub_obj = SubTopic.objects.filter(
+                        curriculum_topics__curriculum_subject=cs_mapping,
+                        curriculum_topics__name__iexact=topic_name,
+                        name__iexact=sub_name,
+                    ).distinct().first()
 
                 if sub_obj:
                     metrics.record("SubTopic", "REUSED")
@@ -1604,18 +1652,24 @@ class CurriculumImportService:
                 subtopic_name_map[sub_name.casefold()] = sub_obj
                 subtopic_name_map[full_sub_name.casefold()] = sub_obj  # also index by original
 
-            # 3. CurriculumTopic
+            # 3. CurriculumTopic (canonical curriculum identity)
             ct_obj = CurriculumTopic.objects.filter(
                 curriculum_subject=cs_mapping,
-                topic=topic_obj,
+                name__iexact=topic_name,
             ).first()
+            if not ct_obj and topic_obj:
+                ct_obj = CurriculumTopic.objects.filter(
+                    curriculum_subject=cs_mapping,
+                    topic=topic_obj,
+                ).first()
 
             target_source = source if source is not None else (ct_obj.source if ct_obj else None)
 
             if ct_obj:
-                orig = orig_ct_data.get(topic_obj.id, {})
+                orig = orig_ct_data.get(ct_obj.id, {})
                 changed = (
                     orig.get("order") != target_order
+                    or orig.get("name") != topic_name
                     or orig.get("theme") != theme
                     or orig.get("content_summary") != content_summary
                     or not orig.get("is_active", True)
@@ -1624,6 +1678,9 @@ class CurriculumImportService:
                     or orig.get("source_page_end") != p_end
                     or orig.get("source_reference") != src_ref
                 )
+                ct_obj.name = topic_name
+                if topic_obj:
+                    ct_obj.topic = topic_obj
                 ct_obj.order = target_order
                 ct_obj.theme = theme
                 ct_obj.content_summary = content_summary
@@ -1640,6 +1697,7 @@ class CurriculumImportService:
             else:
                 ct_obj = CurriculumTopic(
                     curriculum_subject=cs_mapping,
+                    name=topic_name,
                     topic=topic_obj,
                     order=target_order,
                     theme=theme,
@@ -1654,6 +1712,9 @@ class CurriculumImportService:
                 ct_obj.full_clean()
                 ct_obj.save()
                 metrics.record("CurriculumTopic", "CREATED")
+
+            if subtopic_name_map:
+                ct_obj.subtopics.add(*subtopic_name_map.values())
 
             topic_key_to_ct[topic_key] = ct_obj
 
@@ -1849,8 +1910,8 @@ class CurriculumImportService:
                     for sub_ref in subtopic_refs:
                         if not isinstance(sub_ref, str):
                             continue
-                        sub_obj = SubTopic.objects.filter(
-                            topic=ct_obj.topic, name__iexact=sub_ref
+                        sub_obj = ct_obj.subtopics.filter(
+                            name__iexact=sub_ref
                         ).first()
                         if sub_obj:
                             subtopic_objs.append(sub_obj)
@@ -2076,23 +2137,21 @@ class CurriculumImportService:
                     continue
 
                 subject_obj = cls.resolve_subject(subject_str)
-                if not subject_obj:
-                    raise CurriculumImportError(
-                        f"Subject '{subject_str}' could not be resolved. "
-                        "Ensure Subjects and CurriculumSubject mappings are configured."
-                    )
-
                 cs_mapping = CurriculumSubject.objects.filter(
                     curriculum=curriculum,
-                    subject=subject_obj,
                     grade_level=grade_obj,
+                ).filter(
+                    Q(name__iexact=subject_str)
+                    | (Q(subject=subject_obj) if subject_obj else Q(pk__isnull=True))
                 ).first()
                 if not cs_mapping:
-                    raise CurriculumImportError(
-                        f"No CurriculumSubject mapping found for "
-                        f"'{subject_obj.name}' in grade '{grade_obj.default_name}' "
-                        f"under curriculum '{curriculum}'. "
-                        "Run with --create-mappings to create missing mappings."
+                    cs_mapping = CurriculumSubject.objects.create(
+                        curriculum=curriculum,
+                        subject=subject_obj,
+                        grade_level=grade_obj,
+                        name=subject_obj.name if subject_obj else subject_str,
+                        code=(subject_obj.subject_code or "") if subject_obj else "",
+                        is_active=True,
                     )
 
                 # Phase A: Topics + SubTopics + CurriculumTopics + LOs + Guidance

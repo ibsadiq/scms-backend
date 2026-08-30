@@ -113,7 +113,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
                     distinct=True,
                 ),
             )
-            .order_by("subject__name")
+            .order_by("name")
         )
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -149,8 +149,8 @@ class CurriculumViewSet(viewsets.ModelViewSet):
             .select_related("topic")
             .annotate(
                 subtopics_count=Count(
-                    "topic__subtopics",
-                    filter=Q(topic__subtopics__is_active=True),
+                    "subtopics",
+                    filter=Q(subtopics__is_active=True),
                     distinct=True,
                 ),
                 objectives_count=Count(
@@ -166,7 +166,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
                     output_field=BooleanField(),
                 ),
             )
-            .order_by("order", "topic__name")
+            .order_by("order", "name")
         )
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -189,7 +189,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
             CurriculumTopic.objects.select_related(
                 "topic", "source", "last_import_batch", "guidance",
             ).prefetch_related(
-                "topic__subtopics",
+                "subtopics",
                 "learning_objectives__subtopic",
             ),
             pk=topic_id,
@@ -199,6 +199,7 @@ class CurriculumViewSet(viewsets.ModelViewSet):
         )
         return Response(CurriculumTopicDetailSerializer(topic).data)
 
+
 class CurriculumSubjectViewSet(viewsets.ModelViewSet):
     queryset = CurriculumSubject.objects.select_related("subject", "grade_level")
     serializer_class = CurriculumSubjectSerializer
@@ -206,14 +207,17 @@ class CurriculumSubjectViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["curriculum", "grade_level"]
 
+
 class CurriculumTopicViewSet(viewsets.ModelViewSet):
     queryset = CurriculumTopic.objects.select_related("topic", "guidance").prefetch_related(
-        "learning_objectives"
+        "subtopics",
+        "learning_objectives",
     )
     serializer_class = CurriculumTopicSerializer
     permission_classes = [IsAcademicAdminOrReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["curriculum_subject"]
+
 
 class TopicViewSet(viewsets.ModelViewSet):
     queryset = Topic.objects.select_related("grade_level", "subject").prefetch_related(

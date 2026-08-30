@@ -392,7 +392,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             grade_levels=[self.grade_jss1],
             question_type=QuestionType.MULTIPLE_CHOICE,
             text="What is velocity?",
-            responsible_teacher=self.teacher_2,
+            created_by=self.teacher_2,
             options=[
                 {"text": "Rate of change of displacement", "is_correct": True},
                 {"text": "Rate of change of speed", "is_correct": False},
@@ -456,7 +456,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             title="Physics CBT 1",
             duration_minutes=45,
             status=CBTExamStatus.READY,
-            responsible_teacher=self.teacher_2,
+            created_by=self.teacher_2,
         )
 
         # Create an approved question and add to exam
@@ -465,7 +465,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             grade_levels=[self.grade_jss1],
             question_type=QuestionType.MULTIPLE_CHOICE,
             text="What is speed?",
-            responsible_teacher=self.teacher_1,
+            created_by=self.teacher_1,
             options=[
                 {"text": "Distance over time", "is_correct": True},
                 {"text": "Force over area", "is_correct": False},
@@ -601,7 +601,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             grade_levels=[self.grade_jss1],
             question_type=QuestionType.MULTIPLE_CHOICE,
             text="What is acceleration?",
-            responsible_teacher=self.teacher_2,
+            created_by=self.teacher_2,
             options=[
                 {"text": "Rate of change of velocity", "is_correct": True},
                 {"text": "Rate of change of distance", "is_correct": False},
@@ -643,7 +643,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             title="Physics Hardening Exam",
             duration_minutes=30,
             status=CBTExamStatus.READY,
-            responsible_teacher=self.teacher_2,
+            created_by=self.teacher_2,
         )
         ExamQuestion.objects.create(
             cbt_exam=exam,

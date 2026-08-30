@@ -224,9 +224,13 @@ class CurriculumSubject(models.Model):
         on_delete=models.CASCADE,
         related_name="subjects",
     )
+    name = models.CharField(max_length=200)
+    code = models.CharField(max_length=50, blank=True)
     subject = models.ForeignKey(
         Subject,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="curriculum_subjects",
     )
     grade_level = models.ForeignKey(
@@ -242,16 +246,16 @@ class CurriculumSubject(models.Model):
     class Meta:
         ordering = [
             "grade_level__sequence_order",
-            "subject__name",
+            "name",
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=[
                     "curriculum",
-                    "subject",
+                    "name",
                     "grade_level",
                 ],
-                name="unique_curriculum_subject_grade",
+                name="unique_curriculum_subject_name_grade",
             )
         ]
         indexes = [
@@ -259,15 +263,30 @@ class CurriculumSubject(models.Model):
                 fields=[
                     "curriculum",
                     "grade_level",
-                    "subject",
+                    "name",
                 ]
-            )
+            ),
+            models.Index(fields=["subject"]),
         ]
+
+    def clean(self):
+        super().clean()
+        if not self.name and self.subject:
+            self.name = self.subject.name
+        if not self.code and self.subject:
+            self.code = self.subject.subject_code or ""
+
+    def save(self, *args, **kwargs):
+        if not self.name and self.subject:
+            self.name = self.subject.name
+        if not self.code and self.subject:
+            self.code = self.subject.subject_code or ""
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return (
             f"{self.curriculum} - "
-            f"{self.subject.name} - "
+            f"{self.name} - "
             f"{self.grade_level}"
         )
 
@@ -304,16 +323,53 @@ class Topic(models.Model):
         return f"{self.name} - {self.subject.name} ({self.grade_level})"
 
 
+class SubTopic(models.Model):
+    name = models.CharField(max_length=255)
+    topic = models.ForeignKey(
+        Topic,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subtopics",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "name"],
+                name="unique_subtopic_per_topic",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["topic"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class CurriculumTopic(models.Model):
     curriculum_subject = models.ForeignKey(
         CurriculumSubject,
         on_delete=models.CASCADE,
         related_name="curriculum_topics",
     )
+    name = models.CharField(max_length=255)
     topic = models.ForeignKey(
         Topic,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="curriculum_mappings",
+    )
+    subtopics = models.ManyToManyField(
+        SubTopic,
+        blank=True,
+        related_name="curriculum_topics",
     )
     theme = models.CharField(
         max_length=255,
@@ -353,11 +409,11 @@ class CurriculumTopic(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["order", "topic__name"]
+        ordering = ["order", "name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["curriculum_subject", "topic"],
-                name="unique_topic_per_curriculum_subject",
+                fields=["curriculum_subject", "name"],
+                name="unique_topic_name_per_curriculum_subject",
             ),
             models.UniqueConstraint(
                 fields=["curriculum_subject", "order"],
@@ -366,9 +422,16 @@ class CurriculumTopic(models.Model):
         ]
 
     def clean(self):
+        super().clean()
+        if not self.name and self.topic:
+            self.name = self.topic.name
         errors = {}
         if self.curriculum_subject_id and self.topic_id:
-            if self.topic.subject_id != self.curriculum_subject.subject_id:
+            if (
+                self.topic.subject_id
+                and self.curriculum_subject.subject_id
+                and self.topic.subject_id != self.curriculum_subject.subject_id
+            ):
                 errors["topic"] = "Topic subject must match the curriculum subject."
             if self.topic.grade_level_id != self.curriculum_subject.grade_level_id:
                 errors["topic"] = "Topic grade level must match the curriculum subject grade level."
@@ -395,8 +458,13 @@ class CurriculumTopic(models.Model):
             raise ValidationError(errors)
         super().clean()
 
+    def save(self, *args, **kwargs):
+        if not self.name and self.topic:
+            self.name = self.topic.name
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.topic.name} - {self.curriculum_subject}"
+        return f"{self.name} - {self.curriculum_subject}"
 
 
 class CurriculumGuidance(models.Model):
@@ -417,33 +485,6 @@ class CurriculumGuidance(models.Model):
         return f"Guidance - {self.curriculum_topic}"
 
 
-class SubTopic(models.Model):
-    name = models.CharField(max_length=255)
-    topic = models.ForeignKey(
-        Topic,
-        on_delete=models.CASCADE,
-        related_name="subtopics",
-    )
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["topic__name", "name"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["topic", "name"],
-                name="unique_subtopic_per_topic",
-            )
-        ]
-        indexes = [
-            models.Index(fields=["topic"]),
-        ]
-
-    def __str__(self):
-        return f"{self.name} - {self.topic.name}"
-
-
 class LearningObjective(models.Model):
     curriculum_topic = models.ForeignKey(
         CurriculumTopic,
@@ -452,7 +493,7 @@ class LearningObjective(models.Model):
     )
     subtopic = models.ForeignKey(
         SubTopic,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="learning_objectives",
         null=True,
         blank=True,
@@ -501,7 +542,7 @@ class LearningObjective(models.Model):
         super().clean()
 
     def __str__(self):
-        return f"LO {self.order} - {self.curriculum_topic.topic.name}"
+        return f"LO {self.order} - {self.curriculum_topic.name}"
 
 
 class PublishedScheme(models.Model):

@@ -36,6 +36,10 @@ class PublishedSchemeAdoptionService:
         if not teacher:
             raise PermissionDenied("A teacher profile is required to adopt a published scheme.")
         mapping = published_scheme.curriculum_subject
+        if not mapping.subject:
+            raise PermissionDenied(
+                "This curriculum subject is not mapped to an operational school subject. Only school administrators may adopt unmapped curriculum subjects."
+            )
         allowed = AllocatedSubject.objects.filter(
             teacher_name=teacher,
             subject=mapping.subject,
@@ -98,8 +102,11 @@ class PublishedSchemeAdoptionService:
         )
         if (
             not scheme_created
-            and scheme.responsible_teacher_id != responsible_teacher.id
             and not AcademicAuthorityService.is_school_admin(actor)
+            and (
+                responsible_teacher is None
+                or scheme.responsible_teacher_id != responsible_teacher.id
+            )
         ):
             raise PermissionDenied("An active scheme already exists and belongs to another teacher.")
         if scheme.status != "DRAFT":
