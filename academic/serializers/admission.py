@@ -597,30 +597,73 @@ class ApplicationTrackingSerializer(serializers.Serializer):
 
 class NumberPolicySerializer(serializers.ModelSerializer):
     preview = serializers.CharField(read_only=True)
+    supported_tokens = serializers.SerializerMethodField()
+
+    def get_supported_tokens(self, obj):
+        return [
+            "{PREFIX}",
+            "{YYYY}",
+            "{YY}",
+            "{SECTION}",
+            "{SEQ}",
+        ]
 
     def validate(self, attrs):
         instance = self.instance or self.Meta.model()
+
         for field, value in attrs.items():
             setattr(instance, field, value)
-        instance.full_clean(exclude=["updated_by"])
+
+        instance.full_clean(
+            exclude=["updated_by"]
+        )
+
         return attrs
 
 
-class StudentAdmissionNumberPolicySerializer(NumberPolicySerializer):
+class StudentAdmissionNumberPolicySerializer(
+    NumberPolicySerializer
+):
     class Meta:
         model = StudentAdmissionNumberPolicy
         fields = [
-            "id", "pattern", "prefix", "sequence_width", "reset_policy",
-            "is_active", "updated_at", "preview",
+            "id",
+            "pattern",
+            "prefix",
+            "sequence_width",
+            "reset_policy",
+            "is_active",
+            "updated_at",
+            "preview",
+            "supported_tokens",
         ]
-        read_only_fields = ["id", "updated_at", "preview"]
+        read_only_fields = [
+            "id",
+            "updated_at",
+            "preview",
+            "supported_tokens",
+        ]
 
 
-class AdmissionApplicationNumberPolicySerializer(NumberPolicySerializer):
+class AdmissionApplicationNumberPolicySerializer(
+    NumberPolicySerializer
+):
     class Meta:
         model = AdmissionApplicationNumberPolicy
         fields = [
-            "id", "pattern", "prefix", "sequence_width", "reset_policy",
-            "is_active", "updated_at", "preview",
+            "id",
+            "pattern",
+            "prefix",
+            "sequence_width",
+            "reset_policy",
+            "is_active",
+            "updated_at",
+            "preview",
+            "supported_tokens",
         ]
-        read_only_fields = ["id", "updated_at", "preview"]
+        read_only_fields = [
+            "id",
+            "updated_at",
+            "preview",
+            "supported_tokens",
+        ]

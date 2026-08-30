@@ -1,9 +1,53 @@
-from academic.models import LessonPlanStatus
+from academic.models import LessonPlan, LessonPlanStatus, PublishedSchemeEntryType
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
 
 class LessonPlanService:
+
+    PLANNABLE_ENTRY_TYPES = {
+        PublishedSchemeEntryType.INSTRUCTION,
+        PublishedSchemeEntryType.REVISION,
+        PublishedSchemeEntryType.ASSESSMENT,
+        PublishedSchemeEntryType.PREPARATION,
+    }
+
+    @classmethod
+    def require_plannable_entry(cls, scheme_item):
+        if scheme_item.entry_type not in cls.PLANNABLE_ENTRY_TYPES:
+            raise ValidationError(
+                f"{scheme_item.get_entry_type_display()} entries cannot create conventional lesson plans."
+            )
+
+    @classmethod
+    @transaction.atomic
+    def create_from_scheme_item(
+        cls, *, scheme_item, allocation, lesson_date, duration_minutes=None
+    ):
+        cls.require_plannable_entry(scheme_item)
+        cls.validate_context(scheme_item=scheme_item, allocation=allocation)
+        title = scheme_item.title
+        if not title and scheme_item.curriculum_topic_id:
+            title = scheme_item.curriculum_topic.topic.name
+        if not title:
+            title = scheme_item.get_entry_type_display()
+        plan = LessonPlan(
+            scheme_item=scheme_item,
+            allocation=allocation,
+            lesson_date=lesson_date,
+            duration_minutes=duration_minutes,
+            title=title,
+            lesson_content=scheme_item.content_summary,
+            teacher_activities=scheme_item.teacher_activities,
+            learner_activities=scheme_item.learner_activities,
+            teaching_materials=scheme_item.learning_resources,
+        )
+        plan.full_clean()
+        plan.save()
+        plan.subtopics.set(scheme_item.subtopics.all())
+        plan.learning_objectives.set(scheme_item.learning_objectives.all())
+        return plan
 
     @staticmethod
     def validate_context(
@@ -249,4 +293,3 @@ class LessonPlanService:
                 "updated_at",
             ]
         )
-    

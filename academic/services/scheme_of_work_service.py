@@ -14,6 +14,15 @@ class SchemeOfWorkService:
         subtopics,
         learning_objectives,
     ):
+        subtopics = list(subtopics or [])
+        learning_objectives = list(learning_objectives or [])
+        if curriculum_topic is None:
+            if subtopics or learning_objectives:
+                raise ValidationError(
+                    "A curriculum topic is required when subtopics or objectives are selected."
+                )
+            return
+
         if (
             curriculum_topic.curriculum_subject_id
             != scheme.curriculum_subject_id
@@ -95,7 +104,7 @@ class SchemeOfWorkService:
             subject=subject,
             section=section,
             academic_year=scheme.academic_year,
-            creator=scheme.created_by,
+            creator=scheme.responsible_teacher,
         )
 
         reviewer = AcademicAuthorityService.get_teacher(actor)
@@ -134,7 +143,7 @@ class SchemeOfWorkService:
             subject=subject,
             section=section,
             academic_year=scheme.academic_year,
-            creator=scheme.created_by,
+            creator=scheme.responsible_teacher,
         )
 
         reviewer = AcademicAuthorityService.get_teacher(actor)

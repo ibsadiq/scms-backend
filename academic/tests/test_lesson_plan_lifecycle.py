@@ -49,7 +49,7 @@ class LessonPlanLifecycleTests(TenantTestCase):
             term=self.term,
             curriculum_subject=self.curriculum_subject,
             status=SchemeOfWorkStatus.APPROVED,
-            created_by=self.teacher
+            responsible_teacher=self.teacher, created_by=self.teacher_user
         )
         self.topic = Topic.objects.create(name="Algebra", subject=self.subject, grade_level=self.grade)
         self.curriculum_topic = CurriculumTopic.objects.create(
@@ -59,7 +59,7 @@ class LessonPlanLifecycleTests(TenantTestCase):
         self.scheme_item = SchemeOfWorkItem.objects.create(
             scheme=self.scheme,
             curriculum_topic=self.curriculum_topic,
-            week_number=1
+            week_start=1
         )
 
         self.plan = LessonPlan.objects.create(

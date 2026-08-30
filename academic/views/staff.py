@@ -1,6 +1,6 @@
 from django.db.models import Q
 from django_filters.rest_framework import BooleanFilter, CharFilter, DjangoFilterBackend, FilterSet, NumberFilter
-from rest_framework import generics, viewsets
+from rest_framework import filters, generics, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from academic.models import Staff, Subject
@@ -48,9 +48,11 @@ class StaffViewSet(viewsets.ModelViewSet):
 
 
 class SubjectListView(generics.ListCreateAPIView):
-    queryset = Subject.objects.all()
+    queryset = Subject.objects.select_related("department").order_by("name")
     serializer_class = SubjectSerializer
     permission_classes = [IsAcademicAdminOrReadOnly]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name", "subject_code", "description", "department__name"]
 
 
 class SubjectDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -58,4 +60,3 @@ class SubjectDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = SubjectSerializer
     lookup_field = "id"
     permission_classes = [IsAcademicAdminOrReadOnly]
-

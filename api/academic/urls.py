@@ -40,10 +40,14 @@ from academic.views import (
     TopicViewSet,
     SubTopicViewSet,
     LearningObjectiveViewSet,
+    PublishedSchemeViewSet,
+    PublishedSchemeEntryViewSet,
+    CurriculumResourceViewSet,
     SchemeOfWorkViewSet,
     SchemeOfWorkItemViewSet,
     LessonPlanViewSet,
     LessonPlanMaterialViewSet,
+    LessonDeliveryViewSet,
     StaffViewSet,
 )
 
@@ -66,10 +70,14 @@ router.register(r'curriculum-topics', CurriculumTopicViewSet, basename='curricul
 router.register(r'topics', TopicViewSet, basename='topic')
 router.register(r'subtopics', SubTopicViewSet, basename='subtopic')
 router.register(r'learning-objectives', LearningObjectiveViewSet, basename='learning-objective')
+router.register(r'published-schemes', PublishedSchemeViewSet, basename='published-scheme')
+router.register(r'published-scheme-entries', PublishedSchemeEntryViewSet, basename='published-scheme-entry')
+router.register(r'curriculum-resources', CurriculumResourceViewSet, basename='curriculum-resource')
 router.register(r'schemes-of-work', SchemeOfWorkViewSet, basename='scheme-of-work')
 router.register(r'scheme-of-work-items', SchemeOfWorkItemViewSet, basename='scheme-of-work-item')
 router.register(r'lesson-plans', LessonPlanViewSet, basename='lesson-plan')
 router.register(r'lesson-plan-materials', LessonPlanMaterialViewSet, basename='lesson-plan-material')
+router.register(r'lesson-deliveries', LessonDeliveryViewSet, basename='lesson-delivery')
 
 # Phase F3.3: Canonical Staff Read Endpoint
 router.register(r'staff', StaffViewSet, basename='staff')

@@ -1,9 +1,15 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.conf import settings
 
 from administration.models import AcademicYear, Term
-from .choices import SchemeOfWorkStatus, LessonPlanStatus, LessonDeliveryStatus
+from .choices import (
+    LessonDeliveryStatus,
+    LessonPlanStatus,
+    PublishedSchemeEntryType,
+    SchemeOfWorkStatus,
+)
 from .structure import GradeLevel
 from .staff import Teacher, AllocatedSubject
 from .curriculum import (
@@ -11,6 +17,7 @@ from .curriculum import (
     CurriculumTopic,
     SubTopic,
     LearningObjective,
+    PublishedSchemeEntry,
 )
 
 
@@ -30,8 +37,16 @@ class SchemeOfWork(models.Model):
         on_delete=models.PROTECT,
         related_name="schemes_of_work",
     )
-    created_by = models.ForeignKey(
+    responsible_teacher = models.ForeignKey(
         Teacher,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="responsible_schemes_of_work",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -57,6 +72,9 @@ class SchemeOfWork(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        indexes = [
+            models.Index(fields=["responsible_teacher"], name="acad_sow_resp_teacher_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=[
@@ -90,10 +108,25 @@ class SchemeOfWorkItem(models.Model):
         on_delete=models.CASCADE,
         related_name="items",
     )
-    week_number = models.PositiveIntegerField()
+    published_scheme_entry = models.ForeignKey(
+        PublishedSchemeEntry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="adopted_scheme_items",
+    )
+    entry_type = models.CharField(
+        max_length=20,
+        choices=PublishedSchemeEntryType.choices,
+        default=PublishedSchemeEntryType.INSTRUCTION,
+    )
+    week_start = models.PositiveIntegerField(null=True, blank=True)
+    week_end = models.PositiveIntegerField(null=True, blank=True)
     curriculum_topic = models.ForeignKey(
         CurriculumTopic,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="scheme_items",
     )
     subtopics = models.ManyToManyField(
@@ -112,28 +145,49 @@ class SchemeOfWorkItem(models.Model):
         help_text="Optional school-specific lesson/scheme title.",
     )
     notes = models.TextField(blank=True)
+    content_summary = models.TextField(blank=True)
+    teacher_activities = models.TextField(blank=True)
+    learner_activities = models.TextField(blank=True)
+    learning_resources = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["week_number", "order"]
+        ordering = ["order", "week_start", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=[
-                    "scheme",
-                    "week_number",
-                    "order",
-                ],
-                name="unique_scheme_item_order_per_week",
-            )
+                fields=["scheme", "order"],
+                name="unique_scheme_item_order",
+            ),
+            models.UniqueConstraint(
+                fields=["scheme", "published_scheme_entry"],
+                condition=models.Q(published_scheme_entry__isnull=False),
+                name="unique_adopted_entry_per_scheme",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(week_start__isnull=True) | models.Q(week_start__gt=0),
+                name="scheme_item_week_start_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(week_end__isnull=True) | models.Q(week_end__gt=0),
+                name="scheme_item_week_end_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(week_end__isnull=True)
+                    | (
+                        models.Q(week_start__isnull=False)
+                        & models.Q(week_end__gte=models.F("week_start"))
+                    )
+                ),
+                name="scheme_item_week_range_valid",
+            ),
         ]
         indexes = [
             models.Index(
-                fields=[
-                    "scheme",
-                    "week_number",
-                ]
+                fields=["scheme", "week_start", "order"],
+                name="scheme_item_week_order_idx",
             )
         ]
 
@@ -148,14 +202,34 @@ class SchemeOfWorkItem(models.Model):
             errors["curriculum_topic"] = (
                 "Curriculum topic must belong to the scheme's curriculum subject."
             )
-        if self.week_number is not None and self.week_number <= 0:
-            errors["week_number"] = "Week number must be greater than zero."
+        if self.entry_type == PublishedSchemeEntryType.INSTRUCTION and not self.curriculum_topic_id:
+            errors["curriculum_topic"] = "Instructional entries require a curriculum topic."
+        if self.entry_type in {PublishedSchemeEntryType.BREAK, PublishedSchemeEntryType.CLOSING} and self.curriculum_topic_id:
+            errors["curriculum_topic"] = "Break and closing entries cannot have a curriculum topic."
+        if self.week_start is not None and self.week_start <= 0:
+            errors["week_start"] = "Week start must be greater than zero."
+        if self.week_end is not None:
+            if self.week_start is None:
+                errors["week_end"] = "Week start is required when week end is provided."
+            elif self.week_end < self.week_start:
+                errors["week_end"] = "Week end cannot be less than week start."
+        if (
+            self.published_scheme_entry_id
+            and self.scheme_id
+            and self.published_scheme_entry.published_scheme.curriculum_subject_id
+            != self.scheme.curriculum_subject_id
+        ):
+            errors["published_scheme_entry"] = "Source entry must match the scheme curriculum subject."
         if errors:
             raise ValidationError(errors)
         super().clean()
 
     def __str__(self):
-        return f"Week {self.week_number} - {self.curriculum_topic.topic.name}"
+        placement = "Unscheduled" if self.week_start is None else f"Week {self.week_start}"
+        if self.week_end and self.week_end != self.week_start:
+            placement = f"Weeks {self.week_start}-{self.week_end}"
+        label = self.title or (self.curriculum_topic.topic.name if self.curriculum_topic_id else self.get_entry_type_display())
+        return f"{placement} - {label}"
 
 
 class LessonPlan(models.Model):

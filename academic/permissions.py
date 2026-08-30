@@ -275,6 +275,19 @@ class IsAcademicAdminOrReadOnly(permissions.BasePermission):
         return AcademicAuthorityService.is_school_admin(request.user)
 
 
+class IsAcademicPlanningUser(permissions.BasePermission):
+    """Authenticated school admins and teachers may enter planning endpoints."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        from academic.services.academic_authority_service import AcademicAuthorityService
+        return bool(
+            AcademicAuthorityService.is_school_admin(request.user)
+            or AcademicAuthorityService.get_teacher(request.user)
+        )
+
+
 class CanReviewLessonPlan(permissions.BasePermission):
     """Checks whether the requesting user has authority to approve/reject a lesson plan."""
     def has_object_permission(self, request, view, obj):
@@ -305,7 +318,7 @@ class CanReviewSchemeOfWork(permissions.BasePermission):
         subject = obj.curriculum_subject.subject
         section = obj.curriculum_subject.grade_level.section
         academic_year = obj.academic_year
-        creator = obj.created_by
+        creator = obj.responsible_teacher
 
         return AcademicAuthorityService.can_approve(
             actor=request.user,

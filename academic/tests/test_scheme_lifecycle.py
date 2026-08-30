@@ -41,7 +41,7 @@ class SchemeOfWorkLifecycleTests(TenantTestCase):
             term=self.term,
             curriculum_subject=self.curriculum_subject,
             status=SchemeOfWorkStatus.DRAFT,
-            created_by=self.teacher
+            responsible_teacher=self.teacher, created_by=self.teacher_user
         )
 
         self.client = APIClient(HTTP_HOST=self.domain.domain)

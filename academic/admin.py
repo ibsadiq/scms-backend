@@ -138,6 +138,31 @@ admin.site.register(CurriculumTopic)
 admin.site.register(CurriculumGuidance)
 admin.site.register(SubTopic)
 admin.site.register(LearningObjective)
+
+
+@admin.register(PublishedScheme)
+class PublishedSchemeAdmin(admin.ModelAdmin):
+    list_display = ("name", "version", "curriculum_subject", "source", "is_active")
+    list_filter = ("is_active", "version")
+    search_fields = ("name", "curriculum_subject__subject__name", "description")
+
+
+@admin.register(PublishedSchemeEntry)
+class PublishedSchemeEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        "published_scheme", "term_number", "week_start", "week_end",
+        "entry_type", "title", "order", "is_active",
+    )
+    list_filter = ("term_number", "entry_type", "is_active")
+    search_fields = ("title", "content_summary", "source_reference")
+    filter_horizontal = ("subtopics", "learning_objectives")
+
+
+@admin.register(CurriculumResource)
+class CurriculumResourceAdmin(admin.ModelAdmin):
+    list_display = ("title", "resource_type", "curriculum_subject", "order", "is_active")
+    list_filter = ("resource_type", "is_active")
+    search_fields = ("title", "content", "curriculum_subject__subject__name", "source_reference")
 admin.site.register(Dormitory)
 admin.site.register(DormitoryAllocation)
 admin.site.register(MessageToParent)

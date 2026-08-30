@@ -169,12 +169,12 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             academic_year=self.academic_year,
             term=self.term,
             curriculum_subject=self.curr_sub_physics,
-            created_by=self.teacher_2,
+            responsible_teacher=self.teacher_2,
             status=SchemeOfWorkStatus.DRAFT,
         )
         self.scheme_item_physics = SchemeOfWorkItem.objects.create(
             scheme=self.scheme_physics,
-            week_number=1,
+            week_start=1,
             curriculum_topic=self.curr_topic_physics,
         )
         self.scheme_item_physics.learning_objectives.add(self.lo_physics)
@@ -392,7 +392,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             grade_levels=[self.grade_jss1],
             question_type=QuestionType.MULTIPLE_CHOICE,
             text="What is velocity?",
-            created_by=self.teacher_2,
+            responsible_teacher=self.teacher_2,
             options=[
                 {"text": "Rate of change of displacement", "is_correct": True},
                 {"text": "Rate of change of speed", "is_correct": False},
@@ -456,7 +456,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             title="Physics CBT 1",
             duration_minutes=45,
             status=CBTExamStatus.READY,
-            created_by=self.teacher_2,
+            responsible_teacher=self.teacher_2,
         )
 
         # Create an approved question and add to exam
@@ -465,7 +465,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             grade_levels=[self.grade_jss1],
             question_type=QuestionType.MULTIPLE_CHOICE,
             text="What is speed?",
-            created_by=self.teacher_1,
+            responsible_teacher=self.teacher_1,
             options=[
                 {"text": "Distance over time", "is_correct": True},
                 {"text": "Force over area", "is_correct": False},
@@ -528,12 +528,12 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             academic_year=self.academic_year,
             term=self.term,
             curriculum_subject=curr_sub_pri,
-            created_by=self.teacher_2,
+            responsible_teacher=self.teacher_2,
             status=SchemeOfWorkStatus.DRAFT,
         )
         scheme_item_pri = SchemeOfWorkItem.objects.create(
             scheme=scheme_pri,
-            week_number=1,
+            week_start=1,
             curriculum_topic=curr_topic_pri,
         )
         scheme_item_pri.learning_objectives.add(lo_pri)
@@ -601,7 +601,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             grade_levels=[self.grade_jss1],
             question_type=QuestionType.MULTIPLE_CHOICE,
             text="What is acceleration?",
-            created_by=self.teacher_2,
+            responsible_teacher=self.teacher_2,
             options=[
                 {"text": "Rate of change of velocity", "is_correct": True},
                 {"text": "Rate of change of distance", "is_correct": False},
@@ -643,7 +643,7 @@ class AcademicLeadershipAndApprovalTests(TestCase):
             title="Physics Hardening Exam",
             duration_minutes=30,
             status=CBTExamStatus.READY,
-            created_by=self.teacher_2,
+            responsible_teacher=self.teacher_2,
         )
         ExamQuestion.objects.create(
             cbt_exam=exam,
@@ -691,5 +691,4 @@ class AcademicLeadershipAndApprovalTests(TestCase):
         self.lesson_plan.refresh_from_db()
         self.assertEqual(self.lesson_plan.reviewed_by, self.teacher_1)
         self.assertIsInstance(self.lesson_plan.reviewed_by, Teacher)
-
 

@@ -19,8 +19,9 @@ from core.email_utils import (
     send_email,
 )
 
-
 from academic.models import (
+    AcademicYear,
+    GradeLevel,
     AdmissionSession,
     AdmissionFeeStructure,
     AdmissionApplication,
@@ -31,8 +32,12 @@ from academic.models import (
     AssessmentTemplateCriterion,
     ClassRoom,
     AdmissionStatus,
+    AdmissionApplicationNumberPolicy
 )
-from academic.services.admission_enrollment_service import AdmissionEnrollmentService
+from academic.services import (
+    AdmissionEnrollmentService,
+    NumberingService
+)
 
 from academic.serializers import (
     AdmissionSessionSerializer,
@@ -84,22 +89,103 @@ class StudentAdmissionNumberPolicyView(BaseNumberPolicyView):
     serializer_class = StudentAdmissionNumberPolicySerializer
 
     def get_preview(self, request):
-        from academic.admission_numbers import AdmissionNumberService
-        year = request.query_params.get("year")
-        return AdmissionNumberService.preview(int(year) if year else None)
+        policy = self.get_policy()
+
+        academic_year = (
+            AcademicYear.objects
+            .filter(active_year=True)
+            .first()
+        )
+
+        if not academic_year:
+            return None
+
+        grade_level = None
+
+        grade_level_id = request.query_params.get(
+            "grade_level"
+        )
+
+        if grade_level_id:
+            grade_level = (
+                GradeLevel.objects
+                .filter(pk=grade_level_id)
+                .first()
+            )
+
+        if policy.uses_section and not grade_level:
+            grade_level = (
+                GradeLevel.objects
+                .order_by("sequence_order")
+                .first()
+            )
+
+        return NumberingService.preview(
+            policy=policy,
+            grade_level=grade_level,
+            year=academic_year.start_date.year,
+        )
+
 
 
 class AdmissionApplicationNumberPolicyView(BaseNumberPolicyView):
-    from academic.models import AdmissionApplicationNumberPolicy
+
     model = AdmissionApplicationNumberPolicy
     serializer_class = AdmissionApplicationNumberPolicySerializer
 
     def get_preview(self, request):
-        from academic.admission_numbers import ApplicationNumberService
-        session_id = request.query_params.get("admission_session")
-        session = AdmissionSession.objects.filter(pk=session_id).first() if session_id else None
-        session = session or AdmissionSession.objects.filter(is_active=True).first()
-        return ApplicationNumberService.preview(session) if session else None
+        policy = self.get_policy()
+
+        session_id = request.query_params.get(
+            "admission_session"
+        )
+
+        session = None
+
+        if session_id:
+            session = (
+                AdmissionSession.objects
+                .select_related("academic_year")
+                .filter(pk=session_id)
+                .first()
+            )
+
+        if not session:
+            session = (
+                AdmissionSession.objects
+                .select_related("academic_year")
+                .filter(is_active=True)
+                .first()
+            )
+
+        if not session:
+            return None
+
+        grade_level = None
+
+        grade_level_id = request.query_params.get(
+            "grade_level"
+        )
+
+        if grade_level_id:
+            grade_level = (
+                GradeLevel.objects
+                .filter(pk=grade_level_id)
+                .first()
+            )
+
+        if policy.uses_section and not grade_level:
+            grade_level = (
+                GradeLevel.objects
+                .order_by("sequence_order")
+                .first()
+            )
+
+        return NumberingService.preview(
+            policy=policy,
+            grade_level=grade_level,
+            year=session.academic_year.start_date.year,
+        )
 
 
 class AdmissionSessionAdminViewSet(viewsets.ModelViewSet):

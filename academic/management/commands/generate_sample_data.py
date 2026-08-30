@@ -234,7 +234,7 @@ class Command(BaseCommand):
             'Mathematics': [('Mathematics', 'MATH')],
             'Sciences': [('Physics', 'PHY'), ('Chemistry', 'CHEM'), ('Biology', 'BIO'), ('Basic Science', 'BSC')],
             'Social Sciences': [('Geography', 'GEO'), ('Economics', 'ECON')],
-            'Vocational': [('Computer Science', 'CS'), ('Accounting', 'ACC')]
+            'Vocational': [('Computer Science', 'CS'), ('Financial Accounting', 'FA')]
         }
 
         for dept_name, subjects in departments_subjects.items():
@@ -689,7 +689,8 @@ class Command(BaseCommand):
                     'start_date': term.start_date,
                     'ends_date': term.end_date,
                     'out_of': 100,
-                    'created_by': self.teachers[0] if self.teachers else None
+                    'responsible_teacher': self.teachers[0] if self.teachers else None,
+                    'created_by': self.teachers[0].user if self.teachers else None
                 }
             )
             session.classrooms.set(self.classrooms)
@@ -703,7 +704,8 @@ class Command(BaseCommand):
                 'start_date': self.current_term.start_date,
                 'ends_date': self.current_term.end_date,
                 'out_of': 100,
-                'created_by': self.teachers[0] if self.teachers else None
+                'responsible_teacher': self.teachers[0] if self.teachers else None,
+                'created_by': self.teachers[0].user if self.teachers else None
             }
         )
         session.classrooms.set(self.classrooms)

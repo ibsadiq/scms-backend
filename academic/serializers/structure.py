@@ -33,7 +33,7 @@ class StreamSerializer(serializers.ModelSerializer):
 class SchoolSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SchoolSection
-        fields = ["id", "system_code", "default_name", "alias", "sequence_order"]
+        fields = ["id", "system_code", "default_name", "alias", "number_code","sequence_order"]
 
 
 class GradeLevelSerializer(serializers.ModelSerializer):

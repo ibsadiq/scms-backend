@@ -9,6 +9,29 @@ class CurriculumAuthority(models.TextChoices):
     OTHER = "OTHER", "Other"
 
 
+class PublishedSchemeEntryType(models.TextChoices):
+    INSTRUCTION = "INSTRUCTION", _("Instruction")
+    REVISION = "REVISION", _("Revision")
+    ASSESSMENT = "ASSESSMENT", _("Assessment")
+    EXAMINATION = "EXAMINATION", _("Examination")
+    BREAK = "BREAK", _("Break")
+    PREPARATION = "PREPARATION", _("Preparation")
+    CLOSING = "CLOSING", _("Closing")
+    OTHER = "OTHER", _("Other")
+
+
+class CurriculumResourceType(models.TextChoices):
+    PRESCRIBED_TEXT = "PRESCRIBED_TEXT", _("Prescribed Text")
+    RECOMMENDED_TEXT = "RECOMMENDED_TEXT", _("Recommended Text")
+    REFERENCE = "REFERENCE", _("Reference")
+    INSTRUCTIONAL_NOTE = "INSTRUCTIONAL_NOTE", _("Instructional Note")
+    EVALUATION = "EVALUATION", _("Evaluation")
+    ASSIGNMENT = "ASSIGNMENT", _("Assignment")
+    PRACTICAL = "PRACTICAL", _("Practical")
+    EXAMPLE = "EXAMPLE", _("Example")
+    OTHER = "OTHER", _("Other")
+
+
 class SectionType(models.TextChoices):
     PRE_PRIMARY = "PRE_PRIMARY", _("Pre-Primary Education")
     PRIMARY = "PRIMARY", _("Primary Education")

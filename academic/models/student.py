@@ -111,24 +111,6 @@ class Parent(models.Model):
 
         super().save(*args, **kwargs)
 
-
-class AdmissionNumberSequence(models.Model):
-    year = models.PositiveIntegerField(null=True, blank=True)
-    reset_policy = models.CharField(max_length=20, default="academic_year")
-    scope_key = models.CharField(max_length=40, default="")
-    last_value = models.PositiveBigIntegerField(default=0)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ("year",)
-        constraints = [
-            models.UniqueConstraint(
-                fields=["reset_policy", "scope_key"],
-                name="academic_unique_student_number_scope",
-            )
-        ]
-
-
 class Student(models.Model):
     student_id = models.CharField(
         max_length=20,
@@ -262,30 +244,32 @@ class Student(models.Model):
             with schema_context("public"):
                 from core.models import GlobalIDRegistry
 
-                self.student_id = GlobalIDRegistry.generate_unique_id("student")
+                self.student_id = (
+                    GlobalIDRegistry.generate_unique_id(
+                        "student"
+                    )
+                )
 
         if not self.parent_contact:
-            raise ValidationError("Parent contact is required.")
+            raise ValidationError(
+                "Parent contact is required."
+            )
 
-        self.first_name = self.first_name.lower() if self.first_name else ""
-        self.middle_name = self.middle_name.lower() if self.middle_name else ""
-        self.last_name = self.last_name.lower() if self.last_name else ""
-
-        parent, created = Parent.objects.get_or_create(
-            phone_number=self.parent_contact,
-            defaults={
-                "first_name": self.middle_name or "Unknown",
-                "last_name": self.last_name or "Unknown",
-                "email": f"parent_{self.parent_contact}@hayatul.com",
-                "phone_number": self.parent_contact,
-            },
+        self.first_name = (
+            self.first_name.lower()
+            if self.first_name
+            else ""
         )
-        self.parent_guardian = parent
-
-        if not self.admission_number:
-            from academic.admission_numbers import AdmissionNumberService
-
-            self.admission_number = AdmissionNumberService.allocate()
+        self.middle_name = (
+            self.middle_name.lower()
+            if self.middle_name
+            else ""
+        )
+        self.last_name = (
+            self.last_name.lower()
+            if self.last_name
+            else ""
+        )
 
         if not self.admission_date:
             self.admission_date = timezone.now()
@@ -302,6 +286,7 @@ class Student(models.Model):
             from django_tenants.utils import schema_context
 
             _schema = connection.schema_name
+
             with schema_context("public"):
                 from core.models import GlobalIDRegistry
 
@@ -310,16 +295,22 @@ class Student(models.Model):
                     first_name=self.first_name or "",
                     last_name=self.last_name or "",
                     date_of_birth=self.date_of_birth,
-                    current_schema=_schema if self.is_active else "",
+                    current_schema=(
+                        _schema
+                        if self.is_active
+                        else ""
+                    ),
                 )
 
-        existing_siblings = Student.objects.filter(
-            parent_contact=self.parent_contact
-        ).exclude(id=self.id)
+        existing_siblings = (
+            Student.objects
+            .filter(parent_contact=self.parent_contact)
+            .exclude(id=self.id)
+        )
+
         for sibling in existing_siblings:
             self.siblings.add(sibling)
             sibling.siblings.add(self)
-
     def update_debt_for_term(self, term):
         from finance.models import DebtRecord
 

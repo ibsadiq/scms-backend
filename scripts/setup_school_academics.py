@@ -79,7 +79,10 @@ DEPARTMENT_NAMES = ["Languages", "Mathematics", "Sciences", "Humanities", "Busin
 SUBJECT_SPECS = {
     "Number Work": ("NUMW", None, False),
     "Letter Work": ("LETW", None, False),
+    "Language Domain": ("LANG", None, False),
     "Health Habits": ("HLTH", None, False),
+    "Social Habits": ("SOCH", None, False),
+    "Personal Development": ("PDEV", None, False),
     "Social Norms": ("SOCN", None, False),
     "Christian Religious Studies": ("CRS", None, False),
     "Handwriting": ("HAND", None, False),
@@ -122,15 +125,16 @@ SUBJECT_SPECS = {
     "Government": ("GOV", "Humanities", True),
     "Visual Arts": ("VART", "Humanities", True),
     "Literature-in-English": ("LITENG", "Humanities", True),
-    "Catering Craft": ("CAT", "Humanities", True),
-    "Accounting": ("ACC", "Business", True),
+    "Catering and Craft Practice": ("CCP", "Humanities", True),
+    "Financial Accounting": ("FA", "Business", True),
     "Commerce": ("COM", "Business", True),
     "Marketing": ("MKT", "Business", True),
     "Economics": ("ECON", "Business", True),
 }
 
 NURSERY = [
-    "Number Work", "Letter Work", "Health Habits", "Social Norms",
+    "Number Work", "Letter Work", "Language Domain", "Health Habits",
+    "Social Habits", "Personal Development", "Social Norms",
     "Christian Religious Studies", "Handwriting", "Colouring", "Science",
     "Creative Art", "Rhymes", "Quantitative Reasoning", "Verbal Reasoning",
 ]
@@ -160,7 +164,8 @@ SSS = [
     "Digital Technologies", "Biology", "Chemistry", "Physics", "Agricultural Science",
     "Further Mathematics", "Foods & Nutrition", "Geography", "Technical Drawing",
     "Nigerian History", "Government", "Christian Religious Studies", "Visual Arts",
-    "Literature-in-English", "Catering Craft", "Accounting", "Commerce", "Marketing",
+    "Literature-in-English", "Catering and Craft Practice", "Financial Accounting",
+    "Commerce", "Marketing",
     "Economics", *TRADE,
 ]
 

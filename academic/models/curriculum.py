@@ -5,7 +5,11 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
-from .choices import CurriculumAuthority
+from .choices import (
+    CurriculumAuthority,
+    CurriculumResourceType,
+    PublishedSchemeEntryType,
+)
 from .structure import GradeLevel
 from .staff import Subject
 
@@ -396,6 +400,7 @@ class CurriculumTopic(models.Model):
 
 
 class CurriculumGuidance(models.Model):
+    """Invariant guidance that applies to a curriculum topic as a whole."""
     curriculum_topic = models.OneToOneField(
         CurriculumTopic,
         on_delete=models.CASCADE,
@@ -497,3 +502,271 @@ class LearningObjective(models.Model):
 
     def __str__(self):
         return f"LO {self.order} - {self.curriculum_topic.topic.name}"
+
+
+class PublishedScheme(models.Model):
+    """An official publisher-provided scheme for one curriculum subject."""
+
+    curriculum_subject = models.ForeignKey(
+        CurriculumSubject,
+        on_delete=models.CASCADE,
+        related_name="published_schemes",
+    )
+    name = models.CharField(max_length=200, default="Published Scheme of Work")
+    version = models.CharField(max_length=50, blank=True)
+    description = models.TextField(blank=True)
+    source = models.ForeignKey(
+        CurriculumSource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="published_schemes",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["curriculum_subject", "name", "version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["curriculum_subject", "name", "version"],
+                name="unique_published_scheme_version",
+            )
+        ]
+
+    def clean(self):
+        errors = {}
+        if (
+            self.source_id
+            and self.curriculum_subject_id
+            and self.source.curriculum_id
+            != self.curriculum_subject.curriculum_id
+        ):
+            errors["source"] = "Source curriculum must match the curriculum subject curriculum."
+        if errors:
+            raise ValidationError(errors)
+        super().clean()
+
+    def __str__(self):
+        suffix = f" ({self.version})" if self.version else ""
+        return f"{self.name}{suffix} - {self.curriculum_subject}"
+
+
+class PublishedSchemeEntry(models.Model):
+    """One row or placement in an official published scheme of work."""
+
+    published_scheme = models.ForeignKey(
+        PublishedScheme,
+        on_delete=models.CASCADE,
+        related_name="entries",
+    )
+    term_number = models.PositiveSmallIntegerField()
+    week_start = models.PositiveSmallIntegerField(null=True, blank=True)
+    week_end = models.PositiveSmallIntegerField(null=True, blank=True)
+    entry_type = models.CharField(
+        max_length=20,
+        choices=PublishedSchemeEntryType.choices,
+        default=PublishedSchemeEntryType.INSTRUCTION,
+    )
+    curriculum_topic = models.ForeignKey(
+        CurriculumTopic,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="published_scheme_entries",
+    )
+    subtopics = models.ManyToManyField(
+        SubTopic,
+        blank=True,
+        related_name="published_scheme_entries",
+    )
+    learning_objectives = models.ManyToManyField(
+        LearningObjective,
+        blank=True,
+        related_name="published_scheme_entries",
+    )
+    title = models.CharField(max_length=255, blank=True)
+    content_summary = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=1)
+    teacher_activities = models.TextField(blank=True)
+    pupil_activities = models.TextField(blank=True)
+    learning_resources = models.TextField(blank=True)
+    source = models.ForeignKey(
+        CurriculumSource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="published_scheme_entries",
+    )
+    source_page_start = models.PositiveIntegerField(null=True, blank=True)
+    source_page_end = models.PositiveIntegerField(null=True, blank=True)
+    source_reference = models.CharField(max_length=255, blank=True)
+    import_batch = models.ForeignKey(
+        CurriculumImportBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="published_scheme_entries",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["term_number", "order", "week_start", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["published_scheme", "term_number", "order"],
+                name="unique_published_scheme_term_order",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["published_scheme", "term_number", "week_start"]),
+        ]
+
+    def clean(self):
+        errors = {}
+        if self.term_number not in {1, 2, 3}:
+            errors["term_number"] = "Term number must be 1, 2, or 3."
+        if self.week_start is not None and self.week_start < 1:
+            errors["week_start"] = "Week start must be at least 1."
+        if self.week_end is not None:
+            if self.week_start is None:
+                errors["week_end"] = "Week start is required when week end is provided."
+            elif self.week_end < self.week_start:
+                errors["week_end"] = "Week end cannot be less than week start."
+        if (
+            self.curriculum_topic_id
+            and self.published_scheme_id
+            and self.curriculum_topic.curriculum_subject_id
+            != self.published_scheme.curriculum_subject_id
+        ):
+            errors["curriculum_topic"] = (
+                "Curriculum topic must belong to the published scheme's curriculum subject."
+            )
+        curriculum_id = None
+        if self.published_scheme_id:
+            curriculum_id = self.published_scheme.curriculum_subject.curriculum_id
+        if self.source_id and curriculum_id and self.source.curriculum_id != curriculum_id:
+            errors["source"] = "Source curriculum must match the published scheme curriculum."
+        if self.import_batch_id and curriculum_id and self.import_batch.curriculum_id != curriculum_id:
+            errors["import_batch"] = "Import batch curriculum must match the published scheme curriculum."
+        if self.source_page_start is not None and self.source_page_start < 1:
+            errors["source_page_start"] = "Page start must be at least 1."
+        if self.source_page_end is not None:
+            if self.source_page_start is None:
+                errors["source_page_end"] = "Page start is required when page end is provided."
+            elif self.source_page_end < self.source_page_start:
+                errors["source_page_end"] = "Page end cannot be less than page start."
+        if errors:
+            raise ValidationError(errors)
+        super().clean()
+
+    def __str__(self):
+        week = "Unscheduled" if self.week_start is None else f"Week {self.week_start}"
+        if self.week_end is not None and self.week_end != self.week_start:
+            week = f"Weeks {self.week_start}-{self.week_end}"
+        return f"Term {self.term_number}, {week}: {self.title or self.get_entry_type_display()}"
+
+
+class CurriculumResource(models.Model):
+    """A flexible official reference or instructional curriculum resource."""
+
+    curriculum_subject = models.ForeignKey(
+        CurriculumSubject,
+        on_delete=models.CASCADE,
+        related_name="resources",
+    )
+    curriculum_topic = models.ForeignKey(
+        CurriculumTopic,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="resources",
+    )
+    published_scheme_entry = models.ForeignKey(
+        PublishedSchemeEntry,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="resources",
+    )
+    resource_type = models.CharField(
+        max_length=30,
+        choices=CurriculumResourceType.choices,
+        default=CurriculumResourceType.OTHER,
+    )
+    title = models.CharField(max_length=255)
+    content = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    order = models.PositiveIntegerField(default=1)
+    source = models.ForeignKey(
+        CurriculumSource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="curriculum_resources",
+    )
+    source_page_start = models.PositiveIntegerField(null=True, blank=True)
+    source_page_end = models.PositiveIntegerField(null=True, blank=True)
+    source_reference = models.CharField(max_length=255, blank=True)
+    import_batch = models.ForeignKey(
+        CurriculumImportBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="curriculum_resources",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["curriculum_subject", "order", "title", "id"]
+        indexes = [
+            models.Index(fields=["curriculum_subject", "resource_type", "is_active"]),
+        ]
+
+    def clean(self):
+        errors = {}
+        if (
+            self.curriculum_topic_id
+            and self.curriculum_topic.curriculum_subject_id != self.curriculum_subject_id
+        ):
+            errors["curriculum_topic"] = "Curriculum topic must belong to the curriculum subject."
+        if (
+            self.published_scheme_entry_id
+            and self.published_scheme_entry.published_scheme.curriculum_subject_id
+            != self.curriculum_subject_id
+        ):
+            errors["published_scheme_entry"] = (
+                "Published scheme entry must belong to the curriculum subject."
+            )
+        if (
+            self.curriculum_topic_id
+            and self.published_scheme_entry_id
+            and self.published_scheme_entry.curriculum_topic_id
+            and self.published_scheme_entry.curriculum_topic_id != self.curriculum_topic_id
+        ):
+            errors["published_scheme_entry"] = (
+                "Published scheme entry topic must match the resource curriculum topic."
+            )
+        curriculum_id = self.curriculum_subject.curriculum_id if self.curriculum_subject_id else None
+        if self.source_id and curriculum_id and self.source.curriculum_id != curriculum_id:
+            errors["source"] = "Source curriculum must match the curriculum subject curriculum."
+        if self.import_batch_id and curriculum_id and self.import_batch.curriculum_id != curriculum_id:
+            errors["import_batch"] = "Import batch curriculum must match the curriculum subject curriculum."
+        if self.source_page_start is not None and self.source_page_start < 1:
+            errors["source_page_start"] = "Page start must be at least 1."
+        if self.source_page_end is not None:
+            if self.source_page_start is None:
+                errors["source_page_end"] = "Page start is required when page end is provided."
+            elif self.source_page_end < self.source_page_start:
+                errors["source_page_end"] = "Page end cannot be less than page start."
+        if errors:
+            raise ValidationError(errors)
+        super().clean()
+
+    def __str__(self):
+        return f"{self.get_resource_type_display()}: {self.title}"

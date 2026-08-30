@@ -1,6 +1,8 @@
 from administration.models import AcademicYear, Term
 from .choices import (
     CurriculumAuthority,
+    CurriculumResourceType,
+    PublishedSchemeEntryType,
     SectionType,
     StandardClassCode,
     AcademicLeadershipRole,
@@ -45,6 +47,9 @@ from .curriculum import (
     CurriculumGuidance,
     SubTopic,
     LearningObjective,
+    PublishedScheme,
+    PublishedSchemeEntry,
+    CurriculumResource,
 )
 
 from .scheme_and_lesson import (
@@ -61,7 +66,6 @@ from .leadership import (
 )
 
 from .student import (
-    AdmissionNumberSequence,
     Parent,
     Student,
     StudentsMedicalHistory,
@@ -88,12 +92,16 @@ from .numbering import (
     NumberResetPolicy,
     StudentAdmissionNumberPolicy,
     AdmissionApplicationNumberPolicy,
-    AdmissionApplicationNumberSequence,
+    NumberSequence,
+    NumberSequenceType,
+    NUMBER_PATTERN_TOKEN_RE,
 )
 
 __all__ = [
     # Choices
     "CurriculumAuthority",
+    "CurriculumResourceType",
+    "PublishedSchemeEntryType",
     "SectionType",
     "StandardClassCode",
     "AcademicLeadershipRole",
@@ -120,11 +128,12 @@ __all__ = [
     "Teacher",
     "AllocatedSubject",
     "MessageToTeacher",
-    "AdmissionNumberSequence",
     "NumberResetPolicy",
     "StudentAdmissionNumberPolicy",
     "AdmissionApplicationNumberPolicy",
-    "AdmissionApplicationNumberSequence",
+    "NumberSequence",
+    "NumberSequenceType",
+    "NUMBER_PATTERN_TOKEN_RE",
     # Curriculum
     "Curriculum",
     "CurriculumSource",
@@ -137,6 +146,9 @@ __all__ = [
     "CurriculumGuidance",
     "SubTopic",
     "LearningObjective",
+    "PublishedScheme",
+    "PublishedSchemeEntry",
+    "CurriculumResource",
     # Scheme & Lesson
     "SchemeOfWork",
     "SchemeOfWorkItem",

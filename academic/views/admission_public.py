@@ -155,8 +155,9 @@ class PublicAdmissionApplicationViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Create application in DRAFT status
-        application = serializer.save(status=AdmissionStatus.DRAFT)
+        application = AdmissionApplicationService.create(
+            validated_data=serializer.validated_data,
+        )
 
         # Return full details including tracking token
         detail_serializer = PublicAdmissionApplicationSerializer(

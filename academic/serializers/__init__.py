@@ -20,6 +20,7 @@ from .staff import (
 )
 
 from .curriculum import (
+    CurriculumClassSerializer,
     CurriculumSerializer,
     CurriculumSubjectSerializer,
     TopicSerializer,
@@ -27,6 +28,9 @@ from .curriculum import (
     CurriculumGuidanceSerializer,
     SubTopicSerializer,
     LearningObjectiveSerializer,
+    PublishedSchemeSerializer,
+    PublishedSchemeEntrySerializer,
+    CurriculumResourceSerializer,
 )
 
 from .scheme_and_lesson import (
@@ -35,6 +39,7 @@ from .scheme_and_lesson import (
     LessonPlanSerializer,
     LessonDeliverySerializer,
     LessonPlanMaterialSerializer,
+    PublishedSchemeAdoptionSerializer,
 )
 
 from .leadership import (
@@ -116,6 +121,7 @@ __all__ = [
     "MessageToTeacherSerializer",
     "StaffSerializer",
     # Curriculum
+    "CurriculumClassSerializer",
     "CurriculumSerializer",
     "CurriculumSubjectSerializer",
     "TopicSerializer",
@@ -123,12 +129,16 @@ __all__ = [
     "CurriculumGuidanceSerializer",
     "SubTopicSerializer",
     "LearningObjectiveSerializer",
+    "PublishedSchemeSerializer",
+    "PublishedSchemeEntrySerializer",
+    "CurriculumResourceSerializer",
     # Scheme & Lesson
     "SchemeOfWorkSerializer",
     "SchemeOfWorkItemSerializer",
     "LessonPlanSerializer",
     "LessonDeliverySerializer",
     "LessonPlanMaterialSerializer",
+    "PublishedSchemeAdoptionSerializer",
     # Leadership
     "AcademicLeadershipAssignmentSerializer",
     "AcademicApprovalPolicySerializer",

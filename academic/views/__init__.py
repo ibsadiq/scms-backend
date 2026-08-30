@@ -84,6 +84,9 @@ from .curriculum import (
     TopicViewSet,
     SubTopicViewSet,
     LearningObjectiveViewSet,
+    PublishedSchemeViewSet,
+    PublishedSchemeEntryViewSet,
+    CurriculumResourceViewSet,
 )
 
 from .scheme_and_lesson import (
@@ -91,6 +94,7 @@ from .scheme_and_lesson import (
     SchemeOfWorkItemViewSet,
     LessonPlanViewSet,
     LessonPlanMaterialViewSet,
+    LessonDeliveryViewSet,
 )
 
 __all__ = [
@@ -160,9 +164,13 @@ __all__ = [
     "TopicViewSet",
     "SubTopicViewSet",
     "LearningObjectiveViewSet",
+    "PublishedSchemeViewSet",
+    "PublishedSchemeEntryViewSet",
+    "CurriculumResourceViewSet",
     # Scheme and Lesson
     "SchemeOfWorkViewSet",
     "SchemeOfWorkItemViewSet",
     "LessonPlanViewSet",
     "LessonPlanMaterialViewSet",
+    "LessonDeliveryViewSet",
 ]

@@ -470,3 +470,83 @@ class CurriculumImportServiceTests(TenantTestCase):
         self.assertEqual(ct.theme, "Advanced Numeration")
         # Existing source was preserved
         self.assertIsNotNone(ct.source)
+
+    def test_26_preprimary_subject_resolution(self):
+        """26. Disambiguate Pre-Primary canonical subject resolution."""
+        # Create canonical subjects in tenant
+        sub_letter = Subject.objects.create(name="Letter Work", subject_code="LETW")
+        sub_lang = Subject.objects.create(name="Language Domain", subject_code="LANG")
+        sub_social_habits = Subject.objects.create(name="Social Habits", subject_code="SOCH")
+        sub_social_norms = Subject.objects.create(name="Social Norms", subject_code="SOCN")
+        sub_pdev = Subject.objects.create(name="Personal Development", subject_code="PDEV")
+
+        # Verify resolution
+        res_lit = CurriculumImportService.resolve_subject("Literacy")
+        res_lit_letter = CurriculumImportService.resolve_subject("Literacy (Letter Work)")
+        res_lit_lang = CurriculumImportService.resolve_subject("Literacy (Language Domain)")
+        res_social_habits = CurriculumImportService.resolve_subject("Social Habits")
+        res_pdev = CurriculumImportService.resolve_subject("Personal Development")
+        res_social_norms = CurriculumImportService.resolve_subject("Social Norms")
+
+        self.assertEqual(res_lit, sub_letter)
+        self.assertEqual(res_lit_letter, sub_letter)
+        self.assertEqual(res_lit_lang, sub_lang)
+        self.assertEqual(res_social_habits, sub_social_habits)
+        self.assertEqual(res_pdev, sub_pdev)
+        self.assertEqual(res_social_norms, sub_social_norms)
+
+        # Verify distinct identities
+        self.assertNotEqual(res_lit_lang, res_lit_letter)
+        self.assertNotEqual(res_social_habits, res_social_norms)
+        self.assertNotEqual(res_pdev, res_social_norms)
+        self.assertNotEqual(res_social_habits, res_pdev)
+
+    def test_27_nerdc_canonical_subject_identity(self):
+        """27. Resolve official NERDC names to their canonical subjects."""
+        catering = Subject.objects.create(
+            name="Catering and Craft Practice", subject_code="CCP"
+        )
+        financial_accounting = Subject.objects.create(
+            name="Financial Accounting", subject_code="FA"
+        )
+        other_subjects = [
+            Subject.objects.create(name="Foods & Nutrition", subject_code="FNT"),
+            Subject.objects.create(name="Fashion", subject_code="FASH"),
+            Subject.objects.create(name="Economics", subject_code="ECON"),
+            Subject.objects.create(name="Commerce", subject_code="COM"),
+        ]
+
+        resolved_catering = CurriculumImportService.resolve_subject(
+            "Catering and Craft Practice"
+        )
+        resolved_accounting = CurriculumImportService.resolve_subject(
+            "Financial Accounting"
+        )
+
+        self.assertEqual(resolved_catering, catering)
+        self.assertEqual(resolved_catering.name, "Catering and Craft Practice")
+        self.assertEqual(resolved_catering.subject_code, "CCP")
+        self.assertEqual(resolved_accounting, financial_accounting)
+        self.assertEqual(resolved_accounting.name, "Financial Accounting")
+        self.assertEqual(resolved_accounting.subject_code, "FA")
+        for other_subject in other_subjects:
+            self.assertNotEqual(resolved_catering, other_subject)
+            self.assertNotEqual(resolved_accounting, other_subject)
+
+    def test_28_nerdc_subjects_are_provisioned_for_sss(self):
+        """28. Provision official NERDC names/codes at every SSS level."""
+        from scripts.setup_school_academics import GRADE_SUBJECTS, SUBJECT_SPECS
+
+        self.assertEqual(
+            SUBJECT_SPECS["Catering and Craft Practice"],
+            ("CCP", "Humanities", True),
+        )
+        self.assertEqual(
+            SUBJECT_SPECS["Financial Accounting"],
+            ("FA", "Business", True),
+        )
+        self.assertNotIn("Catering Craft", SUBJECT_SPECS)
+        self.assertNotIn("Accounting", SUBJECT_SPECS)
+        for grade_code in ("SS_1", "SS_2", "SS_3"):
+            self.assertIn("Catering and Craft Practice", GRADE_SUBJECTS[grade_code])
+            self.assertIn("Financial Accounting", GRADE_SUBJECTS[grade_code])
