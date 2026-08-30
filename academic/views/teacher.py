@@ -98,7 +98,7 @@ class TeacherMyClassesView(APIView):
         allocations = AllocatedSubject.objects.filter(
             teacher_name=teacher,
             academic_year=current_academic_year
-        ).select_related('class_room', 'subject', 'class_room__name')
+        ).select_related('class_room', 'subject', 'class_room__grade_level')
 
         for allocation in allocations:
             classroom = allocation.class_room
