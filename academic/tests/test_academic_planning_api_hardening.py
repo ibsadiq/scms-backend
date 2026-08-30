@@ -1,10 +1,13 @@
+import base64
+
 from django.urls import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from administration.models import AcademicYear, Term
 from academic.models import (
     AllocatedSubject, ClassRoom, Curriculum, CurriculumSubject, CurriculumTopic,
-    GradeLevel, LearningObjective, LessonPlan, LessonPlanMaterial, LessonPlanStatus, SchemeOfWork,
+    GradeLevel, LearningObjective, LessonDelivery, LessonPlan, LessonPlanMaterial, LessonPlanStatus, SchemeOfWork,
     PublishedScheme, PublishedSchemeEntry, SchemeOfWorkItem, SchemeOfWorkStatus,
     CurriculumResource, Subject, SubTopic, Teacher, Topic,
 )
@@ -223,6 +226,8 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_lesson_delivery_api_is_scoped_and_validates_coverage(self):
+        self.plan.status = LessonPlanStatus.APPROVED
+        self.plan.save(update_fields=["status"])
         invalid_objective = LearningObjective.objects.create(
             curriculum_topic=self.curriculum_topic, description="Unplanned", order=2
         )
@@ -343,6 +348,8 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
         self.assertIsNone(unscheduled.data["curriculum_topic"])
 
     def test_create_lesson_plan_from_scheme_item_inherits_editable_defaults(self):
+        self.scheme.status = SchemeOfWorkStatus.APPROVED
+        self.scheme.save(update_fields=["status"])
         self.item.title = "School Expressions"
         self.item.content_summary = "Simplify like terms"
         self.item.teacher_activities = "Model examples"
@@ -372,6 +379,8 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
         self.assertEqual(self.item.teacher_activities, "Model examples")
 
     def test_lesson_plan_entry_type_rules_and_multiple_plans_are_explicit(self):
+        self.scheme.status = SchemeOfWorkStatus.APPROVED
+        self.scheme.save(update_fields=["status"])
         second = self.owner_client.post(reverse("lesson-plan-create-from-scheme-item"), {
             "scheme_item": self.item.id, "allocation": self.allocation.id,
             "lesson_date": "2025-10-09",
@@ -394,6 +403,117 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
         item_detail = self.owner_client.get(reverse("scheme-of-work-item-detail", args=[self.item.id]))
         self.assertTrue(item_detail.data["lesson_planning"]["multiple_plans_permitted"])
         self.assertEqual(item_detail.data["lesson_planning"]["lesson_plan_count"], 3)
+
+    def test_scheme_status_controls_lesson_plan_creation_and_metadata(self):
+        endpoint = reverse("lesson-plan-create-from-scheme-item")
+        for scheme_status, expected_status in (
+            (SchemeOfWorkStatus.DRAFT, 400),
+            (SchemeOfWorkStatus.SUBMITTED, 400),
+            (SchemeOfWorkStatus.REJECTED, 400),
+            (SchemeOfWorkStatus.APPROVED, 201),
+        ):
+            with self.subTest(scheme_status=scheme_status):
+                self.scheme.status = scheme_status
+                self.scheme.save(update_fields=["status"])
+                detail = self.owner_client.get(
+                    reverse("scheme-of-work-item-detail", args=[self.item.id])
+                )
+                eligibility = detail.data["lesson_planning"]
+                self.assertEqual(
+                    eligibility["can_create_lesson_plan"],
+                    scheme_status == SchemeOfWorkStatus.APPROVED,
+                )
+                response = self.owner_client.post(endpoint, {
+                    "scheme_item": self.item.id,
+                    "allocation": self.allocation.id,
+                    "lesson_date": "2025-11-01",
+                }, format="json")
+                self.assertEqual(response.status_code, expected_status, response.data)
+
+    def test_all_entry_type_eligibility_is_centralized_and_multiple_plans_remain_supported(self):
+        self.scheme.status = SchemeOfWorkStatus.APPROVED
+        self.scheme.save(update_fields=["status"])
+        allowed = {"INSTRUCTION", "REVISION", "ASSESSMENT", "PREPARATION"}
+        all_types = allowed | {"EXAMINATION", "BREAK", "CLOSING", "OTHER"}
+        endpoint = reverse("lesson-plan-create-from-scheme-item")
+        for order, entry_type in enumerate(sorted(all_types), start=10):
+            topic = self.curriculum_topic if entry_type == "INSTRUCTION" else None
+            item = SchemeOfWorkItem.objects.create(
+                scheme=self.scheme,
+                entry_type=entry_type,
+                curriculum_topic=topic,
+                title=entry_type,
+                order=order,
+            )
+            detail = self.owner_client.get(
+                reverse("scheme-of-work-item-detail", args=[item.id])
+            )
+            self.assertEqual(detail.data["lesson_planning"]["permitted"], entry_type in allowed)
+            response = self.owner_client.post(endpoint, {
+                "scheme_item": item.id,
+                "allocation": self.allocation.id,
+                "lesson_date": f"2025-11-{order:02d}",
+            }, format="json")
+            self.assertEqual(response.status_code, 201 if entry_type in allowed else 400, response.data)
+
+        first = self.owner_client.post(endpoint, {
+            "scheme_item": self.item.id, "allocation": self.allocation.id,
+            "lesson_date": "2025-12-01",
+        }, format="json")
+        second = self.owner_client.post(endpoint, {
+            "scheme_item": self.item.id, "allocation": self.allocation.id,
+            "lesson_date": "2025-12-02",
+        }, format="json")
+        self.assertEqual((first.status_code, second.status_code), (201, 201))
+
+    def test_upstream_changes_and_scheme_reopen_preserve_existing_plan_copy(self):
+        self.scheme.status = SchemeOfWorkStatus.APPROVED
+        self.scheme.save(update_fields=["status"])
+        created = self.owner_client.post(reverse("lesson-plan-create-from-scheme-item"), {
+            "scheme_item": self.item.id, "allocation": self.allocation.id,
+            "lesson_date": "2025-12-03",
+        }, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        plan = LessonPlan.objects.get(pk=created.data["id"])
+        original_title = plan.title
+
+        self.item.title = "Later upstream title"
+        self.item.content_summary = "Later upstream content"
+        self.item.save(update_fields=["title", "content_summary"])
+        plan.refresh_from_db()
+        self.assertEqual(plan.title, original_title)
+        self.assertNotEqual(plan.lesson_content, "Later upstream content")
+
+        self.scheme.status = SchemeOfWorkStatus.REJECTED
+        self.scheme.save(update_fields=["status"])
+        reopened = self.owner_client.post(
+            reverse("scheme-of-work-reopen-for-revision", args=[self.scheme.id])
+        )
+        self.assertEqual(reopened.status_code, 200, reopened.data)
+        self.assertTrue(LessonPlan.objects.filter(pk=plan.id).exists())
+
+    def test_delivery_requires_approved_plan_is_one_to_one_and_admin_needs_no_teacher(self):
+        endpoint = reverse("lesson-delivery-list")
+        rejected = self.owner_client.post(endpoint, {
+            "lesson_plan": self.plan.id, "status": "COMPLETED",
+        }, format="json")
+        self.assertEqual(rejected.status_code, 400, rejected.data)
+
+        self.plan.status = LessonPlanStatus.APPROVED
+        self.plan.save(update_fields=["status"])
+        created = self.admin_client.post(endpoint, {
+            "lesson_plan": self.plan.id, "status": "COMPLETED",
+        }, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertIsNone(created.data["recorded_by"])
+        self.assertEqual(LessonDelivery.objects.get().lesson_plan.allocation, self.allocation)
+
+        duplicate = self.admin_client.post(endpoint, {
+            "lesson_plan": self.plan.id, "status": "COMPLETED",
+        }, format="json")
+        self.assertEqual(duplicate.status_code, 400, duplicate.data)
+        plan_detail = self.admin_client.get(reverse("lesson-plan-detail", args=[self.plan.id]))
+        self.assertFalse(plan_detail.data["permissions"]["can_record_delivery"])
 
     def test_curriculum_resource_suggestions_and_material_conversion(self):
         subject_resource = CurriculumResource.objects.create(
@@ -419,12 +539,144 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
         material = LessonPlanMaterial.objects.get(pk=added.data["id"])
         self.assertEqual(material.external_url, "https://example.com/algebra")
         self.assertEqual(material.title, subject_resource.title)
+        self.assertEqual(material.source_curriculum_resource, subject_resource)
+        self.assertEqual(material.source_resource_title, subject_resource.title)
+        self.assertEqual(material.source_curriculum_name, self.curriculum.name)
         self.assertTrue(CurriculumResource.objects.filter(pk=subject_resource.id).exists())
-        unsupported = self.owner_client.post(
+        text_added = self.owner_client.post(
             reverse("lesson-plan-add-curriculum-resource", args=[plan.id]),
             {"curriculum_resource": text_resource.id}, format="json",
         )
-        self.assertEqual(unsupported.status_code, 400, unsupported.data)
+        self.assertEqual(text_added.status_code, 201, text_added.data)
+        text_material = LessonPlanMaterial.objects.get(pk=text_added.data["id"])
+        self.assertEqual(text_material.content, "Text only")
+        self.assertFalse(text_material.file)
+        self.assertEqual(text_material.external_url, "")
+
+    def test_curriculum_material_is_an_independent_snapshot_and_source_deletion_is_safe(self):
+        resource = CurriculumResource.objects.create(
+            curriculum_subject=self.curriculum_subject,
+            resource_type="INSTRUCTIONAL_NOTE",
+            title="Original official note",
+            content="Original curriculum content",
+        )
+        added = self.owner_client.post(
+            reverse("lesson-plan-add-curriculum-resource", args=[self.plan.id]),
+            {"curriculum_resource": resource.id}, format="json",
+        )
+        self.assertEqual(added.status_code, 201, added.data)
+        material = LessonPlanMaterial.objects.get(pk=added.data["id"])
+
+        edited = self.owner_client.patch(
+            reverse("lesson-plan-material-detail", args=[material.id]),
+            {"title": "Teacher adaptation", "content": "Teacher-edited content"},
+            format="json",
+        )
+        self.assertEqual(edited.status_code, 200, edited.data)
+        resource.refresh_from_db()
+        self.assertEqual(resource.title, "Original official note")
+        self.assertEqual(resource.content, "Original curriculum content")
+
+        resource.title = "Revised official note"
+        resource.content = "Revised curriculum content"
+        resource.save(update_fields=["title", "content"])
+        material.refresh_from_db()
+        self.assertEqual(material.title, "Teacher adaptation")
+        self.assertEqual(material.content, "Teacher-edited content")
+        self.assertEqual(material.source_resource_title, "Original official note")
+
+        resource.delete()
+        material.refresh_from_db()
+        self.assertIsNone(material.source_curriculum_resource)
+        self.assertEqual(material.source_resource_title, "Original official note")
+
+    def test_curriculum_resource_copy_prevents_provenance_duplicate_but_not_same_title(self):
+        resource = CurriculumResource.objects.create(
+            curriculum_subject=self.curriculum_subject,
+            title="Shared title",
+            content="Official content",
+        )
+        endpoint = reverse("lesson-plan-add-curriculum-resource", args=[self.plan.id])
+        first = self.owner_client.post(endpoint, {"curriculum_resource": resource.id}, format="json")
+        duplicate = self.owner_client.post(endpoint, {"curriculum_resource": resource.id}, format="json")
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(duplicate.status_code, 400, duplicate.data)
+
+        independent = self.owner_client.post(reverse("lesson-plan-material-list"), {
+            "lesson_plan": self.plan.id,
+            "title": "Shared title",
+            "content": "Teacher-authored content",
+        }, format="json")
+        self.assertEqual(independent.status_code, 201, independent.data)
+        self.assertIsNone(independent.data["source_curriculum_resource"])
+
+    def test_file_material_behavior_remains_supported(self):
+        uploaded = SimpleUploadedFile(
+            "worksheet.png",
+            base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ),
+            content_type="image/png",
+        )
+        response = self.owner_client.post(reverse("lesson-plan-material-list"), {
+            "lesson_plan": self.plan.id,
+            "title": "Worksheet",
+            "file": uploaded,
+        }, format="multipart")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(response.data["file"])
+
+    def test_resource_surfacing_uses_canonical_context_without_operational_mappings(self):
+        published, published_entry, _ = self._published_scheme()
+        self.item.published_scheme_entry = published_entry
+        self.item.save(update_fields=["published_scheme_entry"])
+        subject_resource = CurriculumResource.objects.create(
+            curriculum_subject=self.curriculum_subject,
+            title="Canonical subject resource",
+            content="Subject content",
+        )
+        topic_resource = CurriculumResource.objects.create(
+            curriculum_subject=self.curriculum_subject,
+            curriculum_topic=self.curriculum_topic,
+            title="Canonical topic resource",
+            content="Topic content",
+        )
+        entry_resource = CurriculumResource.objects.create(
+            curriculum_subject=self.curriculum_subject,
+            curriculum_topic=self.curriculum_topic,
+            published_scheme_entry=published_entry,
+            title="Published placement resource",
+            content="Entry content",
+        )
+        self.curriculum_subject.subject = None
+        self.curriculum_subject.save(update_fields=["subject"])
+        self.curriculum_topic.topic = None
+        self.curriculum_topic.save(update_fields=["topic"])
+
+        response = self.owner_client.get(
+            reverse("lesson-plan-curriculum-resources", args=[self.plan.id])
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            {item["id"] for item in response.data},
+            {subject_resource.id, topic_resource.id, entry_resource.id},
+        )
+
+    def test_submitted_and_approved_plans_reject_curriculum_material_mutations(self):
+        resource = CurriculumResource.objects.create(
+            curriculum_subject=self.curriculum_subject,
+            title="Locked resource",
+            content="Locked content",
+        )
+        endpoint = reverse("lesson-plan-add-curriculum-resource", args=[self.plan.id])
+        for locked_status in (LessonPlanStatus.SUBMITTED, LessonPlanStatus.APPROVED):
+            with self.subTest(status=locked_status):
+                self.plan.status = locked_status
+                self.plan.save(update_fields=["status"])
+                response = self.owner_client.post(
+                    endpoint, {"curriculum_resource": resource.id}, format="json"
+                )
+                self.assertEqual(response.status_code, 400, response.data)
 
     def test_curriculum_resource_material_respects_plan_lifecycle_and_ownership(self):
         resource = CurriculumResource.objects.create(

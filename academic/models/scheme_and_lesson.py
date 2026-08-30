@@ -390,21 +390,43 @@ class LessonPlanMaterial(models.Model):
     )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    content = models.TextField(
+        blank=True,
+        help_text="Textual lesson material such as notes, examples, or instructions.",
+    )
     file = models.FileField(
         upload_to="lesson_plans/materials/%Y/%m/",
         blank=True,
         null=True,
     )
     external_url = models.URLField(blank=True)
+    source_curriculum_resource = models.ForeignKey(
+        "academic.CurriculumResource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lesson_plan_material_copies",
+    )
+    source_resource_title = models.CharField(max_length=255, blank=True)
+    source_resource_type = models.CharField(max_length=30, blank=True)
+    source_curriculum_name = models.CharField(max_length=255, blank=True)
+    source_curriculum_version = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["title"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lesson_plan", "source_curriculum_resource"],
+                condition=models.Q(source_curriculum_resource__isnull=False),
+                name="unique_curriculum_resource_per_lesson_plan",
+            )
+        ]
 
     def clean(self):
         errors = {}
-        if not self.file and not self.external_url:
-            errors["file"] = "Provide either a file or an external URL."
+        if not self.file and not self.external_url and not (self.content or "").strip():
+            errors["file"] = "Provide a file, external URL, or textual content."
         if self.file and self.external_url:
             errors["external_url"] = "Provide either a file or an external URL, not both."
         if errors:

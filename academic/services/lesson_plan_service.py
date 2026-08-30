@@ -1,4 +1,6 @@
-from academic.models import LessonPlan, LessonPlanStatus, PublishedSchemeEntryType
+from academic.models import (
+    LessonPlan, LessonPlanStatus, PublishedSchemeEntryType, SchemeOfWorkStatus,
+)
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -14,11 +16,24 @@ class LessonPlanService:
     }
 
     @classmethod
-    def require_plannable_entry(cls, scheme_item):
-        if scheme_item.entry_type not in cls.PLANNABLE_ENTRY_TYPES:
-            raise ValidationError(
-                f"{scheme_item.get_entry_type_display()} entries cannot create conventional lesson plans."
+    def planning_eligibility(cls, scheme_item):
+        if scheme_item.scheme.status != SchemeOfWorkStatus.APPROVED:
+            return (
+                False,
+                "Lesson plans can only be created from an approved scheme of work.",
             )
+        if scheme_item.entry_type not in cls.PLANNABLE_ENTRY_TYPES:
+            return (
+                False,
+                f"{scheme_item.get_entry_type_display()} entries cannot create conventional lesson plans.",
+            )
+        return True, ""
+
+    @classmethod
+    def require_plannable_entry(cls, scheme_item):
+        permitted, reason = cls.planning_eligibility(scheme_item)
+        if not permitted:
+            raise ValidationError(reason)
 
     @classmethod
     @transaction.atomic

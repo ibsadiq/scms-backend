@@ -83,13 +83,13 @@ class SchemeOfWorkItemSerializer(serializers.ModelSerializer):
 
     def get_lesson_planning(self, obj):
         from academic.services.lesson_plan_service import LessonPlanService
-        permitted = obj.entry_type in LessonPlanService.PLANNABLE_ENTRY_TYPES
+        permitted, reason = LessonPlanService.planning_eligibility(obj)
         return {
             "permitted": permitted,
+            "can_create_lesson_plan": permitted,
             "multiple_plans_permitted": permitted,
-            "reason": "" if permitted else (
-                f"{obj.get_entry_type_display()} entries do not create conventional lesson plans."
-            ),
+            "reason": reason,
+            "scheme_status": obj.scheme.status,
             "lesson_plan_count": obj.lesson_plans.count(),
         }
 
@@ -279,11 +279,24 @@ class LessonPlanMaterialSerializer(serializers.ModelSerializer):
             "lesson_plan",
             "title",
             "description",
+            "content",
             "file",
             "external_url",
+            "source_curriculum_resource",
+            "source_resource_title",
+            "source_resource_type",
+            "source_curriculum_name",
+            "source_curriculum_version",
             "created_at",
         ]
-        read_only_fields = ["created_at"]
+        read_only_fields = [
+            "source_curriculum_resource",
+            "source_resource_title",
+            "source_resource_type",
+            "source_curriculum_name",
+            "source_curriculum_version",
+            "created_at",
+        ]
 
     def validate(self, attrs):
         from django.core.exceptions import ValidationError as DjangoValidationError
@@ -294,11 +307,13 @@ class LessonPlanMaterialSerializer(serializers.ModelSerializer):
         external_url = attrs.get(
             "external_url", getattr(self.instance, "external_url", "")
         )
+        content = attrs.get("content", getattr(self.instance, "content", ""))
         try:
             LessonPlanMaterialService.validate_material(
                 lesson_plan=lesson_plan,
                 file=file,
                 external_url=external_url,
+                content=content,
             )
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.messages) from exc
@@ -356,6 +371,11 @@ class LessonPlanSerializer(serializers.ModelSerializer):
             "can_submit": can_manage and obj.status == "DRAFT",
             "can_review": can_review and obj.status == "SUBMITTED",
             "can_reopen": can_manage and obj.status == "REJECTED",
+            "can_record_delivery": (
+                can_manage
+                and obj.status == "APPROVED"
+                and not hasattr(obj, "delivery")
+            ),
         }
 
     class Meta:
@@ -480,6 +500,10 @@ class LessonDeliverySerializer(serializers.ModelSerializer):
                 subtopics = self.instance.subtopics_covered.all()
         status_value = attrs.get("status", getattr(self.instance, "status", None))
         try:
+            LessonDeliveryService.require_deliverable(
+                plan,
+                existing_delivery=self.instance,
+            )
             LessonDeliveryService.validate_coverage(
                 lesson_plan=plan,
                 objectives_covered=objectives or [],

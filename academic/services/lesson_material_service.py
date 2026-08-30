@@ -2,6 +2,7 @@ from urllib.parse import urlparse
 
 from academic.models import CurriculumResource, LessonPlanMaterial, LessonPlanStatus
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 
 class LessonPlanMaterialService:
 
@@ -19,7 +20,12 @@ class LessonPlanMaterialService:
             Q(curriculum_subject_id=item.scheme.curriculum_subject_id),
             scope,
             is_active=True,
-        ).select_related("curriculum_topic__topic", "published_scheme_entry", "source").distinct()
+        ).select_related(
+            "curriculum_subject__curriculum",
+            "curriculum_topic",
+            "published_scheme_entry",
+            "source",
+        ).distinct()
 
     @staticmethod
     def _resource_url(resource):
@@ -35,17 +41,36 @@ class LessonPlanMaterialService:
         cls.require_mutable(lesson_plan)
         if not cls.relevant_curriculum_resources(lesson_plan).filter(pk=resource.pk).exists():
             raise ValidationError("This curriculum resource is not relevant to the lesson plan context.")
-        external_url = cls._resource_url(resource)
-        if not external_url:
-            raise ValidationError(
-                "This curriculum resource has no URL and can only be used as a reference suggestion."
-            )
-        return LessonPlanMaterial.objects.create(
+        if LessonPlanMaterial.objects.filter(
             lesson_plan=lesson_plan,
-            title=resource.title,
-            description=resource.content,
-            external_url=external_url,
-        )
+            source_curriculum_resource=resource,
+        ).exists():
+            raise ValidationError("This curriculum resource has already been added to the lesson plan.")
+
+        external_url = cls._resource_url(resource)
+        content = resource.content or ""
+        if not external_url and not content.strip():
+            raise ValidationError("This curriculum resource has no URL or textual content to copy.")
+
+        curriculum = resource.curriculum_subject.curriculum
+        try:
+            with transaction.atomic():
+                return LessonPlanMaterial.objects.create(
+                    lesson_plan=lesson_plan,
+                    title=resource.title,
+                    description=resource.content,
+                    content=content,
+                    external_url=external_url,
+                    source_curriculum_resource=resource,
+                    source_resource_title=resource.title,
+                    source_resource_type=resource.resource_type,
+                    source_curriculum_name=curriculum.name,
+                    source_curriculum_version=curriculum.version,
+                )
+        except IntegrityError as exc:
+            raise ValidationError(
+                "This curriculum resource has already been added to the lesson plan."
+            ) from exc
 
     @staticmethod
     def require_mutable(lesson_plan):
@@ -64,10 +89,11 @@ class LessonPlanMaterialService:
         lesson_plan,
         file=None,
         external_url="",
+        content="",
     ):
-        if not file and not external_url:
+        if not file and not external_url and not str(content or "").strip():
             raise ValidationError(
-                "Provide either a file or external URL."
+                "Provide a file, external URL, or textual content."
             )
 
         if file and external_url:

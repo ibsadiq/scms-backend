@@ -1,7 +1,16 @@
-from academic.models import LessonDeliveryStatus
+from academic.models import LessonDeliveryStatus, LessonPlanStatus
 from django.core.exceptions import ValidationError
 
 class LessonDeliveryService:
+
+    @staticmethod
+    def require_deliverable(lesson_plan, *, existing_delivery=None):
+        if lesson_plan.status != LessonPlanStatus.APPROVED:
+            raise ValidationError(
+                "Delivery can only be recorded for an approved lesson plan."
+            )
+        if existing_delivery is None and hasattr(lesson_plan, "delivery"):
+            raise ValidationError("This lesson plan already has a delivery record.")
 
     @staticmethod
     def validate_coverage(
