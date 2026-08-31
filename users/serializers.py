@@ -202,7 +202,7 @@ class ParentChildSummarySerializer(serializers.Serializer):
     gender = serializers.CharField()
     date_of_birth = serializers.DateField(allow_null=True)
     status = serializers.ChoiceField(choices=("active", "inactive"))
-from academic.models import Teacher, Subject, Parent
+from academic.models import Teacher, Subject, Parent, Student
 from .models import CustomUser, UserInvitation
 from .tokens import tenant_refresh_token_for_user
 
@@ -701,12 +701,18 @@ class ParentSerializer(serializers.ModelSerializer):
     children_details = serializers.SerializerMethodField()
     children = serializers.SerializerMethodField()
     parent_type = serializers.SerializerMethodField()
-    send_invitation = serializers.BooleanField(write_only=True, required=False, default=False)
+
+    send_invitation = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+    )
+
     students = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
         required=False,
-        allow_empty=True
+        allow_empty=True,
     )
 
     class Meta:
@@ -732,25 +738,36 @@ class ParentSerializer(serializers.ModelSerializer):
             "send_invitation",
             "students",
         ]
+        read_only_fields = [
+            "id",
+            "children_details",
+            "children",
+        ]
 
     def get_parent_type(self, obj):
         if obj.parent_type:
             return obj.parent_type
+
         if obj.gender == "Male":
             return "Father"
+
         if obj.gender == "Female":
             return "Mother"
+
         return "Guardian"
 
     def get_children_details(self, obj):
-        """Returns a list of children associated with the parent."""
         return [
             {
                 "id": child.id,
                 "first_name": child.first_name,
                 "last_name": child.last_name,
-                "classroom_name": str(child.classroom) if child.classroom else None,
-                "admission_number": getattr(child, "admission_number", None),
+                "classroom_name": (
+                    str(child.classroom)
+                    if child.classroom
+                    else None
+                ),
+                "admission_number": child.admission_number,
             }
             for child in obj.children.all()
         ]
@@ -759,87 +776,203 @@ class ParentSerializer(serializers.ModelSerializer):
         return self.get_children_details(obj)
 
     def validate_email(self, value):
-        """Ensure email uniqueness among parents."""
-        if Parent.objects.filter(email=value).exists():
+        if not value:
+            return None
+
+        queryset = Parent.objects.filter(
+            email__iexact=value
+        )
+
+        if self.instance:
+            queryset = queryset.exclude(
+                pk=self.instance.pk
+            )
+
+        if queryset.exists():
             raise serializers.ValidationError(
                 "A parent with this email already exists."
             )
+
         return value
 
     def validate_phone_number(self, value):
-        """Ensure phone number uniqueness among parents."""
-        if Parent.objects.filter(phone_number=value).exists():
+        value = value.strip()
+
+        queryset = Parent.objects.filter(
+            phone_number=value
+        )
+
+        if self.instance:
+            queryset = queryset.exclude(
+                pk=self.instance.pk
+            )
+
+        if queryset.exists():
             raise serializers.ValidationError(
                 "A parent with this phone number already exists."
             )
+
         return value
+
+    def validate_students(self, value):
+        if not value:
+            return []
+
+        student_ids = list(dict.fromkeys(value))
+
+        existing_ids = set(
+            Student.objects.filter(
+                id__in=student_ids
+            ).values_list("id", flat=True)
+        )
+
+        missing_ids = [
+            student_id
+            for student_id in student_ids
+            if student_id not in existing_ids
+        ]
+
+        if missing_ids:
+            raise serializers.ValidationError(
+                f"Student(s) not found: {missing_ids}"
+            )
+
+        return student_ids
 
     @transaction.atomic
     def create(self, validated_data):
-        """Creates a Parent and optionally sends invitation."""
-        send_invitation = validated_data.pop("send_invitation", False)
-        student_ids = validated_data.pop("students", None)
+        send_invitation = validated_data.pop(
+            "send_invitation",
+            False,
+        )
+        student_ids = validated_data.pop(
+            "students",
+            None,
+        )
 
-        parent = Parent(**validated_data)
-        parent.save()  # This triggers the model's save() where user is created if not send_invitation
+        parent = Parent.objects.create(
+            **validated_data
+        )
 
-        # Associate students with parent
         if student_ids is not None:
-            from academic.models import Student
-            Student.objects.filter(id__in=student_ids).update(parent_guardian=parent)
+            Student.objects.filter(
+                id__in=student_ids
+            ).update(
+                parent_guardian=parent,
+                parent_contact=parent.phone_number,
+            )
 
-        # If send_invitation is True, create an invitation instead of auto-creating user
         if send_invitation:
-            # Get the invited_by user from context (set by the view)
-            invited_by = self.context.get('request').user if self.context.get('request') else None
+            request = self.context.get("request")
+            invited_by = (
+                request.user
+                if request
+                else None
+            )
 
-            # Create invitation
             invitation = UserInvitation.objects.create(
                 email=parent.email,
                 first_name=parent.first_name,
                 last_name=parent.last_name,
-                role='parent',
+                role="parent",
                 parent_profile_id=parent.id,
-                invited_by=invited_by
+                invited_by=invited_by,
             )
 
-            # Send invitation email
             try:
-                from core.email_utils import send_parent_invitation
+                from core.email_utils import (
+                    send_parent_invitation,
+                )
+
                 send_parent_invitation(invitation)
-            except Exception as e:
-                # Log the error but don't fail the parent creation
-                print(f"Failed to send invitation email: {str(e)}")
+            except Exception:
+                # Replace with logger.exception()
+                # if logging is configured here.
+                pass
 
         return parent
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        """Updates a Parent and syncs changes to the associated CustomUser."""
-        student_ids = validated_data.pop("students", None)
-        email = validated_data.get("email", instance.email)
-        first_name = validated_data.get("first_name", instance.first_name)
-        last_name = validated_data.get("last_name", instance.last_name)
+        student_ids = validated_data.pop(
+            "students",
+            None,
+        )
 
-        # Update Parent
-        parent = super().update(instance, validated_data)
+        old_phone_number = instance.phone_number
 
-        # Update student linkages
-        if student_ids is not None:
-            from academic.models import Student
-            Student.objects.filter(parent_guardian=parent).exclude(id__in=student_ids).update(parent_guardian=None)
-            Student.objects.filter(id__in=student_ids).update(parent_guardian=parent)
+        parent = super().update(
+            instance,
+            validated_data,
+        )
 
-        # If the Parent has an associated CustomUser, update it as well
-        if hasattr(parent, "user") and parent.user:
+        #
+        # Keep linked CustomUser synchronized.
+        #
+        if parent.user_id:
             user = parent.user
-            user.email = email
-            user.first_name = first_name
-            user.last_name = last_name
-            user.save()
+
+            user.email = parent.email
+            user.first_name = parent.first_name or ""
+            user.last_name = parent.last_name or ""
+            user.phone_number = parent.phone_number
+            user.is_parent = True
+
+            user.save(
+                update_fields=[
+                    "email",
+                    "first_name",
+                    "last_name",
+                    "phone_number",
+                    "is_parent",
+                ]
+            )
+
+        #
+        # If the parent's phone number changed,
+        # synchronize existing children.
+        #
+        if (
+            old_phone_number != parent.phone_number
+            and student_ids is None
+        ):
+            Student.objects.filter(
+                parent_guardian=parent
+            ).update(
+                parent_contact=parent.phone_number
+            )
+
+        #
+        # If the frontend explicitly supplied students,
+        # treat it as the desired complete relationship set.
+        #
+        if student_ids is not None:
+            selected_ids = set(student_ids)
+
+            #
+            # Children removed from this parent.
+            #
+            Student.objects.filter(
+                parent_guardian=parent
+            ).exclude(
+                id__in=selected_ids
+            ).update(
+                parent_guardian=None,
+                parent_contact=None,
+            )
+
+            #
+            # Children assigned/retained for this parent.
+            #
+            if selected_ids:
+                Student.objects.filter(
+                    id__in=selected_ids
+                ).update(
+                    parent_guardian=parent,
+                    parent_contact=parent.phone_number,
+                )
 
         return parent
-
 
 class UserInvitationSerializer(serializers.ModelSerializer):
     invited_by_name = serializers.SerializerMethodField(read_only=True)

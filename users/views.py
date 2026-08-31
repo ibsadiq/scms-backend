@@ -405,51 +405,75 @@ class ParentListView(generics.ListCreateAPIView):
             self.get_serializer(parent).data, status=status.HTTP_201_CREATED
         )
 
-
 class ParentDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = ParentSerializer
 
     def get_object(self, pk):
-        return get_object_or_404(Parent, pk=pk)
+        return get_object_or_404(
+            Parent.objects.prefetch_related(
+                "children",
+                "children__classroom",
+            ),
+            pk=pk,
+        )
 
     def get(self, request, pk, format=None):
         parent = self.get_object(pk)
-        serializer = ParentSerializer(parent)
+
+        serializer = self.serializer_class(
+            parent,
+            context={
+                "request": request,
+            },
+        )
+
         return Response(serializer.data)
 
     def put(self, request, pk, format=None):
         parent = self.get_object(pk)
-        serializer = ParentSerializer(parent, data=request.data, partial=True)
-        if serializer.is_valid():
-            updated_parent = serializer.save()
 
-            # Update the linked CustomUser when parent details change
-            email = updated_parent.email
-            first_name = updated_parent.first_name
-            last_name = updated_parent.last_name
+        serializer = self.serializer_class(
+            parent,
+            data=request.data,
+            partial=True,
+            context={
+                "request": request,
+            },
+        )
 
-            try:
-                user = User.objects.get(email=parent.email)
-                user.email = email
-                user.first_name = first_name
-                user.last_name = last_name
-                user.save()
-            except User.DoesNotExist:
-                pass  # If user does not exist, no update is needed
+        serializer.is_valid(
+            raise_exception=True
+        )
 
-            return Response(ParentSerializer(updated_parent).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        updated_parent = serializer.save()
+
+        response_serializer = self.serializer_class(
+            updated_parent,
+            context={
+                "request": request,
+            },
+        )
+
+        return Response(
+            response_serializer.data,
+            status=status.HTTP_200_OK,
+        )
 
     def patch(self, request, pk, format=None):
-        return self.put(request, pk, format=format)
+        return self.put(
+            request,
+            pk,
+            format=format,
+        )
 
     def delete(self, request, pk, format=None):
         parent = self.get_object(pk)
         parent.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
-
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
 # Teacher Views
 class TeacherListView(generics.ListCreateAPIView):
     queryset = Teacher.objects.all()

@@ -250,11 +250,6 @@ class Student(models.Model):
                     )
                 )
 
-        if not self.parent_contact:
-            raise ValidationError(
-                "Parent contact is required."
-            )
-
         self.first_name = (
             self.first_name.lower()
             if self.first_name
