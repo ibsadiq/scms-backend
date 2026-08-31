@@ -15,6 +15,7 @@ from .choices import (
     QuestionDifficulty,
     QuestionStatus,
 )
+from .immutability import ensure_question_version_mutable, VersionContentImmutabilityMixin
 
 
 class QuestionBank(models.Model):
@@ -233,6 +234,15 @@ class QuestionVersion(models.Model):
     def __str__(self):
         return f"Question {self.question_id} v{self.version}"
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            ensure_question_version_mutable(self.pk)
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        ensure_question_version_mutable(self.pk)
+        return super().delete(*args, **kwargs)
+
 class QuestionLearningObjective(models.Model):
     question_version = models.ForeignKey(
         QuestionVersion,
@@ -326,7 +336,7 @@ class QuestionReview(models.Model):
             f"{self.get_decision_display()}"
         )
 
-class QuestionAttachment(models.Model):
+class QuestionAttachment(VersionContentImmutabilityMixin, models.Model):
     question_version = models.ForeignKey(
         QuestionVersion,
         on_delete=models.CASCADE,
@@ -351,3 +361,6 @@ class QuestionAttachment(models.Model):
 
     def __str__(self):
         return f"Attachment for {self.question_version}"
+
+    def get_question_version_id(self):
+        return self.question_version_id

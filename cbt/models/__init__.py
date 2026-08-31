@@ -42,6 +42,7 @@ from .attempt import (
     ExamAttempt,
     AttemptQuestion,
     AttemptQuestionOption,
+    AttemptMatchingItem,
 )
 
 from .responses import (

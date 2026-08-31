@@ -1,5 +1,8 @@
 import openpyxl
+import re
 from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import views
 from rest_framework.views import APIView
@@ -14,6 +17,7 @@ from academic.models import Student, ClassRoom, Parent
 from academic.permissions import IsSchoolAdmin
 from academic.services.academic_authority_service import AcademicAuthorityService
 from academic.services.student_creation_service import StudentCreationService
+from academic.services.parent_identity_service import ParentIdentityService
 from .access import student_queryset_for_user
 from .filters import StudentFilter
 from .permissions import SISStudentPermission
@@ -179,7 +183,7 @@ class BulkUploadStudentsView(APIView):
             )
 
         try:
-            workbook = openpyxl.load_workbook(file)
+            workbook = openpyxl.load_workbook(file, data_only=True)
             sheet = workbook.active
 
             columns = [
@@ -195,7 +199,18 @@ class BulkUploadStudentsView(APIView):
                 "gender",
             ]
 
-            students_to_create = []
+            actual_columns = [cell.value for cell in sheet[1]][:len(columns)]
+            if actual_columns != columns:
+                return Response(
+                    {
+                        "error": "Invalid Students worksheet columns.",
+                        "expected_columns": columns,
+                        "actual_columns": actual_columns,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            rows_to_create = []
             not_created = []
             created_students = []
             updated_students_info = []
@@ -204,58 +219,98 @@ class BulkUploadStudentsView(APIView):
             for i, row in enumerate(
                 sheet.iter_rows(min_row=2, values_only=True), start=2
             ):
-                student_data = dict(zip(columns, row))
+                student_data = dict(zip(columns, row[:len(columns)]))
+                if not any(value not in (None, "") for value in student_data.values()):
+                    continue
 
-                # Normalize names
-                first_name = (student_data.get("first_name") or "").lower()
-                middle_name = (student_data.get("middle_name") or "").lower()
-                last_name = (student_data.get("last_name") or "").lower()
-                parent_contact = student_data.get("parent_contact")
+                cleaned = {
+                    key: value.strip() if isinstance(value, str) else value
+                    for key, value in student_data.items()
+                }
+                errors = []
+                for field in ("first_name", "last_name", "parent_email", "parent_first_name", "parent_last_name"):
+                    if not cleaned.get(field):
+                        errors.append(f"{field} is required")
 
-                try:
-                    # Prepare new student via canonical service
-                    classroom_id = student_data.get("classroom_id")
-                    if not classroom_id:
-                        raise ValueError("classroom_id is required")
+                email = cleaned.get("parent_email")
+                if email:
+                    try:
+                        validate_email(email)
+                    except DjangoValidationError:
+                        errors.append("parent_email must contain one valid email address")
 
-                    classroom = ClassRoom.objects.get(pk=classroom_id)
+                contact = ParentIdentityService.normalize_phone(cleaned.get("parent_contact"))
+                if not contact or not re.fullmatch(r"\+[1-9]\d{9,14}", contact):
+                    errors.append("parent_contact must be a valid phone number, not an address")
+                else:
+                    cleaned["parent_contact"] = contact
 
-                    # Transaction boundary per row managed by create_student atomic block
-                    student = StudentCreationService.create_student(
-                        classroom=classroom,
-                        first_name=first_name.title(),
-                        last_name=last_name.title(),
-                        parent_phone=parent_contact,
-                        parent_email=student_data.get("parent_email"),
-                        middle_name=middle_name.title(),
-                        gender=student_data.get("gender"),
-                        religion=student_data.get("religion"),
-                        parent_first_name=student_data.get("parent_first_name"),
-                        parent_last_name=student_data.get("parent_last_name"),
-                    )
+                classroom = None
+                classroom_id = cleaned.get("classroom_id")
+                if not classroom_id:
+                    errors.append("classroom_id is required")
+                else:
+                    try:
+                        classroom = ClassRoom.objects.get(pk=classroom_id)
+                    except (ClassRoom.DoesNotExist, TypeError, ValueError):
+                        errors.append(f"classroom_id {classroom_id!r} does not exist")
 
-                    created_students.append(student)
+                gender = str(cleaned.get("gender") or "").title()
+                religion = str(cleaned.get("religion") or "").title()
+                if gender and gender not in {"Male", "Female", "Other"}:
+                    errors.append("gender must be Male, Female, or Other")
+                if religion and religion not in {"Islam", "Christian", "Other"}:
+                    errors.append("religion must be Islam, Christian, or Other")
+                cleaned["gender"] = gender or None
+                cleaned["religion"] = religion or None
 
-                    # Manage siblings
-                    if parent_contact:
-                        existing_sibling = Student.objects.filter(
-                            parent_contact=parent_contact
-                        ).exclude(id=student.id).first()
+                if errors:
+                    not_created.append({"row": i, **student_data, "errors": errors})
+                else:
+                    cleaned["row"] = i
+                    cleaned["classroom"] = classroom
+                    rows_to_create.append(cleaned)
 
-                        if existing_sibling and not student.siblings.filter(id=existing_sibling.id).exists():
-                            student.siblings.add(existing_sibling)
-                            existing_sibling.siblings.add(student)
-                            updated_students_info.append(
-                                {
-                                    "admission_number": student.admission_number,
-                                    "full_name": f"{student.first_name} {student.last_name}",
-                                    "reasons": ["sibling added"],
-                                }
-                            )
+            if not_created:
+                return Response(
+                    {
+                        "error": "No students were imported. Correct every invalid row and upload again.",
+                        "not_created": not_created,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not rows_to_create:
+                return Response(
+                    {"error": "No student data rows were found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-                except Exception as e:
-                    student_data["error"] = str(e)
-                    not_created.append(student_data)
+            try:
+                with transaction.atomic():
+                    for student_data in rows_to_create:
+                        student = StudentCreationService.create_student(
+                            classroom=student_data["classroom"],
+                            first_name=student_data["first_name"].title(),
+                            last_name=student_data["last_name"].title(),
+                            parent_phone=student_data["parent_contact"],
+                            parent_email=student_data["parent_email"].lower(),
+                            middle_name=(student_data.get("middle_name") or "").title(),
+                            gender=student_data.get("gender"),
+                            religion=student_data.get("religion"),
+                            parent_first_name=student_data["parent_first_name"].title(),
+                            parent_last_name=student_data["parent_last_name"].title(),
+                            actor=request.user,
+                        )
+                        created_students.append(student)
+            except Exception as exc:
+                return Response(
+                    {
+                        "error": "No students were imported because the batch could not be completed.",
+                        "failed_row": student_data.get("row"),
+                        "detail": str(exc),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             return Response(
                 {

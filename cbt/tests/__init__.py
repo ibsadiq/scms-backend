@@ -4,6 +4,10 @@ from .test_api_student_attempt import StudentAttemptAPITests
 from .test_api_answers import AnswerAPITests
 from .test_api_grading_and_posting import GradingAndPostingAPITests
 from .test_api_security import CBTSecurityAPITests
+from .test_phase1_hardening import (
+    PhaseOneQuestionDeliveryTests,
+    PhaseOneLifecycleAndScopeTests,
+)
 
 __all__ = [
     "QuestionBankAPITests",
@@ -12,4 +16,6 @@ __all__ = [
     "AnswerAPITests",
     "GradingAndPostingAPITests",
     "CBTSecurityAPITests",
+    "PhaseOneQuestionDeliveryTests",
+    "PhaseOneLifecycleAndScopeTests",
 ]

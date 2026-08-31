@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -30,6 +32,9 @@ from cbt.services import (
     StudentAnswerService,
     AttemptGradingService,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class StudentExamViewSet(viewsets.ReadOnlyModelViewSet):
@@ -117,9 +122,19 @@ class StudentAttemptViewSet(viewsets.ReadOnlyModelViewSet):
             # Trigger automatic grading for objective questions
             try:
                 AttemptGradingService.grade_attempt(attempt=attempt)
-            except Exception:
-                # Automatic grading failure should not block submission recording
-                pass
+            except Exception as exc:
+                logger.exception("CBT grading failed for attempt %s", attempt.pk)
+                AttemptGradingService.record_failure(attempt=attempt, error=exc)
+                return Response(
+                    {
+                        "detail": (
+                            "The exam was submitted, but grading could not be completed. "
+                            "School staff have been notified."
+                        ),
+                        "grading_status": "FAILED",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             serializer = ExamAttemptSerializer(attempt, context={"request": request})
             return Response(

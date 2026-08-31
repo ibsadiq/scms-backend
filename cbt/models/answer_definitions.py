@@ -4,9 +4,10 @@ from django.db import models
 from django.core.exceptions import ValidationError
 
 from .question_bank import QuestionVersion
+from .immutability import VersionContentImmutabilityMixin
 
 
-class QuestionOption(models.Model):
+class QuestionOption(VersionContentImmutabilityMixin, models.Model):
     question_version = models.ForeignKey(
         QuestionVersion,
         on_delete=models.CASCADE,
@@ -33,7 +34,10 @@ class QuestionOption(models.Model):
     def __str__(self):
         return f"Option {self.order} - Q{self.question_version.question_id}"
 
-class ShortAnswerDefinition(models.Model):
+    def get_question_version_id(self):
+        return self.question_version_id
+
+class ShortAnswerDefinition(VersionContentImmutabilityMixin, models.Model):
     question_version = models.OneToOneField(
         "QuestionVersion",
         on_delete=models.CASCADE,
@@ -46,7 +50,10 @@ class ShortAnswerDefinition(models.Model):
     def __str__(self):
         return f"Short answer config - {self.question_version}"
 
-class ShortAnswerVariant(models.Model):
+    def get_question_version_id(self):
+        return self.question_version_id
+
+class ShortAnswerVariant(VersionContentImmutabilityMixin, models.Model):
     definition = models.ForeignKey(
         ShortAnswerDefinition,
         on_delete=models.CASCADE,
@@ -66,7 +73,10 @@ class ShortAnswerVariant(models.Model):
     def __str__(self):
         return self.answer
 
-class NumericAnswerDefinition(models.Model):
+    def get_question_version_id(self):
+        return self.definition.question_version_id
+
+class NumericAnswerDefinition(VersionContentImmutabilityMixin, models.Model):
     question_version = models.OneToOneField(
         "QuestionVersion",
         on_delete=models.CASCADE,
@@ -96,7 +106,10 @@ class NumericAnswerDefinition(models.Model):
     def __str__(self):
         return f"{self.expected_value} ± {self.tolerance}"
 
-class FillBlankDefinition(models.Model):
+    def get_question_version_id(self):
+        return self.question_version_id
+
+class FillBlankDefinition(VersionContentImmutabilityMixin, models.Model):
     question_version = models.OneToOneField(
         "QuestionVersion",
         on_delete=models.CASCADE,
@@ -108,7 +121,10 @@ class FillBlankDefinition(models.Model):
     def __str__(self):
         return f"Fill blank config - {self.question_version}"
 
-class FillBlankItem(models.Model):
+    def get_question_version_id(self):
+        return self.question_version_id
+
+class FillBlankItem(VersionContentImmutabilityMixin, models.Model):
     definition = models.ForeignKey(
         FillBlankDefinition,
         on_delete=models.CASCADE,
@@ -126,7 +142,10 @@ class FillBlankItem(models.Model):
             )
         ]
 
-class FillBlankAcceptedAnswer(models.Model):
+    def get_question_version_id(self):
+        return self.definition.question_version_id
+
+class FillBlankAcceptedAnswer(VersionContentImmutabilityMixin, models.Model):
     blank = models.ForeignKey(
         FillBlankItem,
         on_delete=models.CASCADE,
@@ -143,7 +162,10 @@ class FillBlankAcceptedAnswer(models.Model):
             )
         ]
 
-class EssayDefinition(models.Model):
+    def get_question_version_id(self):
+        return self.blank.definition.question_version_id
+
+class EssayDefinition(VersionContentImmutabilityMixin, models.Model):
     question_version = models.OneToOneField(
         "QuestionVersion",
         on_delete=models.CASCADE,
@@ -179,7 +201,10 @@ class EssayDefinition(models.Model):
 
         super().clean()
 
-class MatchingDefinition(models.Model):
+    def get_question_version_id(self):
+        return self.question_version_id
+
+class MatchingDefinition(VersionContentImmutabilityMixin, models.Model):
     question_version = models.OneToOneField(
         "QuestionVersion",
         on_delete=models.CASCADE,
@@ -188,7 +213,10 @@ class MatchingDefinition(models.Model):
 
     shuffle_right_items = models.BooleanField(default=True)
 
-class MatchingPair(models.Model):
+    def get_question_version_id(self):
+        return self.question_version_id
+
+class MatchingPair(VersionContentImmutabilityMixin, models.Model):
     definition = models.ForeignKey(
         MatchingDefinition,
         on_delete=models.CASCADE,
@@ -207,3 +235,6 @@ class MatchingPair(models.Model):
                 name="unique_matching_pair_order",
             )
         ]
+
+    def get_question_version_id(self):
+        return self.definition.question_version_id

@@ -12,6 +12,12 @@ from academic.services.academic_authority_service import AcademicAuthorityServic
 class CBTExamService:
 
     @staticmethod
+    def lock_for_generic_mutation(*, exam):
+        locked_exam = CBTExam.objects.select_for_update().get(pk=exam.pk)
+        CBTExamService.ensure_not_published(locked_exam)
+        return locked_exam
+
+    @staticmethod
     @transaction.atomic
     def publish(*, exam, actor):
         if not actor:

@@ -5,6 +5,7 @@ from cbt.models import (
     ExamAttempt,
     AttemptQuestion,
     AttemptQuestionOption,
+    AttemptMatchingItem,
     StudentAnswer,
     QuestionType,
 )
@@ -35,7 +36,7 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
     NEVER includes answer keys or grading rubrics!
     """
     question_type = serializers.CharField(
-        source="exam_question.question_version.question.question_type", read_only=True
+        source="exam_question.question_version.question_type", read_only=True
     )
     question_text = serializers.CharField(
         source="exam_question.question_version.text", read_only=True
@@ -74,27 +75,35 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
 
     def get_blank_items(self, obj):
         version = obj.exam_question.question_version
-        if version.question.question_type == QuestionType.FILL_BLANK:
+        if version.question_type == QuestionType.FILL_BLANK:
             if hasattr(version, "fill_blank_definition"):
-                items = version.fill_blank_definition.items.order_by("position")
+                items = version.fill_blank_definition.blanks.order_by("position")
                 return [{"id": item.id, "position": item.position} for item in items]
         return []
 
     def get_matching_items(self, obj):
         version = obj.exam_question.question_version
-        if version.question.question_type == QuestionType.MATCHING:
-            if hasattr(version, "matching_definition"):
-                pairs = list(version.matching_definition.pairs.all())
-                left_items = [
-                    {"id": p.id, "text": p.left_text, "order": p.order}
-                    for p in sorted(pairs, key=lambda x: x.order)
-                ]
-                # Right items shuffled/ordered without revealing matching pair
-                right_items = [
-                    {"id": p.id, "text": p.right_text}
-                    for p in sorted(pairs, key=lambda x: x.right_text)
-                ]
-                return {"left_items": left_items, "right_items": right_items}
+        if version.question_type == QuestionType.MATCHING:
+            items = obj.matching_item_order.select_related("matching_pair")
+            left_items = [
+                {
+                    "id": str(item.public_id),
+                    "text": item.matching_pair.left_text,
+                    "order": item.display_order,
+                }
+                for item in items.filter(side=AttemptMatchingItem.Side.LEFT)
+                .order_by("display_order")
+            ]
+            right_items = [
+                {
+                    "id": str(item.public_id),
+                    "text": item.matching_pair.right_text,
+                    "order": item.display_order,
+                }
+                for item in items.filter(side=AttemptMatchingItem.Side.RIGHT)
+                .order_by("display_order")
+            ]
+            return {"left_items": left_items, "right_items": right_items}
         return None
 
     def get_student_response(self, obj):
@@ -102,7 +111,7 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
             return None
 
         answer = obj.answer
-        q_type = obj.exam_question.question_version.question.question_type
+        q_type = obj.exam_question.question_version.question_type
 
         if q_type in {QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE, QuestionType.TRUE_FALSE}:
             selected_ids = list(
@@ -126,8 +135,19 @@ class AttemptQuestionSerializer(serializers.ModelSerializer):
             return {"responses": responses}
 
         elif q_type == QuestionType.MATCHING:
+            presentation = obj.matching_item_order.all()
+            left_ids = {
+                item.matching_pair_id: str(item.public_id)
+                for item in presentation
+                if item.side == AttemptMatchingItem.Side.LEFT
+            }
+            right_ids = {
+                item.matching_pair_id: str(item.public_id)
+                for item in presentation
+                if item.side == AttemptMatchingItem.Side.RIGHT
+            }
             matches = {
-                str(m.left_pair_id): m.selected_right_pair_id
+                left_ids[m.left_pair_id]: right_ids[m.selected_right_pair_id]
                 for m in answer.matching_responses.all()
             }
             return {"matches": matches}
@@ -202,6 +222,7 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
             "answer__selected_options",
             "answer__blank_responses",
             "answer__matching_responses",
+            "matching_item_order__matching_pair",
         ).order_by("display_order")
         return AttemptQuestionSerializer(questions, many=True).data
 

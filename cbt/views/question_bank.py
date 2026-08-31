@@ -2,10 +2,11 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied
 from django.shortcuts import get_object_or_404
 
-from academic.models import Subject, LearningObjective, AcademicWorkflow
+from academic.models import Subject, LearningObjective, AcademicWorkflow, AllocatedSubject
 from academic.services.academic_authority_service import AcademicAuthorityService
 from cbt.models import (
     QuestionBank,
@@ -26,7 +27,7 @@ from cbt.permissions import (
     CanManageQuestionBank,
     CanReviewQuestion,
 )
-from cbt.services import QuestionBankService
+from cbt.services import QuestionBankService, CBTActorService
 
 
 class QuestionBankViewSet(viewsets.ModelViewSet):
@@ -39,6 +40,28 @@ class QuestionBankViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        user = self.request.user
+        if not AcademicAuthorityService.is_school_admin(user):
+            try:
+                teacher = CBTActorService.resolve_teacher(user)
+            except DjangoValidationError:
+                return qs.none()
+            allocated_subjects = set(
+                AllocatedSubject.objects.filter(teacher_name=teacher)
+                .values_list("subject_id", flat=True)
+            )
+            allowed_ids = [
+                bank.id for bank in qs
+                if bank.created_by_id == teacher.id
+                or bank.subject_id in allocated_subjects
+                or AcademicAuthorityService.can_approve(
+                    actor=user,
+                    workflow=AcademicWorkflow.QUESTION_BANK,
+                    subject=bank.subject,
+                    creator=bank.created_by,
+                )
+            ]
+            qs = qs.filter(id__in=allowed_ids)
         subject_id = self.request.query_params.get("subject")
         if subject_id:
             qs = qs.filter(subject_id=subject_id)
@@ -72,6 +95,28 @@ class QuestionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
+
+        if not AcademicAuthorityService.is_school_admin(user):
+            try:
+                teacher = CBTActorService.resolve_teacher(user)
+            except DjangoValidationError:
+                return qs.none()
+            allocated_subjects = set(
+                AllocatedSubject.objects.filter(teacher_name=teacher)
+                .values_list("subject_id", flat=True)
+            )
+            allowed_ids = [
+                question.id for question in qs
+                if question.created_by_id == teacher.id
+                or question.subject_id in allocated_subjects
+                or AcademicAuthorityService.can_approve(
+                    actor=user,
+                    workflow=AcademicWorkflow.QUESTION_BANK,
+                    subject=question.subject,
+                    creator=question.created_by,
+                )
+            ]
+            qs = qs.filter(id__in=allowed_ids)
 
         # Filters
         subject_id = self.request.query_params.get("subject")
@@ -269,3 +314,47 @@ class QuestionAttachmentViewSet(viewsets.ModelViewSet):
     queryset = QuestionAttachment.objects.all().select_related("question_version")
     serializer_class = QuestionAttachmentSerializer
     permission_classes = [IsAuthenticated, CanManageQuestionBank]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if AcademicAuthorityService.is_school_admin(user):
+            return qs
+        try:
+            teacher = CBTActorService.resolve_teacher(user)
+        except DjangoValidationError:
+            return qs.none()
+        allocated_subjects = set(AllocatedSubject.objects.filter(
+            teacher_name=teacher
+        ).values_list("subject_id", flat=True))
+        allowed_ids = [
+            attachment.id for attachment in qs
+            if attachment.question_version.question.created_by_id == teacher.id
+            or attachment.question_version.question.subject_id in allocated_subjects
+            or AcademicAuthorityService.can_approve(
+                actor=user,
+                workflow=AcademicWorkflow.QUESTION_BANK,
+                subject=attachment.question_version.question.subject,
+                creator=attachment.question_version.question.created_by,
+            )
+        ]
+        return qs.filter(id__in=allowed_ids)
+
+    @staticmethod
+    def _save_or_raise(serializer):
+        try:
+            return serializer.save()
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages)
+
+    def perform_create(self, serializer):
+        self._save_or_raise(serializer)
+
+    def perform_update(self, serializer):
+        self._save_or_raise(serializer)
+
+    def perform_destroy(self, instance):
+        try:
+            instance.delete()
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages)

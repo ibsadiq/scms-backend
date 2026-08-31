@@ -70,7 +70,7 @@ class ExamBlueprintSerializer(serializers.ModelSerializer):
 
 class ExamQuestionManagementSerializer(serializers.ModelSerializer):
     question_type = serializers.CharField(
-        source="question_version.question.question_type", read_only=True
+        source="question_version.question_type", read_only=True
     )
     question_text = serializers.CharField(
         source="question_version.text", read_only=True

@@ -697,20 +697,32 @@ class StudentClassEnrollment(models.Model):
 
     @transaction.atomic
     def delete(self, *args, **kwargs):
-        enrollment = StudentClassEnrollment.objects.select_for_update().get(pk=self.pk)
-        student = Student.objects.select_for_update().get(pk=enrollment.student_id)
-        if enrollment.is_active:
-            classroom = ClassRoom.objects.select_for_update().get(pk=enrollment.classroom_id)
-            if classroom.occupied_sits <= 0:
-                raise ValidationError("Cannot have negative occupied sits.")
-            classroom.occupied_sits -= 1
-            classroom.save(update_fields=("occupied_sits",))
-        if enrollment.academic_year.active_year and student.classroom_id == enrollment.classroom_id:
-            Student.objects.filter(pk=student.pk).update(classroom=None)
+        # Allow standard deletion to proceed. Occupancy updates are now handled by the post_delete signal below.
         return super().delete(*args, **kwargs)
 
-    def delete_queryset(self, request, queryset):
-        with transaction.atomic():
-            for instance in queryset:
-                instance.update_class_table(increment=False)
-            queryset.delete()
+
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+from django.db.models import F
+
+@receiver(post_delete, sender=StudentClassEnrollment)
+def handle_student_enrollment_delete(sender, instance, **kwargs):
+    """
+    Handle classroom occupancy updates when an enrollment is deleted.
+    Using a post_delete signal ensures this logic is executed even during cascade deletions.
+    """
+    with transaction.atomic():
+        # Decrement class capacity if the enrollment was active
+        if instance.is_active and instance.classroom_id:
+            ClassRoom.objects.filter(
+                pk=instance.classroom_id, 
+                occupied_sits__gt=0
+            ).update(occupied_sits=F('occupied_sits') - 1)
+        
+        # If the student's current classroom was tied to this enrollment in the active academic year, clear it
+        if getattr(instance, 'academic_year', None) and getattr(instance.academic_year, 'active_year', False):
+            if instance.student_id:
+                Student.objects.filter(
+                    pk=instance.student_id, 
+                    classroom_id=instance.classroom_id
+                ).update(classroom=None)

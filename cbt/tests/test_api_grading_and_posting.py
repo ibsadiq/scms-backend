@@ -12,6 +12,7 @@ from cbt.models import (
     AttemptGrade,
 )
 from cbt.tests.base import CBTAPITestBase
+from examination.models import AssessmentEntry
 
 
 class GradingAndPostingAPITests(CBTAPITestBase):
@@ -91,6 +92,10 @@ class GradingAndPostingAPITests(CBTAPITestBase):
         # 4. Teacher posts result
         res_post = self.client.post(f"/api/cbt/attempt-grades/{grade.id}/post-result/")
         self.assertEqual(res_post.status_code, status.HTTP_200_OK)
+        entry = AssessmentEntry.objects.get(pk=res_post.data["assessment_entry_id"])
+        self.assertEqual(entry.source_reference, f"cbt-attempt:{attempt_id}")
+        repeated = self.client.post(f"/api/cbt/attempt-grades/{grade.id}/post-result/")
+        self.assertEqual(repeated.data["assessment_entry_id"], entry.id)
         grade.refresh_from_db()
         self.assertIsNotNone(grade.posted_at)
 

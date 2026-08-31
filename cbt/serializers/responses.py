@@ -18,12 +18,12 @@ class AnswerSaveSerializer(serializers.Serializer):
         child=serializers.CharField(allow_blank=True), required=False
     )
     matches = serializers.DictField(
-        child=serializers.IntegerField(), required=False
+        child=serializers.UUIDField(), required=False
     )
 
     def save_answer(self, attempt_question):
         version = attempt_question.exam_question.question_version
-        q_type = version.question.question_type
+        q_type = version.question_type
 
         try:
             if q_type in {QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE, QuestionType.TRUE_FALSE}:

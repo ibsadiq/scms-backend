@@ -233,6 +233,32 @@ class ReportCardGenerator:
 
         attendance_stats = self._get_attendance_stats()
 
+        from examination.models import BehavioralDomain
+        behavioral_ratings = list(term_result.behavioral_ratings.select_related('trait').order_by('trait__order', 'trait__name'))
+        
+        affective_traits = []
+        psychomotor_traits = []
+        for br in behavioral_ratings:
+            if not br.trait.is_active:
+                # Based on Step 9: Historical Integrity, inactive traits with stored ratings MUST still render.
+                pass
+            item = {
+                'name': br.trait.name,
+                'rating': br.rating
+            }
+            if br.trait.domain == BehavioralDomain.AFFECTIVE:
+                affective_traits.append(item)
+            elif br.trait.domain == BehavioralDomain.PSYCHOMOTOR:
+                psychomotor_traits.append(item)
+                
+        behavioral_rating_legend = [
+            {'value': 5, 'label': 'Excellent'},
+            {'value': 4, 'label': 'Very Good'},
+            {'value': 3, 'label': 'Good'},
+            {'value': 2, 'label': 'Fair'},
+            {'value': 1, 'label': 'Poor'}
+        ]
+
         context = {
             'school': school_info,
             'student': student,
@@ -260,6 +286,9 @@ class ReportCardGenerator:
             'admin_remark': term_result.principal_remarks or 'No remarks provided',
             'grade_legend': grade_legend,
             'attendance': attendance_stats,
+            'affective_traits': affective_traits,
+            'psychomotor_traits': psychomotor_traits,
+            'behavioral_rating_legend': behavioral_rating_legend,
             'computed_date': term_result.computed_date,
             'published_date': term_result.published_date,
             'generated_date': timezone.now(),

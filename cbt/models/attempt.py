@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.core.exceptions import ValidationError
 
@@ -5,7 +7,7 @@ from academic.models import Student, StudentClassEnrollment
 
 from .choices import ExamAttemptStatus
 from .exam import CBTExam, ExamQuestion
-from .answer_definitions import QuestionOption
+from .answer_definitions import QuestionOption, MatchingPair
 
 
 class ExamAttempt(models.Model):
@@ -257,5 +259,38 @@ class AttemptQuestionOption(models.Model):
                     "display_order",
                 ],
                 name="unique_attempt_option_display_order",
+            ),
+        ]
+
+
+class AttemptMatchingItem(models.Model):
+    class Side(models.TextChoices):
+        LEFT = "LEFT", "Left"
+        RIGHT = "RIGHT", "Right"
+
+    attempt_question = models.ForeignKey(
+        AttemptQuestion,
+        on_delete=models.CASCADE,
+        related_name="matching_item_order",
+    )
+    matching_pair = models.ForeignKey(
+        MatchingPair,
+        on_delete=models.PROTECT,
+        related_name="attempt_presentations",
+    )
+    side = models.CharField(max_length=5, choices=Side.choices)
+    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    display_order = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["side", "display_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["attempt_question", "matching_pair", "side"],
+                name="unique_matching_item_side_per_attempt_question",
+            ),
+            models.UniqueConstraint(
+                fields=["attempt_question", "side", "display_order"],
+                name="unique_matching_item_order_per_side",
             ),
         ]

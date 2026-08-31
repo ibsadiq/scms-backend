@@ -260,6 +260,60 @@
             margin-top: 2px;
         }
 
+        /* ── Behavioral Ratings Tables ───────────────────────────── */
+        .behavioral-tables-container {
+            width: 100%;
+            display: table;
+            margin-bottom: 8px;
+            table-layout: fixed;
+        }
+
+        .behavioral-domain-col {
+            display: table-cell;
+            vertical-align: top;
+            width: 50%;
+            padding-right: 4px;
+        }
+        .behavioral-domain-col:last-child {
+            padding-right: 0;
+            padding-left: 4px;
+        }
+
+        .behavioral-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7.5pt;
+            border: 1px solid #0f172a;
+        }
+        
+        .behavioral-title {
+            font-weight: 800;
+            font-size: 8pt;
+            text-transform: uppercase;
+            text-align: center;
+            background-color: #e2e8f0;
+            border-bottom: 1px solid #0f172a;
+            padding: 3px;
+        }
+
+        .behavioral-table th {
+            background-color: #f8fafc;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+            padding: 2px;
+            text-align: center;
+            font-weight: 700;
+        }
+        .behavioral-table .trait-name {
+            text-align: left;
+            width: 50%;
+        }
+        .behavioral-table td {
+            border: 1px solid #cbd5e1;
+            padding: 2px;
+            text-align: center;
+        }
+
         /* ── Signatures & Stamp ─────────────────────────────────── */
         .signature-table {
             width: 100%;
@@ -450,6 +504,58 @@
                 </td>
             </tr>
         </table>
+
+        <!-- Behavioral Domains Grid -->
+        {% if affective_traits or psychomotor_traits %}
+        <div class="behavioral-tables-container">
+            <div class="behavioral-domain-col">
+                <table class="behavioral-table">
+                    <tr>
+                        <td colspan="6" class="behavioral-title">AFFECTIVE DOMAIN</td>
+                    </tr>
+                    <tr>
+                        <th class="trait-name">TRAITS</th>
+                        <th>5</th><th>4</th><th>3</th><th>2</th><th>1</th>
+                    </tr>
+                    {% for item in affective_traits %}
+                    <tr>
+                        <td class="trait-name">{{ item.name }}</td>
+                        <td>{% if item.rating == 5 %}X{% endif %}</td>
+                        <td>{% if item.rating == 4 %}X{% endif %}</td>
+                        <td>{% if item.rating == 3 %}X{% endif %}</td>
+                        <td>{% if item.rating == 2 %}X{% endif %}</td>
+                        <td>{% if item.rating == 1 %}X{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6">No ratings</td></tr>
+                    {% endfor %}
+                </table>
+            </div>
+            <div class="behavioral-domain-col">
+                <table class="behavioral-table">
+                    <tr>
+                        <td colspan="6" class="behavioral-title">PSYCHOMOTOR DOMAIN</td>
+                    </tr>
+                    <tr>
+                        <th class="trait-name">TRAITS</th>
+                        <th>5</th><th>4</th><th>3</th><th>2</th><th>1</th>
+                    </tr>
+                    {% for item in psychomotor_traits %}
+                    <tr>
+                        <td class="trait-name">{{ item.name }}</td>
+                        <td>{% if item.rating == 5 %}X{% endif %}</td>
+                        <td>{% if item.rating == 4 %}X{% endif %}</td>
+                        <td>{% if item.rating == 3 %}X{% endif %}</td>
+                        <td>{% if item.rating == 2 %}X{% endif %}</td>
+                        <td>{% if item.rating == 1 %}X{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6">No ratings</td></tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Comments Section -->
         <div class="comments-box">

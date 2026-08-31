@@ -14,6 +14,7 @@ from ..models import (
     ExamAttemptStatus,
     AttemptQuestion,
     AttemptQuestionOption,
+    AttemptMatchingItem,
     QuestionType,
 )
 
@@ -168,6 +169,7 @@ class ExamAttemptService:
             )
             .prefetch_related(
                 "question_version__options",
+                "question_version__matching_definition__pairs",
             )
             .order_by("order")
         )
@@ -206,12 +208,16 @@ class ExamAttemptService:
             )
             .prefetch_related(
                 "exam_question__question_version__options",
+                "exam_question__question_version__matching_definition__pairs",
             )
             .order_by("display_order")
         )
 
         for attempt_question in created_attempt_questions:
             ExamAttemptService._create_option_order(
+                attempt_question=attempt_question,
+            )
+            ExamAttemptService._create_matching_order(
                 attempt_question=attempt_question,
             )
 
@@ -257,6 +263,41 @@ class ExamAttemptService:
                     options,
                     start=1,
                 )
+            ]
+        )
+
+    @staticmethod
+    def _create_matching_order(*, attempt_question):
+        version = attempt_question.exam_question.question_version
+        if version.question_type != QuestionType.MATCHING:
+            return
+
+        definition = version.matching_definition
+        pairs = list(definition.pairs.all().order_by("order"))
+        right_pairs = list(pairs)
+        if definition.shuffle_right_items:
+            _rng.shuffle(right_pairs)
+        else:
+            right_pairs.sort(key=lambda pair: (pair.right_text.casefold(), pair.pk))
+
+        AttemptMatchingItem.objects.bulk_create(
+            [
+                AttemptMatchingItem(
+                    attempt_question=attempt_question,
+                    matching_pair=pair,
+                    side=AttemptMatchingItem.Side.LEFT,
+                    display_order=order,
+                )
+                for order, pair in enumerate(pairs, start=1)
+            ]
+            + [
+                AttemptMatchingItem(
+                    attempt_question=attempt_question,
+                    matching_pair=pair,
+                    side=AttemptMatchingItem.Side.RIGHT,
+                    display_order=order,
+                )
+                for order, pair in enumerate(right_pairs, start=1)
             ]
         )
 

@@ -173,6 +173,11 @@ class AttemptGrade(models.Model):
         blank=True,
     )
 
+    grading_error = models.TextField(
+        blank=True,
+        help_text="Internal grading failure detail; never exposed to students.",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True,
     )

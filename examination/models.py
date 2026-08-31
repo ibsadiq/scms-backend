@@ -1873,3 +1873,89 @@ class ResultAuditLog(models.Model):
 
     def __str__(self):
         return f"{self.term_result} - {self.action} @ {self.timestamp:%Y-%m-%d %H:%M}"
+
+
+# ============================================================================
+# BEHAVIORAL DOMAINS (Affective & Psychomotor)
+# ============================================================================
+
+class BehavioralDomain(models.TextChoices):
+    AFFECTIVE = "AFFECTIVE", _("Affective")
+    PSYCHOMOTOR = "PSYCHOMOTOR", _("Psychomotor")
+
+class BehavioralTrait(models.Model):
+    domain = models.CharField(
+        max_length=20, 
+        choices=BehavioralDomain.choices
+    )
+    name = models.CharField(max_length=100)
+    section = models.CharField(
+        max_length=20, 
+        choices=SectionType.choices, 
+        null=True, 
+        blank=True,
+        help_text="If null, applies school-wide"
+    )
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["domain", "order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["domain", "section", "name"],
+                name="unique_active_trait_section",
+                condition=models.Q(is_active=True, section__isnull=False)
+            ),
+            models.UniqueConstraint(
+                fields=["domain", "name"],
+                name="unique_active_trait_schoolwide",
+                condition=models.Q(is_active=True, section__isnull=True)
+            )
+        ]
+        indexes = [
+            models.Index(fields=["domain"]),
+            models.Index(fields=["section"]),
+            models.Index(fields=["is_active"])
+        ]
+
+    def delete(self, *args, **kwargs):
+        if self.student_ratings.exists():
+            raise ValidationError("Cannot delete a behavioral trait that has existing ratings. Please deactivate it instead.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.get_domain_display()} - {self.name}"
+
+class StudentBehavioralRating(models.Model):
+    term_result = models.ForeignKey(
+        TermResult, 
+        on_delete=models.CASCADE, 
+        related_name='behavioral_ratings'
+    )
+    trait = models.ForeignKey(
+        BehavioralTrait, 
+        on_delete=models.CASCADE,
+        related_name='student_ratings'
+    )
+    rating = models.PositiveSmallIntegerField()
+    entered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["term_result", "trait"],
+                name="unique_trait_rating_per_term_result"
+            ),
+            models.CheckConstraint(
+                check=models.Q(rating__gte=1) & models.Q(rating__lte=5),
+                name="valid_behavioral_rating_range"
+            )
+        ]

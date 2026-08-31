@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from school.testcases import TenantTestCase
 
 from academic.models import ClassRoom, GradeLevel, Student
+from academic.models.numbering import NumberResetPolicy, StudentAdmissionNumberPolicy
 from academic.services.enrollment_service import EnrollmentService
 from administration.models import AcademicYear
 
@@ -24,6 +25,13 @@ class AcademicIntegrityTests(TenantTestCase):
         )
         self.room_a = ClassRoom.objects.create(name="A", grade_level=self.grade)
         self.room_b = ClassRoom.objects.create(name="B", grade_level=self.grade)
+        
+        # Setup numbering policy required for auto-generating admission numbers
+        StudentAdmissionNumberPolicy.objects.create(
+            pattern="ADM-{YYYY}-{SEQ}", sequence_width=4,
+            reset_policy=NumberResetPolicy.ACADEMIC_YEAR,
+            is_active=True
+        )
 
     def make_student(self, suffix):
         return Student.objects.create(

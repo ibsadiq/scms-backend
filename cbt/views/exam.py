@@ -3,7 +3,9 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from academic.models import AllocatedSubject, AcademicWorkflow
@@ -118,6 +120,27 @@ class CBTExamViewSet(viewsets.ModelViewSet):
             exam, context={"request": request}
         )
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        try:
+            exam = CBTExamService.lock_for_generic_mutation(exam=self.get_object())
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages)
+        partial = kwargs.pop("partial", False)
+        serializer = self.get_serializer(exam, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        try:
+            exam = CBTExamService.lock_for_generic_mutation(exam=self.get_object())
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages)
+        exam.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["get", "post", "patch"])
     def blueprint(self, request, pk=None):

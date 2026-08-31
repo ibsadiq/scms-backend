@@ -47,6 +47,7 @@ class GradingMethod(models.TextChoices):
 
 class AttemptGradingStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
+    FAILED = "FAILED", "Grading Failed"
     NEEDS_MANUAL = "NEEDS_MANUAL", "Needs Manual Grading"
     GRADED = "GRADED", "Graded"
     POSTED = "POSTED", "Posted to Results"

@@ -16,6 +16,10 @@ from examination.views.cumulative import (
     CumulativeResultViewSet, AcademicTranscriptViewSet, ResultAmendmentViewSet
 )
 
+from examination.views.behavioral import (
+    BehavioralTraitViewSet, BehavioralRatingViewSet
+)
+
 router = DefaultRouter()
 
 # Grading setup
@@ -37,6 +41,10 @@ router.register(r"cumulative-results", CumulativeResultViewSet, basename="cumula
 router.register(r"transcripts", AcademicTranscriptViewSet, basename="transcript")
 router.register(r"amendments", ResultAmendmentViewSet, basename="result-amendment")
 router.register(r"audit-logs", ResultAuditLogViewSet, basename="result-audit-log")
+
+# Behavioral Ratings
+router.register(r"behavioral-traits", BehavioralTraitViewSet, basename="behavioral-trait")
+router.register(r"behavioral-ratings", BehavioralRatingViewSet, basename="behavioral-rating")
 
 urlpatterns = [
     path("", include(router.urls)),

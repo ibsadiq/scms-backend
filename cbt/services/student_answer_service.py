@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+import uuid
 
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.db import transaction
@@ -13,6 +14,7 @@ from ..models import (
     StudentNumericAnswer,
     StudentFillBlankAnswer,
     StudentMatchingAnswer,
+    AttemptMatchingItem,
 )
 
 
@@ -411,8 +413,7 @@ class StudentAnswerService:
     # Expected input:
     #
     # matches = {
-    #     left_pair_id: selected_right_pair_id,
-    #     left_pair_id: selected_right_pair_id,
+    #     opaque_left_id: opaque_right_id,
     # }
     #
     # =========================================================
@@ -439,7 +440,7 @@ class StudentAnswerService:
             )
 
         try:
-            definition = version.matching_definition
+            version.matching_definition
         except ObjectDoesNotExist:
             raise ValidationError(
                 "This question does not have "
@@ -449,41 +450,34 @@ class StudentAnswerService:
         matches = matches or {}
 
         try:
-            left_ids = {
-                int(pair_id)
-                for pair_id in matches.keys()
+            left_public_ids = {uuid.UUID(str(item)) for item in matches.keys()}
+            right_public_ids = {
+                uuid.UUID(str(item))
+                for item in matches.values()
+                if item not in {None, ""}
             }
-
-            right_ids = {
-                int(pair_id)
-                for pair_id in matches.values()
-                if pair_id not in {
-                    None,
-                    "",
-                }
-            }
-
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             raise ValidationError(
-                "One or more matching pair IDs are invalid."
+                "One or more matching item IDs are invalid."
             )
 
-        all_pair_ids = left_ids | right_ids
-
-        valid_pairs = {
-            pair.id: pair
-            for pair in definition.pairs.filter(
-                id__in=all_pair_ids
-            )
-        }
-
-        if not all_pair_ids.issubset(
-            valid_pairs.keys()
-        ):
+        presentation = list(
+            AttemptMatchingItem.objects.filter(
+                attempt_question=attempt_question,
+                public_id__in=left_public_ids | right_public_ids,
+            ).select_related("matching_pair")
+        )
+        by_public_id = {item.public_id: item for item in presentation}
+        if set(by_public_id) != left_public_ids | right_public_ids:
             raise ValidationError(
                 "One or more matching items do not "
                 "belong to this question."
             )
+
+        if any(by_public_id[item].side != AttemptMatchingItem.Side.LEFT for item in left_public_ids):
+            raise ValidationError("A right-side item cannot be used as a left-side item.")
+        if any(by_public_id[item].side != AttemptMatchingItem.Side.RIGHT for item in right_public_ids):
+            raise ValidationError("A left-side item cannot be used as a right-side item.")
 
         answer = StudentAnswerService._get_answer(
             attempt_question
@@ -496,7 +490,7 @@ class StudentAnswerService:
         selected_right_ids = set()
 
         for raw_left_id, raw_right_id in matches.items():
-            left_id = int(raw_left_id)
+            left_item = by_public_id[uuid.UUID(str(raw_left_id))]
 
             # Allow clearing/unmatched left items.
             if raw_right_id in {
@@ -505,23 +499,22 @@ class StudentAnswerService:
             }:
                 continue
 
-            right_id = int(raw_right_id)
+            right_public_id = uuid.UUID(str(raw_right_id))
 
-            if right_id in selected_right_ids:
+            if right_public_id in selected_right_ids:
                 raise ValidationError(
                     "The same right-side item cannot "
                     "be matched more than once."
                 )
 
-            selected_right_ids.add(right_id)
+            selected_right_ids.add(right_public_id)
+            right_item = by_public_id[right_public_id]
 
             response_objects.append(
                 StudentMatchingAnswer(
                     student_answer=answer,
-                    left_pair=valid_pairs[left_id],
-                    selected_right_pair=valid_pairs[
-                        right_id
-                    ],
+                    left_pair=left_item.matching_pair,
+                    selected_right_pair=right_item.matching_pair,
                 )
             )
 

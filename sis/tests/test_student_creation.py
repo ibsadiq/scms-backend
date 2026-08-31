@@ -1,10 +1,21 @@
 from unittest.mock import patch
+from io import BytesIO
 
+import openpyxl
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from academic.models import ClassRoom, Student, Parent, StudentClassEnrollment, GradeLevel
+from academic.models import (
+    ClassRoom,
+    GradeLevel,
+    NumberResetPolicy,
+    Parent,
+    Student,
+    StudentAdmissionNumberPolicy,
+    StudentClassEnrollment,
+)
 from academic.services.parent_identity_service import ParentIdentityService
 from academic.models.choices import StandardClassCode, SectionType
 from administration.models import AcademicYear, Term
@@ -50,8 +61,59 @@ class StudentCreationTests(TenantTestCase):
             alias="JSS 1"
         )
         self.classroom = ClassRoom.objects.create(name="A", grade_level=self.grade_level, capacity=30, occupied_sits=0)
+        StudentAdmissionNumberPolicy.objects.create(
+            pattern="{PREFIX}-{SEQ}",
+            prefix="STU",
+            sequence_width=6,
+            reset_policy=NumberResetPolicy.NEVER,
+        )
 
         self.create_url = "/api/sis/students/"
+
+    def make_bulk_workbook(self, rows):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Students"
+        sheet.append([
+            "first_name", "middle_name", "last_name", "parent_contact",
+            "parent_email", "parent_first_name", "parent_last_name",
+            "religion", "classroom_id", "gender",
+        ])
+        for row in rows:
+            sheet.append(row)
+        content = BytesIO()
+        workbook.save(content)
+        content.seek(0)
+        return SimpleUploadedFile(
+            "students.xlsx", content.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def test_bulk_upload_rejects_entire_file_before_creating_any_students(self):
+        upload = self.make_bulk_workbook([
+            ["Valid", "", "Student", "08012345678", "valid@test.com", "Valid", "Parent", "Christian", self.classroom.pk, "Male"],
+            ["Bad", "", "Student", "A STREET ADDRESS", "bad@test.com", "Bad", "Parent", "Christian", self.classroom.pk, "Female"],
+        ])
+        response = self.client.post("/api/sis/students/bulk-upload/", {"file": upload}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(Student.objects.count(), 0)
+        self.assertEqual(response.data["not_created"][0]["row"], 3)
+        self.assertIn("valid phone number", response.data["not_created"][0]["errors"][0])
+
+    @patch("core.email_utils.send_parent_invitation")
+    def test_bulk_upload_assigns_siblings_to_one_canonical_parent(self, send_invitation):
+        upload = self.make_bulk_workbook([
+            ["First", "", "Child", "08012345678", "family@test.com", "Shared", "Parent", "Christian", self.classroom.pk, "Male"],
+            ["Second", "", "Child", "+2348012345678", "family@test.com", "Shared", "Parent", "Christian", self.classroom.pk, "Female"],
+        ])
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/api/sis/students/bulk-upload/", {"file": upload}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        students = list(Student.objects.order_by("pk"))
+        self.assertEqual(len(students), 2)
+        self.assertEqual(students[0].parent_guardian, students[1].parent_guardian)
+        self.assertEqual(students[0].parent_contact, "+2348012345678")
+        self.assertEqual(students[1].parent_contact, "+2348012345678")
 
     @patch("core.email_utils.send_parent_invitation")
     def test_direct_create_creates_student_enrollment_and_parent_invitation(self, send_invitation):

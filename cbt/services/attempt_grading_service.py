@@ -24,6 +24,20 @@ class AttemptGradingService:
 
     @staticmethod
     @transaction.atomic
+    def record_failure(*, attempt, error):
+        attempt = ExamAttempt.objects.select_for_update().get(pk=attempt.pk)
+        grade, _ = AttemptGrade.objects.update_or_create(
+            attempt=attempt,
+            defaults={
+                "status": AttemptGradingStatus.FAILED,
+                "grading_error": str(error),
+                "graded_at": None,
+            },
+        )
+        return grade
+
+    @staticmethod
+    @transaction.atomic
     def grade_attempt(
         *,
         attempt,
@@ -205,6 +219,7 @@ class AttemptGradingService:
                         if pending_manual
                         else timezone.now()
                     ),
+                    "grading_error": "",
                 },
             )
         )

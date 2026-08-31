@@ -41,7 +41,9 @@ class ResultPostingService:
             attempt_grade.status
             == AttemptGradingStatus.POSTED
         ):
-            return attempt_grade
+            return AssessmentEntry.objects.get(
+                source_reference=f"cbt-attempt:{attempt_grade.attempt_id}"
+            )
 
         if (
             attempt_grade.status
@@ -65,7 +67,7 @@ class ResultPostingService:
             f"cbt-attempt:{attempt.pk}"
         )
 
-        AssessmentEntry.objects.update_or_create(
+        assessment_entry, _ = AssessmentEntry.objects.update_or_create(
             student=attempt.enrollment,
             subject=exam.subject,
             component=exam.component,
@@ -95,4 +97,4 @@ class ResultPostingService:
             ]
         )
 
-        return attempt_grade
+        return assessment_entry

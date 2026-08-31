@@ -35,17 +35,25 @@ class CanManageQuestionBank(BasePermission):
         except (ValidationError, ObjectDoesNotExist):
             return False
 
-        # Read permissions are allowed to any authenticated teacher
-        if request.method in SAFE_METHODS:
-            return True
-
-        # Mutation permissions on questions
+        # Resolve nested question-bank objects to their authoring owner/scope.
         creator = getattr(obj, "created_by", None)
+        if creator is None and hasattr(obj, "question_version"):
+            creator = obj.question_version.question.created_by
         if creator and creator == teacher:
             return True
 
-        # Or if the teacher has leadership authority for this question's subject
         subject = getattr(obj, "subject", None)
+        if subject is None and hasattr(obj, "question_version"):
+            subject = obj.question_version.question.subject
+
+        from academic.models import AllocatedSubject
+        if subject and AllocatedSubject.objects.filter(
+            teacher_name=teacher,
+            subject=subject,
+        ).exists():
+            return True
+
+        # Or if the teacher has leadership authority for this question's subject.
         if subject and AcademicAuthorityService.can_approve(
             actor=request.user,
             workflow=AcademicWorkflow.QUESTION_BANK,
