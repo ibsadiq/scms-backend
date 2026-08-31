@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.models import Group
 from rest_framework import serializers
 
@@ -700,7 +701,6 @@ class TeacherSerializer(serializers.ModelSerializer):
 class ParentSerializer(serializers.ModelSerializer):
     children_details = serializers.SerializerMethodField()
     children = serializers.SerializerMethodField()
-    parent_type = serializers.SerializerMethodField()
 
     send_invitation = serializers.BooleanField(
         write_only=True,
@@ -744,18 +744,6 @@ class ParentSerializer(serializers.ModelSerializer):
             "children",
         ]
 
-    def get_parent_type(self, obj):
-        if obj.parent_type:
-            return obj.parent_type
-
-        if obj.gender == "Male":
-            return "Father"
-
-        if obj.gender == "Female":
-            return "Mother"
-
-        return "Guardian"
-
     def get_children_details(self, obj):
         return [
             {
@@ -796,10 +784,12 @@ class ParentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone_number(self, value):
-        value = value.strip()
+        from academic.services.parent_identity_service import ParentIdentityService
+
+        value = ParentIdentityService.normalize_phone(value)
 
         queryset = Parent.objects.filter(
-            phone_number=value
+            phone_number__in=ParentIdentityService.phone_variants(value)
         )
 
         if self.instance:
@@ -841,6 +831,9 @@ class ParentSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        from academic.services.parent_identity_service import ParentIdentityService
+        from academic.services.parent_student_service import ParentStudentService
+
         send_invitation = validated_data.pop(
             "send_invitation",
             False,
@@ -850,17 +843,28 @@ class ParentSerializer(serializers.ModelSerializer):
             None,
         )
 
-        parent = Parent.objects.create(
-            **validated_data
-        )
+        identity_fields = {
+            key: validated_data.get(key)
+            for key in ("first_name", "middle_name", "last_name", "occupation", "parent_type", "address")
+        }
+        try:
+            parent = ParentIdentityService.resolve_parent(
+                phone_number=validated_data.get("phone_number"),
+                email=validated_data.get("email"),
+                **identity_fields,
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages)
+        for key, value in validated_data.items():
+            setattr(parent, key, value)
+        parent.save()
+        try:
+            ParentIdentityService.sync_user(parent)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages)
 
         if student_ids is not None:
-            Student.objects.filter(
-                id__in=student_ids
-            ).update(
-                parent_guardian=parent,
-                parent_contact=parent.phone_number,
-            )
+            ParentStudentService.sync_students(parent, student_ids)
 
         if send_invitation:
             request = self.context.get("request")
@@ -894,6 +898,9 @@ class ParentSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        from academic.services.parent_identity_service import ParentIdentityService
+        from academic.services.parent_student_service import ParentStudentService
+
         student_ids = validated_data.pop(
             "students",
             None,
@@ -906,27 +913,10 @@ class ParentSerializer(serializers.ModelSerializer):
             validated_data,
         )
 
-        #
-        # Keep linked CustomUser synchronized.
-        #
-        if parent.user_id:
-            user = parent.user
-
-            user.email = parent.email
-            user.first_name = parent.first_name or ""
-            user.last_name = parent.last_name or ""
-            user.phone_number = parent.phone_number
-            user.is_parent = True
-
-            user.save(
-                update_fields=[
-                    "email",
-                    "first_name",
-                    "last_name",
-                    "phone_number",
-                    "is_parent",
-                ]
-            )
+        try:
+            ParentIdentityService.sync_user(parent)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages)
 
         #
         # If the parent's phone number changed,
@@ -936,41 +926,14 @@ class ParentSerializer(serializers.ModelSerializer):
             old_phone_number != parent.phone_number
             and student_ids is None
         ):
-            Student.objects.filter(
-                parent_guardian=parent
-            ).update(
-                parent_contact=parent.phone_number
-            )
+            ParentStudentService.synchronize_contact(parent)
 
         #
         # If the frontend explicitly supplied students,
         # treat it as the desired complete relationship set.
         #
         if student_ids is not None:
-            selected_ids = set(student_ids)
-
-            #
-            # Children removed from this parent.
-            #
-            Student.objects.filter(
-                parent_guardian=parent
-            ).exclude(
-                id__in=selected_ids
-            ).update(
-                parent_guardian=None,
-                parent_contact=None,
-            )
-
-            #
-            # Children assigned/retained for this parent.
-            #
-            if selected_ids:
-                Student.objects.filter(
-                    id__in=selected_ids
-                ).update(
-                    parent_guardian=parent,
-                    parent_contact=parent.phone_number,
-                )
+            ParentStudentService.sync_students(parent, student_ids)
 
         return parent
 

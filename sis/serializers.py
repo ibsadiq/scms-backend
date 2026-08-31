@@ -13,6 +13,7 @@ from academic.models import (
 from academic.serializers import ClassYearSerializer
 from academic.services.student_creation_service import StudentCreationService
 from academic.services.parent_identity_service import ParentIdentityService
+from academic.services.parent_student_service import ParentStudentService
 
 
 class BulkUploadFileSerializer(serializers.Serializer):
@@ -149,7 +150,7 @@ class StudentSerializer(serializers.ModelSerializer):
     classroom_id = serializers.PrimaryKeyRelatedField(
         queryset=ClassRoom.objects.all(), write_only=True, required=False
     )
-    parent_email = serializers.EmailField(write_only=True, required=False)
+    parent_email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
     parent_first_name = serializers.CharField(write_only=True, required=False)
     parent_last_name = serializers.CharField(write_only=True, required=False)
     class_of_year = serializers.CharField(
@@ -345,6 +346,10 @@ class StudentSerializer(serializers.ModelSerializer):
             first_name = validated_data.get("parent_first_name", instance.middle_name or "Unknown")
             last_name = validated_data.get("parent_last_name", instance.last_name)
 
+            parent_fields_supplied = any(
+                field in validated_data
+                for field in ("parent_contact", "parent_email", "parent_first_name", "parent_last_name")
+            )
             if contact or email:
                 parent = ParentIdentityService.resolve_parent(
                     phone_number=contact or instance.parent_contact,
@@ -352,7 +357,11 @@ class StudentSerializer(serializers.ModelSerializer):
                     first_name=first_name,
                     last_name=last_name,
                 )
-                instance.parent_guardian = parent
+                instance.save()
+                return ParentStudentService.assign_parent(instance, parent)
+            if parent_fields_supplied and not contact and not email:
+                instance.save()
+                return ParentStudentService.assign_parent(instance, None)
 
             instance.save()
             return instance

@@ -345,59 +345,6 @@ class ParentListView(generics.ListCreateAPIView):
     filterset_class = ParentFilter
 
     def create(self, request, *args, **kwargs):
-        email = request.data.get("email")
-        phone_number = request.data.get("phone_number")
-
-        query = Q()
-        if email:
-            query |= Q(email__iexact=email)
-        if phone_number:
-            clean_phone = str(phone_number).strip().replace(' ', '').replace('-', '')
-            query |= Q(phone_number=phone_number) | Q(phone_number=clean_phone)
-            if clean_phone.startswith('+234'):
-                query |= Q(phone_number='0' + clean_phone[4:])
-            elif clean_phone.startswith('234'):
-                query |= Q(phone_number='0' + clean_phone[3:])
-            elif clean_phone.startswith('0') and len(clean_phone) == 11:
-                query |= Q(phone_number='+234' + clean_phone[1:])
-
-        existing_user = User.objects.filter(query).first() if query else None
-        if existing_user:
-            if Parent.objects.filter(user=existing_user).exists():
-                return Response(
-                    {"error": "Parent profile for this user already exists."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            try:
-                parent = Parent()
-                model_fields = [f.name for f in Parent._meta.get_fields()]
-                for key, value in request.data.items():
-                    if key in model_fields and key != "user":
-                        setattr(parent, key, value)
-                parent.user = existing_user
-                if not parent.email and existing_user.email:
-                    parent.email = existing_user.email
-                if not parent.phone_number and existing_user.phone_number:
-                    parent.phone_number = existing_user.phone_number
-                parent.save()
-
-                existing_user.is_parent = True
-                existing_user.save()
-
-                group, _ = Group.objects.get_or_create(name="parent")
-                existing_user.groups.add(group)
-
-                student_ids = request.data.get("students")
-                if student_ids:
-                    from academic.models import Student
-                    Student.objects.filter(id__in=student_ids).update(parent_guardian=parent)
-
-                return Response(
-                    self.get_serializer(parent).data, status=status.HTTP_201_CREATED
-                )
-            except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         parent = serializer.save()
@@ -447,6 +394,7 @@ class ParentDetailView(views.APIView):
         )
 
         updated_parent = serializer.save()
+        updated_parent = self.get_object(updated_parent.pk)
 
         response_serializer = self.serializer_class(
             updated_parent,
@@ -468,7 +416,10 @@ class ParentDetailView(views.APIView):
         )
 
     def delete(self, request, pk, format=None):
+        from academic.services.parent_student_service import ParentStudentService
+
         parent = self.get_object(pk)
+        ParentStudentService.detach_all(parent)
         parent.delete()
 
         return Response(

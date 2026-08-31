@@ -107,7 +107,7 @@ class StudentCreationService:
             "city": city,
             "street": street,
             "blood_group": blood_group,
-            "parent_contact": parent_phone,
+            "parent_contact": parent.phone_number,
             "phone_number": student_phone,
             "parent_guardian": parent,
             "can_login": False,

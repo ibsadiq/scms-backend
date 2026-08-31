@@ -5,6 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from academic.models import ClassRoom, Student, Parent, StudentClassEnrollment, GradeLevel
+from academic.services.parent_identity_service import ParentIdentityService
 from academic.models.choices import StandardClassCode, SectionType
 from administration.models import AcademicYear, Term
 from users.models import CustomUser, UserInvitation
@@ -76,9 +77,10 @@ class StudentCreationTests(TenantTestCase):
         self.assertEqual(student.phone_number, "08099990001")
 
         # Check parent
-        parent = Parent.objects.get(phone_number="08012345678")
+        parent = Parent.objects.get(phone_number="+2348012345678")
         self.assertEqual(parent.email, "parent@test.com")
         self.assertEqual(student.parent_guardian, parent)
+        self.assertEqual(student.parent_contact, parent.phone_number)
         invitation = UserInvitation.objects.get(
             email=parent.email, role="parent", status="pending"
         )
@@ -104,6 +106,41 @@ class StudentCreationTests(TenantTestCase):
         response = self.client.post(self.create_url, data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("classroom_id", response.data.get("detail", response.data))
+
+    def test_update_parent_assignment_synchronizes_guardian_and_contact(self):
+        student = Student.objects.create(
+            first_name="Editable", last_name="Student", admission_number="EDIT-1",
+        )
+        response = self.client.patch(
+            f"/api/sis/students/{student.pk}/",
+            {
+                "parent_contact": "08033334444",
+                "parent_email": "edited-parent@test.com",
+                "parent_first_name": "Edited",
+                "parent_last_name": "Parent",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        student.refresh_from_db()
+        self.assertEqual(student.parent_contact, "+2348033334444")
+        self.assertEqual(student.parent_guardian.phone_number, student.parent_contact)
+
+    def test_update_can_temporarily_unlink_parent(self):
+        parent = ParentIdentityService.resolve_parent(
+            phone_number="08044445555", email="unlink@test.com",
+        )
+        student = Student.objects.create(
+            first_name="Unlink", last_name="Student", admission_number="EDIT-2",
+            parent_guardian=parent, parent_contact=parent.phone_number,
+        )
+        response = self.client.patch(
+            f"/api/sis/students/{student.pk}/",
+            {"parent_contact": "", "parent_email": ""},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        student.refresh_from_db()
+        self.assertIsNone(student.parent_guardian)
+        self.assertIsNone(student.parent_contact)
 
     def test_mismatch_class_level_and_classroom_rejected(self):
         data = {

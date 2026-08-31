@@ -4,7 +4,6 @@ from django.db.models import F
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
-from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 
@@ -62,55 +61,6 @@ class Parent(models.Model):
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.email})"
 
-    def save(self, *args, **kwargs):
-        if not self.user:
-            from django.db.models import Q
-            from django.contrib.auth.models import Group
-            from users.models import CustomUser
-
-            query = Q()
-            if self.email:
-                query |= Q(email__iexact=self.email)
-            if self.phone_number:
-                clean_phone = self.phone_number.strip().replace(" ", "").replace("-", "")
-                query |= Q(phone_number=self.phone_number) | Q(phone_number=clean_phone)
-                if clean_phone.startswith("+234"):
-                    query |= Q(phone_number="0" + clean_phone[4:])
-                elif clean_phone.startswith("234"):
-                    query |= Q(phone_number="0" + clean_phone[3:])
-                elif clean_phone.startswith("0") and len(clean_phone) == 11:
-                    query |= Q(phone_number="+234" + clean_phone[1:])
-
-            user = CustomUser.objects.filter(query).first() if query else None
-
-            if user:
-                if not user.is_parent:
-                    user.is_parent = True
-                    user.save(update_fields=["is_parent"])
-                self.user = user
-            else:
-                user_email = self.email or self.alt_email
-                if not user_email:
-                    phone_clean = (self.phone_number or "parent").replace("+", "").replace(" ", "").replace("-", "")
-                    user_email = f"parent_{phone_clean}@ssyncportal.local"
-
-                user = CustomUser.objects.create(
-                    first_name=self.first_name or "",
-                    last_name=self.last_name or "",
-                    email=user_email,
-                    phone_number=self.phone_number or "",
-                    is_parent=True,
-                )
-                user.set_password("Complex.0000")
-                user.save()
-
-                group, _ = Group.objects.get_or_create(name="parent")
-                user.groups.add(group)
-
-                self.user = user
-
-        super().save(*args, **kwargs)
-
 class Student(models.Model):
     student_id = models.CharField(
         max_length=20,
@@ -152,17 +102,6 @@ class Student(models.Model):
     class_of_year = models.ForeignKey(ClassYear, blank=True, null=True, on_delete=models.SET_NULL)
     classroom = models.ForeignKey(ClassRoom, blank=True, null=True, on_delete=models.SET_NULL, related_name="students")
 
-    @property
-    def grade_level(self):
-        """Return the GradeLevel of the student's current active classroom."""
-        if self.classroom and hasattr(self.classroom, "grade_level"):
-            return self.classroom.grade_level
-        return None
-
-    @property
-    def class_level(self):
-        """Compatibility property returning the grade level."""
-        return self.grade_level
 
     gender = models.CharField(max_length=10, choices=GENDER_CHOICE, blank=True, null=True)
     religion = models.CharField(max_length=50, choices=RELIGION_CHOICE, blank=True, null=True)
@@ -216,6 +155,19 @@ class Student(models.Model):
     @property
     def total_paid(self):
         return self.receipts.filter(status="Completed").aggregate(total=models.Sum("amount"))["total"] or Decimal("0.00")
+
+
+    @property
+    def grade_level(self):
+        """Return the GradeLevel of the student's current active classroom."""
+        if self.classroom and hasattr(self.classroom, "grade_level"):
+            return self.classroom.grade_level
+        return None
+
+    @property
+    def class_level(self):
+        """Compatibility property returning the grade level."""
+        return self.grade_level
 
     def unpaid_terms(self):
         return self.debt_records.filter(is_reversed=False).exclude(

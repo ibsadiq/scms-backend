@@ -108,7 +108,7 @@ class AdmissionEnrollmentService:
             region=application.state_of_origin,
             city=application.city,
             street=application.address,
-            parent_contact=application.parent_phone,
+            parent_contact=parent.phone_number,
             parent_guardian=parent,
             can_login=False,
         )
