@@ -31,6 +31,7 @@ from .curriculum import (
     PublishedSchemeSerializer,
     PublishedSchemeEntrySerializer,
     CurriculumResourceSerializer,
+    CurriculumAssignmentSerializer,
 )
 
 from .scheme_and_lesson import (
@@ -45,6 +46,13 @@ from .scheme_and_lesson import (
 from .leadership import (
     AcademicLeadershipAssignmentSerializer,
     AcademicApprovalPolicySerializer,
+)
+
+from .schema_contracts import (
+    TeacherCurriculumWorkspaceResponseSerializer,
+    TeacherCurriculumTopicSerializer,
+    TeacherCurriculumResourceSummarySerializer,
+    TeacherPublishedSchemeSummarySerializer,
 )
 
 from .student import (

@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from administration.models import AcademicYear, Term
 from academic.models import (
-    AllocatedSubject, ClassRoom, Curriculum, CurriculumSubject, CurriculumTopic,
+    AllocatedSubject, ClassRoom, Curriculum, CurriculumAssignment, CurriculumSubject, CurriculumTopic,
     GradeLevel, LearningObjective, LessonDelivery, LessonPlan, LessonPlanMaterial, LessonPlanStatus, SchemeOfWork,
     PublishedScheme, PublishedSchemeEntry, SchemeOfWorkItem, SchemeOfWorkStatus,
     CurriculumResource, Subject, SubTopic, Teacher, Topic,
@@ -55,7 +55,12 @@ class AcademicPlanningApiHardeningTests(TenantTestCase):
             start_date="2025-09-01", end_date="2025-12-15"
         )
         self.subject = Subject.objects.create(name="Mathematics", subject_code="MATH")
-        self.curriculum = Curriculum.objects.create(name="Standard")
+        self.curriculum = Curriculum.objects.create(name="Standard", is_active=True)
+        self.curriculum_assignment = CurriculumAssignment.objects.create(
+            academic_year=self.year,
+            curriculum=self.curriculum,
+            is_active=True,
+        )
         self.curriculum_subject = CurriculumSubject.objects.create(
             curriculum=self.curriculum, subject=self.subject, grade_level=self.grade
         )

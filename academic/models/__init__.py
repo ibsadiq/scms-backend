@@ -50,6 +50,7 @@ from .curriculum import (
     PublishedScheme,
     PublishedSchemeEntry,
     CurriculumResource,
+    CurriculumAssignment,
 )
 
 from .scheme_and_lesson import (

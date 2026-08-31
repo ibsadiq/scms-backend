@@ -4,6 +4,8 @@ These views handle teacher-related operations like fetching assigned classes,
 students, and attendance marking.
 """
 
+from collections import defaultdict
+from django.db.models import Count, Q
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -17,7 +19,9 @@ from academic.models import (
     AllocatedSubject,
     ClassRoom,
     Student,
+    CurriculumSubject,
 )
+from academic.services import CurriculumAssignmentResolver
 from attendance.services import StudentAttendanceService
 from administration.models import AcademicYear, Term
 from schedule.models import PeriodSlot
@@ -54,18 +58,19 @@ class TeacherMyClassesView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # If admin and no teacher profile, return all active classrooms
+        # If admin and no teacher profile, return all classrooms
         if not teacher and is_admin:
-            all_classrooms = ClassRoom.objects.filter(is_active=True).select_related('grade_level')
+            all_classrooms = ClassRoom.objects.all().select_related('grade_level').annotate(
+                active_student_count=Count('students', filter=Q(students__is_active=True))
+            )
             homeroom_classes = []
             for classroom in all_classrooms:
-                student_count = Student.objects.filter(classroom=classroom, is_active=True).count()
                 homeroom_classes.append({
                     'id': f'homeroom_{classroom.id}',
                     'classroom_id': classroom.id,
                     'classroom_name': str(classroom),
                     'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
-                    'student_count': student_count,
+                    'student_count': classroom.active_student_count,
                 })
             return Response({
                 'homeroom_classes': homeroom_classes,
@@ -76,51 +81,79 @@ class TeacherMyClassesView(APIView):
         homeroom_classes = []
         homeroom_classrooms = ClassRoom.objects.filter(
             class_teacher=teacher
-        ).select_related('grade_level')
+        ).select_related('grade_level').annotate(
+            active_student_count=Count('students', filter=Q(students__is_active=True))
+        )
 
         for classroom in homeroom_classrooms:
-            # Count active students in this classroom
-            student_count = Student.objects.filter(
-                classroom=classroom,
-                is_active=True
-            ).count()
-
             homeroom_classes.append({
                 'id': f'homeroom_{classroom.id}',
                 'classroom_id': classroom.id,
                 'classroom_name': str(classroom),
                 'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
-                'student_count': student_count,
+                'student_count': classroom.active_student_count,
             })
 
         # Get subject allocations (teaching assignments)
-        teaching_assignments = []
-        allocations = AllocatedSubject.objects.filter(
+        allocations = list(AllocatedSubject.objects.filter(
             teacher_name=teacher,
             academic_year=current_academic_year
-        ).select_related('class_room', 'subject', 'class_room__grade_level')
+        ).select_related(
+            'class_room',
+            'subject',
+            'class_room__grade_level',
+            'academic_year',
+            'term'
+        ))
 
+        # Collect unique classroom_ids for batch counting
+        classroom_ids = {alloc.class_room_id for alloc in allocations if alloc.class_room_id}
+
+        # Batch count active students per classroom to prevent N+1 queries
+        student_counts = {}
+        if classroom_ids:
+            counts = Student.objects.filter(
+                classroom_id__in=classroom_ids,
+                is_active=True
+            ).values('classroom_id').annotate(total=Count('id'))
+            for c in counts:
+                student_counts[c['classroom_id']] = c['total']
+
+        # Batch resolve deterministic curriculum context for all allocations
+        resolved_contexts = CurriculumAssignmentResolver.resolve_for_allocations(allocations)
+
+        teaching_assignments = []
         for allocation in allocations:
             classroom = allocation.class_room
             if not classroom:
                 continue
 
-            # Count active students in this classroom
-            student_count = Student.objects.filter(
-                classroom=classroom,
-                is_active=True
-            ).count()
+            student_count = student_counts.get(classroom.id, 0)
+            grade_level = classroom.grade_level
+            grade_level_id = grade_level.id if grade_level else None
+            grade_level_name = str(grade_level) if grade_level else ''
+            curriculum_context = resolved_contexts.get(
+                allocation.id,
+                CurriculumAssignmentResolver._empty_result(CurriculumAssignmentResolver.STATUS_NO_CURRICULUM_ASSIGNED)
+            )
 
             teaching_assignments.append({
                 'id': allocation.id,
+                'allocation_id': allocation.id,
                 'classroom_id': classroom.id,
                 'classroom_name': str(classroom),
                 'subject_id': allocation.subject.id if allocation.subject else None,
                 'subject_name': str(allocation.subject) if allocation.subject else '',
-                'grade_level_name': str(classroom.grade_level) if classroom.grade_level else '',
+                'grade_level_id': grade_level_id,
+                'grade_level_name': grade_level_name,
+                'academic_year_id': allocation.academic_year_id,
+                'academic_year_name': allocation.academic_year.name if allocation.academic_year else None,
+                'term_id': allocation.term_id,
+                'term_name': allocation.term.name if allocation.term else None,
                 'student_count': student_count,
-                'is_class_teacher': classroom.class_teacher == teacher,
-                'schedule': []
+                'is_class_teacher': classroom.class_teacher_id == teacher.id if teacher else False,
+                'schedule': [],
+                'curriculum_context': curriculum_context,
             })
 
         return Response({

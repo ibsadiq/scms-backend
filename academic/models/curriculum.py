@@ -811,3 +811,148 @@ class CurriculumResource(models.Model):
 
     def __str__(self):
         return f"{self.get_resource_type_display()}: {self.title}"
+
+
+class CurriculumAssignment(models.Model):
+    """
+    Declares which curriculum framework is assigned to a school, section,
+    grade level, or classroom for a specific academic year.
+    """
+    academic_year = models.ForeignKey(
+        "administration.AcademicYear",
+        on_delete=models.CASCADE,
+        related_name="curriculum_assignments",
+        help_text="The academic year during which this curriculum assignment is in effect.",
+    )
+    curriculum = models.ForeignKey(
+        Curriculum,
+        on_delete=models.PROTECT,
+        related_name="school_assignments",
+        help_text="The canonical curriculum framework applied.",
+    )
+
+    section = models.ForeignKey(
+        "academic.SchoolSection",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="curriculum_assignments",
+        help_text="Applies to all grades in this section unless overridden at grade or classroom level.",
+    )
+    grade_level = models.ForeignKey(
+        "academic.GradeLevel",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="curriculum_assignments",
+        help_text="Applies to all classrooms in this grade unless overridden at classroom level.",
+    )
+    classroom = models.ForeignKey(
+        "academic.ClassRoom",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="curriculum_assignments",
+        help_text="Applies specifically to this classroom.",
+    )
+
+    is_active = models.BooleanField(default=True)
+    notes = models.CharField(max_length=255, blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_curriculum_assignments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = [
+            "-academic_year__start_date",
+            "section__sequence_order",
+            "grade_level__sequence_order",
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    (Q(section__isnull=False) & Q(grade_level__isnull=True) & Q(classroom__isnull=True))
+                    | (Q(section__isnull=True) & Q(grade_level__isnull=False) & Q(classroom__isnull=True))
+                    | (Q(section__isnull=True) & Q(grade_level__isnull=True) & Q(classroom__isnull=False))
+                    | (Q(section__isnull=True) & Q(grade_level__isnull=True) & Q(classroom__isnull=True))
+                ),
+                name="curr_assign_single_scope_check",
+            ),
+            models.UniqueConstraint(
+                fields=["academic_year"],
+                condition=Q(section__isnull=True, grade_level__isnull=True, classroom__isnull=True, is_active=True),
+                name="unique_active_school_curr_assign",
+            ),
+            models.UniqueConstraint(
+                fields=["academic_year", "section"],
+                condition=Q(section__isnull=False, is_active=True),
+                name="unique_active_sec_curr_assign",
+            ),
+            models.UniqueConstraint(
+                fields=["academic_year", "grade_level"],
+                condition=Q(grade_level__isnull=False, is_active=True),
+                name="unique_active_grade_curr_assign",
+            ),
+            models.UniqueConstraint(
+                fields=["academic_year", "classroom"],
+                condition=Q(classroom__isnull=False, is_active=True),
+                name="unique_active_cls_curr_assign",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["academic_year", "is_active"]),
+            models.Index(fields=["grade_level", "academic_year"]),
+            models.Index(fields=["classroom", "academic_year"]),
+            models.Index(fields=["section", "academic_year"]),
+        ]
+
+    def clean(self):
+        errors = {}
+        # Enforce single scope
+        scope_count = sum(
+            1 for field in [
+                self.section_id or getattr(self, "section", None),
+                self.grade_level_id or getattr(self, "grade_level", None),
+                self.classroom_id or getattr(self, "classroom", None),
+            ]
+            if field is not None
+        )
+        if scope_count > 1:
+            errors["__all__"] = "A curriculum assignment can target at most one scope (Section, Grade Level, or Classroom)."
+
+        curr = getattr(self, "curriculum", None)
+        if curr and not curr.is_active:
+            errors["curriculum"] = "Cannot assign an inactive curriculum."
+
+        if errors:
+            raise ValidationError(errors)
+        super().clean()
+
+    @property
+    def scope_type(self) -> str:
+        if self.classroom_id:
+            return "CLASSROOM"
+        if self.grade_level_id:
+            return "GRADE_LEVEL"
+        if self.section_id:
+            return "SECTION"
+        return "SCHOOL"
+
+    def __str__(self):
+        scope_str = self.scope_type
+        if self.classroom_id:
+            scope_str = f"Classroom: {self.classroom}"
+        elif self.grade_level_id:
+            scope_str = f"Grade: {self.grade_level}"
+        elif self.section_id:
+            scope_str = f"Section: {self.section}"
+        else:
+            scope_str = "School-wide"
+        return f"{self.academic_year} &bull; {scope_str} &rarr; {self.curriculum}"

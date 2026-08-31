@@ -26,6 +26,7 @@ from .curriculum_v2_validator import (
     make_topic_key as make_curriculum_topic_key,
 )
 from .admission_enrollment_service import AdmissionEnrollmentService
+from .curriculum_assignment_resolver import CurriculumAssignmentResolver
 
 __all__ = [
     "PromotionService",
@@ -43,6 +44,7 @@ __all__ = [
     "CurriculumResourceService",
     "AdmissionEnrollmentService",
     "NumberingService",
+    "CurriculumAssignmentResolver",
     # V2 Curriculum Validator
     "ValidationReport",
     "ValidationIssue",

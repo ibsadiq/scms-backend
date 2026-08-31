@@ -40,14 +40,40 @@ class PublishedSchemeAdoptionService:
             raise PermissionDenied(
                 "This curriculum subject is not mapped to an operational school subject. Only school administrators may adopt unmapped curriculum subjects."
             )
-        allowed = AllocatedSubject.objects.filter(
+        allowed_allocations = list(AllocatedSubject.objects.filter(
             teacher_name=teacher,
             subject=mapping.subject,
             class_room__grade_level=mapping.grade_level,
             academic_year=academic_year,
-        ).filter(Q(term=term) | Q(term__isnull=True))
-        if not allowed.exists():
+        ).filter(Q(term=term) | Q(term__isnull=True)).select_related("class_room", "class_room__grade_level", "academic_year", "subject"))
+        if not allowed_allocations:
             raise PermissionDenied("You do not have a matching teaching allocation for this scheme.")
+
+        from .curriculum_assignment_resolver import CurriculumAssignmentResolver
+        resolved_map = CurriculumAssignmentResolver.resolve_for_allocations(allowed_allocations)
+
+        # Check if at least one matching allocation resolves to this exact published scheme curriculum subject
+        matching_resolution = False
+        unresolved_reason = None
+        for alloc in allowed_allocations:
+            res = resolved_map.get(alloc.id, {})
+            if res.get("status") == CurriculumAssignmentResolver.STATUS_RESOLVED:
+                if res.get("curriculum_subject_id") == mapping.id:
+                    matching_resolution = True
+                    break
+                else:
+                    unresolved_reason = f"Your teaching allocation is assigned to '{res.get('curriculum_name')}' ({res.get('curriculum_subject_name')}), but this published scheme belongs to '{mapping.curriculum.name}' ({mapping.name})."
+            elif res.get("status") == CurriculumAssignmentResolver.STATUS_NO_CURRICULUM_ASSIGNED:
+                unresolved_reason = "No curriculum framework is assigned to your class for this academic year."
+            elif res.get("status") == CurriculumAssignmentResolver.STATUS_SUBJECT_UNMAPPED:
+                unresolved_reason = f"Curriculum '{res.get('curriculum_name')}' is assigned to your class, but this subject is not mapped."
+            elif res.get("status") == CurriculumAssignmentResolver.STATUS_CONFIGURATION_CONFLICT:
+                unresolved_reason = "Curriculum assignment configuration for this class has a conflict."
+
+        if not matching_resolution:
+            raise PermissionDenied(
+                unresolved_reason or "This published scheme does not match the curriculum assigned to your teaching allocation."
+            )
         return teacher
 
     @classmethod

@@ -203,13 +203,14 @@ class CurriculumClassesApiTests(TenantTestCase):
             grade_level=self.grade_basic1,
             subject=self.math,
         )
-        topic.subtopics.create(name="Whole Numbers")
+        subtopic = topic.subtopics.create(name="Whole Numbers")
         curriculum_topic = CurriculumTopic.objects.create(
             curriculum_subject=self.math_mapping,
             topic=topic,
             theme="Number and Numeration",
             order=1,
         )
+        curriculum_topic.subtopics.add(subtopic)
         LearningObjective.objects.create(
             curriculum_topic=curriculum_topic,
             description="Recognise whole numbers.",
@@ -249,11 +250,12 @@ class CurriculumClassesApiTests(TenantTestCase):
 
     def test_topic_detail_returns_full_content_and_validates_hierarchy(self):
         topic = Topic.objects.create(name="Fractions", grade_level=self.grade_basic1, subject=self.math)
-        topic.subtopics.create(name="Proper Fractions")
+        subtopic = topic.subtopics.create(name="Proper Fractions")
         mapping = CurriculumTopic.objects.create(
             curriculum_subject=self.math_mapping, topic=topic, theme="Numbers",
             content_summary="Meaning and types of fractions", order=1,
         )
+        mapping.subtopics.add(subtopic)
         LearningObjective.objects.create(
             curriculum_topic=mapping, description="Identify proper fractions", order=1,
         )

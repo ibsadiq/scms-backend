@@ -5,8 +5,8 @@ Supports:
 
     Curriculum
         -> CurriculumSubject
-            -> Topic
-                -> CurriculumTopic
+            -> CurriculumTopic
+                -> optional operational Topic mapping
                     -> SubTopic
                     -> LearningObjective
                     -> CurriculumGuidance
@@ -14,11 +14,11 @@ Supports:
 Features:
 - Resolves tenant by schema/domain/name.
 - Can create Curriculum if missing.
-- Can create missing CurriculumSubject mappings.
+- Can pre-create canonical CurriculumSubject records and enrich optional school Subject mappings.
 - Normalizes subject names so "&", "And", and "and" match consistently.
 - Prefixes duplicate cross-term topic names with their term/theme.
 - Supports grade and subject filters.
-- Supports dry-run rollback across curriculum creation, mappings, and content.
+- Supports dry-run rollback across curriculum creation, canonical subjects, and content.
 - Protects production writes behind --confirm-production.
 - Preserves existing CurriculumImportService validation/import behavior.
 
@@ -532,74 +532,6 @@ def resolve_subject(
 
 
 # ---------------------------------------------------------------------------
-# CurriculumSubject field discovery
-# ---------------------------------------------------------------------------
-
-
-def curriculum_subject_grade_field() -> str:
-    """Determine the GradeLevel FK field on CurriculumSubject."""
-
-    fields = model_field_names(
-        CurriculumSubject
-    )
-
-    for candidate in (
-        "grade_level",
-        "grade",
-        "class_level",
-        "level",
-    ):
-        if candidate in fields:
-            return candidate
-
-    raise CurriculumImportError(
-        "Unable to determine the grade-level field on "
-        "CurriculumSubject. Expected one of: "
-        "grade_level, grade, class_level, level."
-    )
-
-
-def curriculum_subject_subject_field() -> str:
-    """Determine Subject FK field on CurriculumSubject."""
-
-    fields = model_field_names(
-        CurriculumSubject
-    )
-
-    for candidate in (
-        "subject",
-        "school_subject",
-    ):
-        if candidate in fields:
-            return candidate
-
-    raise CurriculumImportError(
-        "Unable to determine the subject field on "
-        "CurriculumSubject."
-    )
-
-
-def curriculum_subject_curriculum_field() -> str:
-    """Determine Curriculum FK field on CurriculumSubject."""
-
-    fields = model_field_names(
-        CurriculumSubject
-    )
-
-    for candidate in (
-        "curriculum",
-        "framework",
-    ):
-        if candidate in fields:
-            return candidate
-
-    raise CurriculumImportError(
-        "Unable to determine the curriculum field on "
-        "CurriculumSubject."
-    )
-
-
-# ---------------------------------------------------------------------------
 # CurriculumSubject creation
 # ---------------------------------------------------------------------------
 
@@ -611,7 +543,11 @@ def ensure_curriculum_subject_mappings(
     grade_filter: str | None,
     subject_filter: str | None,
 ) -> tuple[int, int, int]:
-    """Ensure mappings required by the payload exist.
+    """Pre-create canonical curriculum subjects for the selected payload scope.
+
+    Canonical identity is curriculum + grade level + normalized name. For V2,
+    an operational Subject is optional enrichment. V1 retains its legacy
+    requirement for an existing operational Subject.
 
     Returns:
         created_count,
@@ -639,17 +575,7 @@ def ensure_curriculum_subject_mappings(
         else None
     )
 
-    curriculum_field = (
-        curriculum_subject_curriculum_field()
-    )
-
-    grade_field = (
-        curriculum_subject_grade_field()
-    )
-
-    subject_field = (
-        curriculum_subject_subject_field()
-    )
+    is_v2 = CurriculumImportService._is_v2(data)
 
     payload_grades = data.get(
         "grades"
@@ -714,31 +640,43 @@ def ensure_curriculum_subject_mappings(
             ):
                 continue
 
-            subject = resolve_subject(
-                normalized_subject
-            )
+            subject = CurriculumImportService.resolve_subject(normalized_subject)
+            if subject is None and not is_v2:
+                # Preserve legacy V1 behavior.
+                resolve_subject(normalized_subject)
 
-            lookup = {
-                curriculum_field: curriculum,
-                grade_field: grade_level,
-                subject_field: subject,
-            }
-
-            mapping, created = (
-                CurriculumSubject.objects
-                .get_or_create(
-                    **lookup
+            mapping = CurriculumSubject.objects.filter(
+                curriculum=curriculum,
+                grade_level=grade_level,
+                name__iexact=normalized_subject,
+            ).first()
+            created = mapping is None
+            if created:
+                mapping = CurriculumSubject.objects.create(
+                    curriculum=curriculum,
+                    grade_level=grade_level,
+                    name=normalized_subject,
+                    code=(subject.subject_code or "") if subject else "",
+                    subject=subject,
+                    is_active=True,
                 )
-            )
+            elif mapping.subject_id is None and subject is not None:
+                mapping.subject = subject
+                update_fields = ["subject", "updated_at"]
+                if not mapping.code and subject.subject_code:
+                    mapping.code = subject.subject_code
+                    update_fields.append("code")
+                mapping.save(update_fields=update_fields)
 
             if created:
                 created_count += 1
 
                 print(
-                    "[Created Mapping] "
-                    f"{subject.name} -> "
+                    "[Created Curriculum Subject] "
+                    f"{mapping.name} -> "
                     f"{grade_level.default_name} "
                     f"[{grade_level.system_code}]"
+                    + (f" · mapped to {subject.name}" if subject else " · no school Subject mapping")
                 )
 
             else:
@@ -1173,8 +1111,8 @@ def print_import_header(
     )
 
     print(
-        f"Mappings    : "
-        f"{'CREATE IF MISSING' if create_mappings else 'REQUIRE EXISTING'}"
+        f"Pre-create  : "
+        f"{'CANONICAL SUBJECTS + OPTIONAL MAPPINGS' if create_mappings else 'SERVICE-MANAGED'}"
     )
 
     print(
@@ -1240,8 +1178,9 @@ def main() -> None:
         "--create-mappings",
         action="store_true",
         help=(
-            "Create missing CurriculumSubject mappings "
-            "for grades/subjects in the selected payload scope."
+            "Pre-create canonical CurriculumSubject records in the selected payload scope "
+            "and attach optional matching school Subjects when available. Canonical V2 "
+            "imports do this automatically and do not require this flag."
         ),
     )
 
@@ -1370,7 +1309,7 @@ def main() -> None:
             # One outer transaction controls the entire lifecycle:
             #
             # Curriculum creation
-            # CurriculumSubject mapping creation
+            # Optional canonical CurriculumSubject pre-creation/enrichment
             # Source/batch creation
             # Topic import
             #
@@ -1413,7 +1352,7 @@ def main() -> None:
                     )
 
                 # ---------------------------------------------------
-                # Create required CurriculumSubject mappings
+                # Optionally pre-create canonical CurriculumSubjects and enrich mappings
                 # ---------------------------------------------------
 
                 if args.create_mappings:
@@ -1429,7 +1368,7 @@ def main() -> None:
                     )
 
                     print(
-                        "\nCurriculumSubject mappings:"
+                        "\nCanonical CurriculumSubjects:"
                     )
 
                     print(
@@ -1558,7 +1497,7 @@ def main() -> None:
                     )
 
                     print(
-                        "All curriculum, mapping, provenance, "
+                        "All curriculum, optional mapping, provenance, "
                         "and content changes will be rolled back."
                     )
 

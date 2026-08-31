@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
 from academic.models import (
     Curriculum,
     CurriculumSubject,
@@ -11,6 +12,8 @@ from academic.models import (
     PublishedScheme,
     PublishedSchemeEntry,
     CurriculumResource,
+    CurriculumAssignment,
+    Subject,
 )
 
 
@@ -210,24 +213,45 @@ class CurriculumTopicSerializer(serializers.ModelSerializer):
 class CurriculumSubjectSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True, allow_null=True)
     grade_level_name = serializers.CharField(source="grade_level.__str__", read_only=True)
+    curriculum_name = serializers.CharField(source="curriculum.name", read_only=True)
+    curriculum_id = serializers.IntegerField(read_only=True)
+    grade_level_id = serializers.IntegerField(read_only=True)
+    subject_id = serializers.IntegerField(read_only=True, allow_null=True)
+    is_mapped = serializers.SerializerMethodField()
+
+    def get_is_mapped(self, obj):
+        return obj.subject_id is not None
 
     class Meta:
         model = CurriculumSubject
         fields = [
             "id",
             "curriculum",
+            "curriculum_id",
+            "curriculum_name",
             "name",
             "code",
             "subject",
+            "subject_id",
             "subject_name",
             "grade_level",
+            "grade_level_id",
             "grade_level_name",
+            "is_mapped",
             "description",
             "is_active",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
+
+
+class CurriculumSubjectMappingSerializer(serializers.Serializer):
+    subject_id = serializers.PrimaryKeyRelatedField(
+        source="subject",
+        queryset=Subject.objects.all(),
+        allow_null=True,
+    )
 
 
 class CurriculumSerializer(serializers.ModelSerializer):
@@ -304,11 +328,47 @@ class PublishedSchemeSerializer(serializers.ModelSerializer):
     entries = PublishedSchemeEntrySerializer(many=True, read_only=True)
     source_title = serializers.CharField(source="source.title", read_only=True)
     source_type = serializers.CharField(source="source.source_type", read_only=True)
+    curriculum_id = serializers.IntegerField(
+        source="curriculum_subject.curriculum_id", read_only=True
+    )
+    curriculum_name = serializers.CharField(
+        source="curriculum_subject.curriculum.name", read_only=True
+    )
+    curriculum_subject_name = serializers.CharField(
+        source="curriculum_subject.name", read_only=True
+    )
+    grade_level_name = serializers.CharField(
+        source="curriculum_subject.grade_level.__str__", read_only=True
+    )
+    grade_level_id = serializers.IntegerField(
+        source="curriculum_subject.grade_level_id", read_only=True
+    )
+    subject_id = serializers.IntegerField(
+        source="curriculum_subject.subject_id", read_only=True, allow_null=True
+    )
+    subject_name = serializers.CharField(
+        source="curriculum_subject.subject.name", read_only=True, allow_null=True
+    )
+    is_mapped = serializers.SerializerMethodField()
+    entry_count = serializers.SerializerMethodField()
+    terms_covered = serializers.SerializerMethodField()
+
+    def get_is_mapped(self, obj):
+        return obj.curriculum_subject.subject_id is not None
+
+    def get_entry_count(self, obj):
+        return len(obj.entries.all())
+
+    def get_terms_covered(self, obj):
+        return sorted({entry.term_number for entry in obj.entries.all()})
 
     class Meta:
         model = PublishedScheme
         fields = [
-            "id", "curriculum_subject", "name", "version", "description", "source",
+            "id", "curriculum_subject", "curriculum_subject_name", "curriculum_id",
+            "curriculum_name", "grade_level_id", "grade_level_name", "subject_id", "subject_name",
+            "is_mapped", "entry_count", "terms_covered",
+            "name", "version", "description", "source",
             "source_title", "source_type", "is_active", "entries", "created_at", "updated_at",
         ]
 
@@ -338,3 +398,86 @@ class CurriculumResourceSerializer(serializers.ModelSerializer):
             "order", "source", "source_page_start", "source_page_end", "source_reference",
             "source_title", "source_type", "import_batch", "is_active", "created_at", "updated_at",
         ]
+
+
+class CurriculumAssignmentSerializer(serializers.ModelSerializer):
+    academic_year_name = serializers.CharField(source="academic_year.name", read_only=True)
+    curriculum_name = serializers.CharField(source="curriculum.name", read_only=True)
+    curriculum_version = serializers.CharField(source="curriculum.version", read_only=True)
+    section_name = serializers.CharField(source="section.__str__", read_only=True)
+    grade_level_name = serializers.CharField(source="grade_level.__str__", read_only=True)
+    classroom_name = serializers.CharField(source="classroom.__str__", read_only=True)
+    scope_type = serializers.CharField(read_only=True)
+    created_by_name = serializers.CharField(source="created_by.__str__", read_only=True)
+
+    section = serializers.PrimaryKeyRelatedField(
+        queryset=CurriculumAssignment._meta.get_field("section").remote_field.model.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    grade_level = serializers.PrimaryKeyRelatedField(
+        queryset=CurriculumAssignment._meta.get_field("grade_level").remote_field.model.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    classroom = serializers.PrimaryKeyRelatedField(
+        queryset=CurriculumAssignment._meta.get_field("classroom").remote_field.model.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+    class Meta:
+        model = CurriculumAssignment
+        fields = [
+            "id",
+            "academic_year",
+            "academic_year_name",
+            "curriculum",
+            "curriculum_name",
+            "curriculum_version",
+            "section",
+            "section_name",
+            "grade_level",
+            "grade_level_name",
+            "classroom",
+            "classroom_name",
+            "scope_type",
+            "is_active",
+            "notes",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_by", "created_at", "updated_at"]
+        extra_kwargs = {
+            "section": {"required": False, "allow_null": True},
+            "grade_level": {"required": False, "allow_null": True},
+            "classroom": {"required": False, "allow_null": True},
+        }
+
+    def validate(self, attrs):
+        instance = self.instance or CurriculumAssignment()
+        for field, value in attrs.items():
+            setattr(instance, field, value)
+
+        # Clear scopes if not present in attrs and instance is new
+        if not self.instance:
+            if "section" not in attrs:
+                instance.section = None
+            if "grade_level" not in attrs:
+                instance.grade_level = None
+            if "classroom" not in attrs:
+                instance.classroom = None
+
+        try:
+            instance.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                getattr(exc, "message_dict", None) or exc.messages
+            ) from exc
+
+        return attrs

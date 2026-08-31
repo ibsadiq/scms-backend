@@ -1,7 +1,7 @@
 from django.db.models import BooleanField, Count, Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import viewsets
+from rest_framework import filters, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -17,12 +17,14 @@ from academic.models.curriculum import (
     PublishedScheme,
     PublishedSchemeEntry,
     CurriculumResource,
+    CurriculumAssignment,
 )
 from academic.serializers.curriculum import (
     CurriculumClassSerializer,
     CurriculumSerializer,
     CurriculumSubjectSummarySerializer,
     CurriculumSubjectSerializer,
+    CurriculumSubjectMappingSerializer,
     CurriculumTopicDetailSerializer,
     CurriculumTopicSummarySerializer,
     CurriculumTopicSerializer,
@@ -32,6 +34,7 @@ from academic.serializers.curriculum import (
     PublishedSchemeSerializer,
     PublishedSchemeEntrySerializer,
     CurriculumResourceSerializer,
+    CurriculumAssignmentSerializer,
 )
 
 
@@ -201,11 +204,32 @@ class CurriculumViewSet(viewsets.ModelViewSet):
 
 
 class CurriculumSubjectViewSet(viewsets.ModelViewSet):
-    queryset = CurriculumSubject.objects.select_related("subject", "grade_level")
+    queryset = CurriculumSubject.objects.select_related("curriculum", "subject", "grade_level")
     serializer_class = CurriculumSubjectSerializer
     permission_classes = [IsAcademicAdminOrReadOnly]
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["curriculum", "grade_level"]
+    search_fields = ["name", "code", "subject__name", "curriculum__name"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        mapped = self.request.query_params.get("mapped")
+        if mapped is not None:
+            normalized = mapped.strip().lower()
+            if normalized in {"true", "1"}:
+                queryset = queryset.filter(subject__isnull=False)
+            elif normalized in {"false", "0"}:
+                queryset = queryset.filter(subject__isnull=True)
+        return queryset
+
+    @action(detail=True, methods=["patch"], url_path="mapping")
+    def mapping(self, request, pk=None):
+        curriculum_subject = self.get_object()
+        payload = CurriculumSubjectMappingSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        curriculum_subject.subject = payload.validated_data["subject"]
+        curriculum_subject.save(update_fields=["subject", "updated_at"])
+        return Response(self.get_serializer(curriculum_subject).data)
 
 
 class CurriculumTopicViewSet(viewsets.ModelViewSet):
@@ -245,7 +269,8 @@ class LearningObjectiveViewSet(viewsets.ModelViewSet):
 
 class PublishedSchemeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PublishedScheme.objects.select_related(
-        "curriculum_subject__subject", "curriculum_subject__grade_level", "source"
+        "curriculum_subject__subject", "curriculum_subject__grade_level",
+        "curriculum_subject__curriculum", "source"
     ).prefetch_related("entries")
     serializer_class = PublishedSchemeSerializer
     permission_classes = [IsAuthenticated]
@@ -277,3 +302,16 @@ class CurriculumResourceViewSet(viewsets.ReadOnlyModelViewSet):
         "curriculum_subject", "curriculum_topic", "published_scheme_entry",
         "resource_type", "is_active",
     ]
+
+
+class CurriculumAssignmentViewSet(viewsets.ModelViewSet):
+    queryset = CurriculumAssignment.objects.select_related(
+        "academic_year", "curriculum", "section", "grade_level", "classroom", "created_by"
+    ).all()
+    serializer_class = CurriculumAssignmentSerializer
+    permission_classes = [IsAcademicAdminOrReadOnly]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["academic_year", "curriculum", "section", "grade_level", "classroom", "is_active"]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)

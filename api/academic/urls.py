@@ -43,6 +43,7 @@ from academic.views import (
     PublishedSchemeViewSet,
     PublishedSchemeEntryViewSet,
     CurriculumResourceViewSet,
+    CurriculumAssignmentViewSet,
     SchemeOfWorkViewSet,
     SchemeOfWorkItemViewSet,
     LessonPlanViewSet,
@@ -73,6 +74,7 @@ router.register(r'learning-objectives', LearningObjectiveViewSet, basename='lear
 router.register(r'published-schemes', PublishedSchemeViewSet, basename='published-scheme')
 router.register(r'published-scheme-entries', PublishedSchemeEntryViewSet, basename='published-scheme-entry')
 router.register(r'curriculum-resources', CurriculumResourceViewSet, basename='curriculum-resource')
+router.register(r'curriculum-assignments', CurriculumAssignmentViewSet, basename='curriculum-assignment')
 router.register(r'schemes-of-work', SchemeOfWorkViewSet, basename='scheme-of-work')
 router.register(r'scheme-of-work-items', SchemeOfWorkItemViewSet, basename='scheme-of-work-item')
 router.register(r'lesson-plans', LessonPlanViewSet, basename='lesson-plan')

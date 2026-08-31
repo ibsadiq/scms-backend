@@ -87,6 +87,7 @@ from .curriculum import (
     PublishedSchemeViewSet,
     PublishedSchemeEntryViewSet,
     CurriculumResourceViewSet,
+    CurriculumAssignmentViewSet,
 )
 
 from .scheme_and_lesson import (
@@ -167,6 +168,7 @@ __all__ = [
     "PublishedSchemeViewSet",
     "PublishedSchemeEntryViewSet",
     "CurriculumResourceViewSet",
+    "CurriculumAssignmentViewSet",
     # Scheme and Lesson
     "SchemeOfWorkViewSet",
     "SchemeOfWorkItemViewSet",
