@@ -22,10 +22,11 @@ class AssessmentSessionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         # Allow admins to create without teacher profile
-        if self.request.user.is_admin:
+        if getattr(self.request.user, "is_admin", False):
             serializer.save(created_by=None)
         else:
-            serializer.save(created_by=self.request.user.teacher)
+            teacher = getattr(self.request.user, "teacher", None)
+            serializer.save(created_by=teacher)
 
 
 class AssessmentEntryViewSet(viewsets.ModelViewSet):

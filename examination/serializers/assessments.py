@@ -26,7 +26,7 @@ class AssessmentSessionSerializer(serializers.ModelSerializer):
 
         instance = AssessmentSession(**instance_dict)
         instance.pk = self.instance.pk if self.instance else None
-        instance.full_clean(exclude=["id", "classrooms"])
+        instance.full_clean(exclude=["id", "classrooms", "created_by"])
         return attrs
 
 

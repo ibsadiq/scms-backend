@@ -25,8 +25,14 @@ class PaymentThrough(models.TextChoices):
 
 class FeeType(models.TextChoices):
     TUITION = "Tuition", "Tuition"
+    ADMISSION = "Admission", "Admission"
     TRANSPORT = "Transport", "Transport"
     MEALS = "Meals", "Meals"
+    EXAM = "Exam", "Exam"
+    LIBRARY = "Library", "Library"
+    LABORATORY = "Laboratory", "Laboratory"
+    SPORTS = "Sports", "Sports"
+    MAINTENANCE = "Maintenance", "Maintenance"
     BOOKS = "Books", "Books"
     UNIFORM = "Uniform", "Uniform"
     OTHER = "Other", "Other"

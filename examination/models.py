@@ -423,7 +423,7 @@ class AssessmentSession(models.Model):
     comments = models.CharField(
         max_length=200, blank=True, null=True, help_text="Comments Regarding Exam"
     )
-    created_by = models.ForeignKey(Teacher, on_delete=models.CASCADE, null=True)
+    created_by = models.ForeignKey(Teacher, on_delete=models.CASCADE, null=True, blank=True)
     created_on = models.DateTimeField(auto_now_add=True)
 
     @property
