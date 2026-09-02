@@ -85,6 +85,7 @@ class QuestionVersionSerializer(serializers.ModelSerializer):
         source="created_by.user.get_full_name", read_only=True, default=""
     )
     options = QuestionOptionSerializer(many=True, read_only=True)
+    answer_definition = serializers.SerializerMethodField()
     attachments = QuestionAttachmentSerializer(many=True, read_only=True)
     objective_alignments = QuestionLearningObjectiveSerializer(many=True, read_only=True)
     reviews = QuestionReviewSerializer(many=True, read_only=True)
@@ -101,12 +102,61 @@ class QuestionVersionSerializer(serializers.ModelSerializer):
             "created_by",
             "created_by_name",
             "options",
+            "answer_definition",
             "attachments",
             "objective_alignments",
             "reviews",
             "created_at",
         ]
         read_only_fields = ["version", "created_by", "created_at"]
+
+    def get_answer_definition(self, obj):
+        if hasattr(obj, "short_answer_definition"):
+            sad = obj.short_answer_definition
+            return {
+                "case_sensitive": sad.case_sensitive,
+                "trim_whitespace": sad.trim_whitespace,
+                "accepted_answers": list(sad.accepted_answers.values_list("answer", flat=True)),
+            }
+        elif hasattr(obj, "numeric_answer_definition"):
+            nad = obj.numeric_answer_definition
+            return {
+                "expected_value": str(nad.expected_value),
+                "tolerance": str(nad.tolerance),
+            }
+        elif hasattr(obj, "fill_blank_definition"):
+            fbd = obj.fill_blank_definition
+            blanks = []
+            for item in fbd.blanks.all().order_by("position"):
+                blanks.append({
+                    "position": item.position,
+                    "accepted_answers": list(item.accepted_answers.values_list("answer", flat=True)),
+                })
+            return {
+                "case_sensitive": fbd.case_sensitive,
+                "blanks": blanks,
+            }
+        elif hasattr(obj, "essay_definition"):
+            ed = obj.essay_definition
+            return {
+                "marking_guide": ed.marking_guide,
+                "model_answer": ed.model_answer,
+                "minimum_words": ed.minimum_words,
+                "maximum_words": ed.maximum_words,
+            }
+        elif hasattr(obj, "matching_definition"):
+            md = obj.matching_definition
+            pairs = []
+            for pair in md.pairs.all().order_by("order"):
+                pairs.append({
+                    "left_text": pair.left_text,
+                    "right_text": pair.right_text,
+                })
+            return {
+                "shuffle_right_items": md.shuffle_right_items,
+                "pairs": pairs,
+            }
+        return {}
 
 
 class QuestionBankSerializer(serializers.ModelSerializer):

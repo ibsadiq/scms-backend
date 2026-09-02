@@ -133,6 +133,9 @@ class PendingEssayGradingSerializer(serializers.Serializer):
     submitted_text = serializers.SerializerMethodField()
     max_marks = serializers.SerializerMethodField()
     submitted_at = serializers.DateTimeField(source="attempt.submitted_at")
+    marking_guide = serializers.SerializerMethodField()
+    model_answer = serializers.SerializerMethodField()
+
     def get_student_name(self, obj):
         user = getattr(obj.attempt.student, "user", None)
         return user.get_full_name() if user else ""
@@ -156,6 +159,24 @@ class PendingEssayGradingSerializer(serializers.Serializer):
             except Exception:
                 return ""
         return ""
+
+    def _get_essay_definition(self, obj):
+        version = None
+        if obj.published_question_id:
+            version = obj.published_question.source_question_version
+        elif obj.exam_question_id:
+            version = obj.exam_question.question_version
+        if version and hasattr(version, "essay_definition"):
+            return version.essay_definition
+        return None
+
+    def get_marking_guide(self, obj):
+        defn = self._get_essay_definition(obj)
+        return defn.marking_guide if defn else ""
+
+    def get_model_answer(self, obj):
+        defn = self._get_essay_definition(obj)
+        return defn.model_answer if defn else ""
 
 
 class ManualEssayGradeResponseSerializer(serializers.Serializer):

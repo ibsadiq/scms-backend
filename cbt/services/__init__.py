@@ -15,6 +15,7 @@ from .exam_access_service import CBTExamAccessService, ExamAccessDecision, ExamA
 from .attempt_grant_service import AttemptGrantService, VerifiedAttemptGrant
 from .offline_package_service import OfflinePackageService, OfflinePackageError
 from .offline_sync_service import OfflineSyncService, OfflineSyncError
+from .analytics_service import CBTAnalyticsService
 
 __all__ = [
     "CBTActorService",
@@ -39,4 +40,5 @@ __all__ = [
     "OfflinePackageError",
     "OfflineSyncService",
     "OfflineSyncError",
+    "CBTAnalyticsService",
 ]

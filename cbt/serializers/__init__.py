@@ -45,6 +45,11 @@ from .grading import (
     PendingEssayGradingSerializer,
     ManualEssayGradeResponseSerializer,
 )
+from .invigilation import (
+    InvigilationExamListSerializer,
+    MonitoredAttemptListSerializer,
+    MonitoredAttemptDetailSerializer,
+)
 
 __all__ = [
     # Question Bank
@@ -87,4 +92,8 @@ __all__ = [
     "ManualEssayGradeSerializer",
     "PendingEssayGradingSerializer",
     "ManualEssayGradeResponseSerializer",
+    # Invigilation
+    "InvigilationExamListSerializer",
+    "MonitoredAttemptListSerializer",
+    "MonitoredAttemptDetailSerializer",
 ]

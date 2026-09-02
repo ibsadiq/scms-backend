@@ -11,6 +11,8 @@ from cbt.views import (
     AttemptQuestionViewSet,
     ManualGradingViewSet,
     AttemptGradeViewSet,
+    CBTInvigilationViewSet,
+    CBTAnalyticsViewSet,
     OfflineMediaDownloadView,
     OfflineAttemptStartView,
     OfflineAttemptSyncView,
@@ -26,6 +28,12 @@ router.register(r"question-attachments", QuestionAttachmentViewSet, basename="qu
 
 # CBT Exam Management
 router.register(r"exams", CBTExamViewSet, basename="cbt-exam")
+
+# Invigilation & Live Monitoring
+router.register(r"invigilation", CBTInvigilationViewSet, basename="cbt-invigilation")
+
+# Performance Analytics
+router.register(r"analytics", CBTAnalyticsViewSet, basename="cbt-analytics")
 
 # Student CBT Portal
 router.register(r"student/exams", StudentExamViewSet, basename="student-cbt-exam")

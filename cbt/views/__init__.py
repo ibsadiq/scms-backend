@@ -19,6 +19,12 @@ from .grading import (
     ManualGradingViewSet,
     AttemptGradeViewSet,
 )
+from .invigilation import (
+    CBTInvigilationViewSet,
+)
+from .analytics import (
+    CBTAnalyticsViewSet,
+)
 
 __all__ = [
     # Question Bank
@@ -38,4 +44,8 @@ __all__ = [
     # Grading
     "ManualGradingViewSet",
     "AttemptGradeViewSet",
+    # Invigilation
+    "CBTInvigilationViewSet",
+    # Analytics
+    "CBTAnalyticsViewSet",
 ]
