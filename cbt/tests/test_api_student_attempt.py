@@ -113,14 +113,16 @@ class StudentAttemptAPITests(CBTAPITestBase):
         self.assertEqual(res_resume.status_code, status.HTTP_200_OK)
         self.assertEqual(res_resume.data["id"], attempt_id)
 
-    def test_duplicate_attempt_prevented(self):
-        """Starting an already active attempt returns error."""
+    def test_duplicate_attempt_start_resumes_existing_attempt(self):
+        """Retrying start returns the same active attempt."""
         self.client.force_authenticate(user=self.student_user)
         res1 = self.client.post(f"/api/cbt/student/exams/{self.exam_jss1.id}/start/")
         self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
 
         res2 = self.client.post(f"/api/cbt/student/exams/{self.exam_jss1.id}/start/")
-        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res2.data["id"], res1.data["id"])
+        self.assertEqual(res2.data["public_id"], res1.data["public_id"])
 
     def test_cross_student_attempt_isolation(self):
         """A student cannot access another student's exam attempt."""

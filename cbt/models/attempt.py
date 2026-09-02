@@ -5,12 +5,26 @@ from django.core.exceptions import ValidationError
 
 from academic.models import Student, StudentClassEnrollment
 
-from .choices import ExamAttemptStatus
+from .choices import AttemptStartSource, ExamAttemptStatus
 from .exam import CBTExam, ExamQuestion
 from .answer_definitions import QuestionOption, MatchingPair
+from .publication import (
+    PublishedExamRevision,
+    PublishedExamQuestion,
+    PublishedExamChoice,
+    PublishedExamMatchingItem,
+)
+from .grants import AttemptGrant
+from .offline_package import OfflineExamPackage
 
 
 class ExamAttempt(models.Model):
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+
     cbt_exam = models.ForeignKey(
         CBTExam,
         on_delete=models.PROTECT,
@@ -28,6 +42,40 @@ class ExamAttempt(models.Model):
         on_delete=models.PROTECT,
         related_name="cbt_attempts",
     )
+
+    published_revision = models.ForeignKey(
+        PublishedExamRevision,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempts",
+    )
+
+    attempt_grant = models.OneToOneField(
+        AttemptGrant,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempt",
+    )
+
+    offline_package = models.OneToOneField(
+        OfflineExamPackage,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempt",
+    )
+
+    start_source = models.CharField(
+        max_length=24,
+        choices=AttemptStartSource.choices,
+        default=AttemptStartSource.ONLINE,
+    )
+
+    client_reported_started_at = models.DateTimeField(null=True, blank=True)
+    server_reconciled_at = models.DateTimeField(null=True, blank=True)
+    client_reported_submitted_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(
         max_length=20,
@@ -48,6 +96,19 @@ class ExamAttempt(models.Model):
         null=True,
         blank=True,
     )
+
+    revision = models.PositiveBigIntegerField(default=0)
+
+    submission_id = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+
+    submitted_revision = models.PositiveBigIntegerField(null=True, blank=True)
+
+    submission_snapshot_hash = models.CharField(max_length=64, blank=True)
 
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -98,8 +159,54 @@ class ExamAttempt(models.Model):
             f"{self.get_status_display()}"
         )
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values(
+                "public_id", "attempt_grant_id", "published_revision_id",
+                "offline_package_id", "start_source",
+                "client_reported_started_at", "server_reconciled_at",
+            ).first()
+            if original and self.public_id != original["public_id"]:
+                raise ValidationError("Attempt public identity cannot be changed.")
+            if original and original["attempt_grant_id"] != self.attempt_grant_id:
+                raise ValidationError("Attempt grant binding cannot be changed.")
+            if original and original["published_revision_id"] != self.published_revision_id:
+                raise ValidationError("Attempt published revision cannot be changed.")
+            for field in (
+                "offline_package_id", "start_source",
+                "client_reported_started_at", "server_reconciled_at",
+            ):
+                if original and original[field] != getattr(self, field):
+                    raise ValidationError("Attempt offline-start provenance cannot be changed.")
+        return super().save(*args, **kwargs)
+
     def clean(self):
         errors = {}
+
+        if self.published_revision_id:
+            if self.published_revision.exam_id != self.cbt_exam_id:
+                errors["published_revision"] = "Published revision must belong to this exam."
+            elif self.published_revision.status != PublishedExamRevision.Status.FINALIZED:
+                errors["published_revision"] = "Attempts require a finalized revision."
+
+        if self.attempt_grant_id:
+            if self.attempt_grant.student_id != self.student_id:
+                errors["attempt_grant"] = "Attempt grant must belong to the student."
+            elif self.attempt_grant.exam_id != self.cbt_exam_id:
+                errors["attempt_grant"] = "Attempt grant must belong to the exam."
+            elif self.attempt_grant.published_revision_id != self.published_revision_id:
+                errors["attempt_grant"] = "Attempt and grant revisions must match."
+
+        if self.offline_package_id:
+            package = self.offline_package
+            if package.student_id != self.student_id:
+                errors["offline_package"] = "Attempt and package students must match."
+            elif package.exam_id != self.cbt_exam_id:
+                errors["offline_package"] = "Attempt and package exams must match."
+            elif package.published_revision_id != self.published_revision_id:
+                errors["offline_package"] = "Attempt and package revisions must match."
+            elif package.attempt_grant_id != self.attempt_grant_id:
+                errors["offline_package"] = "Attempt and package grants must match."
 
         if self.enrollment_id and self.student_id:
             if self.enrollment.student_id != self.student_id:
@@ -142,6 +249,12 @@ class ExamAttempt(models.Model):
         super().clean()
 
 class AttemptQuestion(models.Model):
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+
     attempt = models.ForeignKey(
         ExamAttempt,
         on_delete=models.CASCADE,
@@ -151,6 +264,16 @@ class AttemptQuestion(models.Model):
     exam_question = models.ForeignKey(
         ExamQuestion,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempt_questions",
+    )
+
+    published_question = models.ForeignKey(
+        PublishedExamQuestion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="attempt_questions",
     )
 
@@ -183,6 +306,17 @@ class AttemptQuestion(models.Model):
                 ],
                 name="unique_attempt_question_display_order",
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(exam_question__isnull=False, published_question__isnull=True)
+                    | models.Q(exam_question__isnull=True, published_question__isnull=False)
+                ),
+                name="attempt_question_has_one_source",
+            ),
+            models.UniqueConstraint(
+                fields=["attempt", "published_question"],
+                name="unique_published_question_per_attempt",
+            ),
         ]
 
         indexes = [
@@ -196,6 +330,12 @@ class AttemptQuestion(models.Model):
 
     def clean(self):
         errors = {}
+
+        if self.published_question_id:
+            if not self.attempt.published_revision_id:
+                errors["published_question"] = "Published question requires a revision-backed attempt."
+            elif self.published_question.revision_id != self.attempt.published_revision_id:
+                errors["published_question"] = "Published question must belong to the attempt revision."
 
         if (
             self.attempt_id
@@ -227,6 +367,15 @@ class AttemptQuestion(models.Model):
             f"Question {self.display_order}"
         )
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original_public_id = type(self).objects.filter(pk=self.pk).values_list(
+                "public_id", flat=True
+            ).first()
+            if original_public_id and self.public_id != original_public_id:
+                raise ValidationError("Attempt-question public identity cannot be changed.")
+        return super().save(*args, **kwargs)
+
 class AttemptQuestionOption(models.Model):
     attempt_question = models.ForeignKey(
         AttemptQuestion,
@@ -237,6 +386,16 @@ class AttemptQuestionOption(models.Model):
     question_option = models.ForeignKey(
         QuestionOption,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempt_presentations",
+    )
+
+    published_choice = models.ForeignKey(
+        PublishedExamChoice,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="attempt_presentations",
     )
 
@@ -260,6 +419,17 @@ class AttemptQuestionOption(models.Model):
                 ],
                 name="unique_attempt_option_display_order",
             ),
+            models.UniqueConstraint(
+                fields=["attempt_question", "published_choice"],
+                name="unique_published_option_per_attempt_question",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(question_option__isnull=False, published_choice__isnull=True)
+                    | models.Q(question_option__isnull=True, published_choice__isnull=False)
+                ),
+                name="attempt_option_has_one_source",
+            ),
         ]
 
 
@@ -276,6 +446,15 @@ class AttemptMatchingItem(models.Model):
     matching_pair = models.ForeignKey(
         MatchingPair,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempt_presentations",
+    )
+    published_item = models.ForeignKey(
+        PublishedExamMatchingItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="attempt_presentations",
     )
     side = models.CharField(max_length=5, choices=Side.choices)
@@ -292,5 +471,16 @@ class AttemptMatchingItem(models.Model):
             models.UniqueConstraint(
                 fields=["attempt_question", "side", "display_order"],
                 name="unique_matching_item_order_per_side",
+            ),
+            models.UniqueConstraint(
+                fields=["attempt_question", "published_item", "side"],
+                name="unique_published_matching_item_side",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(matching_pair__isnull=False, published_item__isnull=True)
+                    | models.Q(matching_pair__isnull=True, published_item__isnull=False)
+                ),
+                name="attempt_matching_item_has_one_source",
             ),
         ]

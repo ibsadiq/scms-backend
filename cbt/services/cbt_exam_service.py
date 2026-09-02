@@ -22,42 +22,9 @@ class CBTExamService:
     def publish(*, exam, actor):
         if not actor:
             raise ValidationError("Actor is required to publish a CBT exam.")
-
-        exam = (
-            CBTExam.objects
-            .select_for_update()
-            .get(pk=exam.pk)
-        )
-
-        CBTExamService.validate_for_publish(exam)
-
-        section = None
-        if exam.classroom and hasattr(exam.classroom, 'grade_level') and exam.classroom.grade_level:
-            section = exam.classroom.grade_level.section
-
-        academic_year = None
-        if exam.session and hasattr(exam.session, 'academic_year'):
-            academic_year = exam.session.academic_year
-
-        AcademicAuthorityService.require_approval_authority(
-            actor=actor,
-            workflow=AcademicWorkflow.CBT_PUBLISH,
-            subject=exam.subject,
-            section=section,
-            academic_year=academic_year,
-            creator=exam.created_by,
-        )
-
-        exam.status = CBTExamStatus.PUBLISHED
-
-        exam.save(
-            update_fields=[
-                "status",
-                "updated_at",
-            ]
-        )
-
-        return exam
+        from .published_exam_revision_service import PublishedExamRevisionService
+        revision = PublishedExamRevisionService.publish(exam=exam, actor=actor)
+        return CBTExam.objects.get(pk=revision.exam_id)
 
     @staticmethod
     @transaction.atomic

@@ -1,0 +1,152 @@
+# Generated for CBT Phase 3. Backend migrations/tests intentionally not executed.
+
+import django.db.models.deletion
+import uuid
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [("cbt", "0003_attemptquestion_public_id_examattempt_public_id_and_more")]
+
+    operations = [
+        migrations.CreateModel(
+            name="PublishedExamRevision",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("public_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("revision_number", models.PositiveIntegerField()),
+                ("status", models.CharField(choices=[("BUILDING", "Building"), ("FINALIZED", "Finalized")], default="BUILDING", max_length=12)),
+                ("schema_version", models.PositiveIntegerField(default=1)),
+                ("content_hash", models.CharField(blank=True, max_length=64)),
+                ("title", models.CharField(max_length=255)),
+                ("instructions", models.TextField(blank=True)),
+                ("duration_minutes", models.PositiveIntegerField()),
+                ("shuffle_questions", models.BooleanField(default=True)),
+                ("shuffle_options", models.BooleanField(default=True)),
+                ("allow_back_navigation", models.BooleanField(default=True)),
+                ("auto_submit", models.BooleanField(default=True)),
+                ("published_at", models.DateTimeField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("exam", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="published_revisions", to="cbt.cbtexam")),
+                ("published_by", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="published_cbt_revisions", to="academic.teacher")),
+            ],
+            options={
+                "ordering": ["exam", "-revision_number"],
+                "constraints": [models.UniqueConstraint(fields=("exam", "revision_number"), name="unique_published_revision_number_per_exam")],
+            },
+        ),
+        migrations.CreateModel(
+            name="PublishedExamQuestion",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("public_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("question_type", models.CharField(max_length=30)),
+                ("question_text", models.TextField()),
+                ("instructions", models.TextField(blank=True)),
+                ("marks", models.DecimalField(decimal_places=2, max_digits=8)),
+                ("order", models.PositiveIntegerField()),
+                ("interaction_config", models.JSONField(blank=True, default=dict)),
+                ("revision", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="questions", to="cbt.publishedexamrevision")),
+                ("source_exam_question", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="published_snapshots", to="cbt.examquestion")),
+                ("source_question_version", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="published_snapshots", to="cbt.questionversion")),
+            ],
+            options={
+                "ordering": ["order"],
+                "constraints": [
+                    models.UniqueConstraint(fields=("revision", "order"), name="unique_published_question_order"),
+                    models.UniqueConstraint(fields=("revision", "source_exam_question"), name="unique_source_question_per_revision"),
+                ],
+            },
+        ),
+        migrations.CreateModel(
+            name="PublishedExamChoice",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("public_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("key", models.CharField(max_length=40)),
+                ("text", models.TextField()),
+                ("order", models.PositiveIntegerField()),
+                ("published_question", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="choices", to="cbt.publishedexamquestion")),
+                ("source_option", models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name="published_choices", to="cbt.questionoption")),
+            ],
+            options={"ordering": ["order"], "constraints": [models.UniqueConstraint(fields=("published_question", "key"), name="unique_published_choice_key"), models.UniqueConstraint(fields=("published_question", "order"), name="unique_published_choice_order")]},
+        ),
+        migrations.CreateModel(
+            name="PublishedExamBlank",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("public_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("key", models.CharField(max_length=40)),
+                ("position", models.PositiveIntegerField()),
+                ("published_question", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="blanks", to="cbt.publishedexamquestion")),
+                ("source_blank", models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name="published_blanks", to="cbt.fillblankitem")),
+            ],
+            options={"ordering": ["position"], "constraints": [models.UniqueConstraint(fields=("published_question", "key"), name="unique_published_blank_key"), models.UniqueConstraint(fields=("published_question", "position"), name="unique_published_blank_position")]},
+        ),
+        migrations.CreateModel(
+            name="PublishedExamMatchingItem",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("public_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("key", models.CharField(max_length=40)),
+                ("side", models.CharField(choices=[("LEFT", "Left"), ("RIGHT", "Right")], max_length=5)),
+                ("text", models.TextField()),
+                ("order", models.PositiveIntegerField()),
+                ("published_question", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="matching_items", to="cbt.publishedexamquestion")),
+                ("source_pair", models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name="published_items", to="cbt.matchingpair")),
+            ],
+            options={"ordering": ["side", "order"], "constraints": [models.UniqueConstraint(fields=("published_question", "key"), name="unique_published_matching_key"), models.UniqueConstraint(fields=("published_question", "side", "order"), name="unique_published_matching_order")]},
+        ),
+        migrations.CreateModel(
+            name="PublishedQuestionGradingDefinition",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("definition", models.JSONField(default=dict)),
+                ("published_question", models.OneToOneField(on_delete=django.db.models.deletion.PROTECT, related_name="grading_definition", to="cbt.publishedexamquestion")),
+            ],
+        ),
+        migrations.CreateModel(
+            name="PublishedExamMedia",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("public_id", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ("filename", models.CharField(max_length=255)),
+                ("caption", models.CharField(blank=True, max_length=255)),
+                ("order", models.PositiveIntegerField()),
+                ("storage_reference", models.TextField()),
+                ("content_sha256", models.CharField(max_length=64)),
+                ("size_bytes", models.PositiveBigIntegerField()),
+                ("published_question", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="media", to="cbt.publishedexamquestion")),
+                ("source_attachment", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="published_media", to="cbt.questionattachment")),
+            ],
+            options={"ordering": ["order"]},
+        ),
+        migrations.AddField(model_name="examattempt", name="published_revision", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempts", to="cbt.publishedexamrevision")),
+        migrations.AlterField(model_name="attemptquestion", name="exam_question", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempt_questions", to="cbt.examquestion")),
+        migrations.AddField(model_name="attemptquestion", name="published_question", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempt_questions", to="cbt.publishedexamquestion")),
+        migrations.AlterField(model_name="attemptquestionoption", name="question_option", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempt_presentations", to="cbt.questionoption")),
+        migrations.AddField(model_name="attemptquestionoption", name="published_choice", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempt_presentations", to="cbt.publishedexamchoice")),
+        migrations.AlterField(model_name="attemptmatchingitem", name="matching_pair", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempt_presentations", to="cbt.matchingpair")),
+        migrations.AddField(model_name="attemptmatchingitem", name="published_item", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="attempt_presentations", to="cbt.publishedexammatchingitem")),
+        migrations.AlterField(model_name="studentchoiceanswer", name="question_option", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="student_selections", to="cbt.questionoption")),
+        migrations.AddField(model_name="studentchoiceanswer", name="published_choice", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="student_selections", to="cbt.publishedexamchoice")),
+        migrations.AlterField(model_name="studentfillblankanswer", name="blank", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="student_answers", to="cbt.fillblankitem")),
+        migrations.AddField(model_name="studentfillblankanswer", name="published_blank", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="student_answers", to="cbt.publishedexamblank")),
+        migrations.AlterField(model_name="studentmatchinganswer", name="left_pair", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="+", to="cbt.matchingpair")),
+        migrations.AlterField(model_name="studentmatchinganswer", name="selected_right_pair", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="+", to="cbt.matchingpair")),
+        migrations.AddField(model_name="studentmatchinganswer", name="published_left_item", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="+", to="cbt.publishedexammatchingitem")),
+        migrations.AddField(model_name="studentmatchinganswer", name="published_right_item", field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name="+", to="cbt.publishedexammatchingitem")),
+        migrations.AddConstraint(model_name="attemptquestion", constraint=models.UniqueConstraint(fields=("attempt", "published_question"), name="unique_published_question_per_attempt")),
+        migrations.AddConstraint(model_name="attemptquestion", constraint=models.CheckConstraint(condition=models.Q(models.Q(("exam_question__isnull", False), ("published_question__isnull", True)), models.Q(("exam_question__isnull", True), ("published_question__isnull", False)), _connector="OR"), name="attempt_question_has_one_source")),
+        migrations.AddConstraint(model_name="attemptquestionoption", constraint=models.UniqueConstraint(fields=("attempt_question", "published_choice"), name="unique_published_option_per_attempt_question")),
+        migrations.AddConstraint(model_name="attemptquestionoption", constraint=models.CheckConstraint(condition=models.Q(models.Q(("published_choice__isnull", True), ("question_option__isnull", False)), models.Q(("published_choice__isnull", False), ("question_option__isnull", True)), _connector="OR"), name="attempt_option_has_one_source")),
+        migrations.AddConstraint(model_name="attemptmatchingitem", constraint=models.UniqueConstraint(fields=("attempt_question", "published_item", "side"), name="unique_published_matching_item_side")),
+        migrations.AddConstraint(model_name="attemptmatchingitem", constraint=models.CheckConstraint(condition=models.Q(models.Q(("matching_pair__isnull", False), ("published_item__isnull", True)), models.Q(("matching_pair__isnull", True), ("published_item__isnull", False)), _connector="OR"), name="attempt_matching_item_has_one_source")),
+        migrations.AddConstraint(model_name="studentchoiceanswer", constraint=models.UniqueConstraint(fields=("student_answer", "published_choice"), name="unique_published_choice_per_student_answer")),
+        migrations.AddConstraint(model_name="studentchoiceanswer", constraint=models.CheckConstraint(condition=models.Q(models.Q(("published_choice__isnull", True), ("question_option__isnull", False)), models.Q(("published_choice__isnull", False), ("question_option__isnull", True)), _connector="OR"), name="student_choice_has_one_source")),
+        migrations.AddConstraint(model_name="studentfillblankanswer", constraint=models.UniqueConstraint(fields=("student_answer", "published_blank"), name="unique_student_answer_per_published_blank")),
+        migrations.AddConstraint(model_name="studentfillblankanswer", constraint=models.CheckConstraint(condition=models.Q(models.Q(("blank__isnull", False), ("published_blank__isnull", True)), models.Q(("blank__isnull", True), ("published_blank__isnull", False)), _connector="OR"), name="student_blank_has_one_source")),
+        migrations.AddConstraint(model_name="studentmatchinganswer", constraint=models.UniqueConstraint(fields=("student_answer", "published_left_item"), name="unique_published_left_match")),
+        migrations.AddConstraint(model_name="studentmatchinganswer", constraint=models.UniqueConstraint(fields=("student_answer", "published_right_item"), name="unique_published_right_match")),
+        migrations.AddConstraint(model_name="studentmatchinganswer", constraint=models.CheckConstraint(condition=models.Q(models.Q(("left_pair__isnull", False), ("published_left_item__isnull", True), ("published_right_item__isnull", True), ("selected_right_pair__isnull", False)), models.Q(("left_pair__isnull", True), ("published_left_item__isnull", False), ("published_right_item__isnull", False), ("selected_right_pair__isnull", True)), _connector="OR"), name="student_match_has_one_source")),
+    ]

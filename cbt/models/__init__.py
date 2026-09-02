@@ -7,6 +7,11 @@ from .choices import (
     QuestionGradingStatus,
     GradingMethod,
     AttemptGradingStatus,
+    AttemptExpiryPolicy,
+    AttemptGrantStatus,
+    AttemptGrantSource,
+    AttemptStartSource,
+    AnswerEventOrigin,
 )
 
 from .question_bank import (
@@ -52,8 +57,21 @@ from .responses import (
     StudentNumericAnswer,
     StudentFillBlankAnswer,
     StudentMatchingAnswer,
+    AttemptAnswerEvent,
+    AttemptQuestionClientState,
 )
 from .grading import (
     AttemptQuestionGrade,
     AttemptGrade,
 )
+from .publication import (
+    PublishedExamRevision,
+    PublishedExamQuestion,
+    PublishedExamChoice,
+    PublishedExamBlank,
+    PublishedExamMatchingItem,
+    PublishedQuestionGradingDefinition,
+    PublishedExamMedia,
+)
+from .grants import AttemptGrant
+from .offline_package import OfflineExamPackage

@@ -66,6 +66,8 @@ class AttemptGradingService:
             .select_related(
                 "exam_question",
                 "exam_question__question_version",
+                "published_question",
+                "published_question__grading_definition",
             )
             .order_by("display_order")
         )

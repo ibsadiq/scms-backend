@@ -20,5 +20,11 @@ class BulkBehavioralRatingItemSerializer(serializers.Serializer):
     rating = serializers.IntegerField(min_value=1, max_value=5)
 
 class BulkBehavioralRatingSerializer(serializers.Serializer):
-    term_result = serializers.IntegerField()
+    term_result = serializers.IntegerField(required=False)
+    term_result_id = serializers.IntegerField(required=False)
     ratings = BulkBehavioralRatingItemSerializer(many=True)
+
+    def validate(self, attrs):
+        if not attrs.get('term_result') and not attrs.get('term_result_id'):
+            raise serializers.ValidationError("Either 'term_result' or 'term_result_id' is required.")
+        return attrs

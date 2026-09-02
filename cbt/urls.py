@@ -11,6 +11,10 @@ from cbt.views import (
     AttemptQuestionViewSet,
     ManualGradingViewSet,
     AttemptGradeViewSet,
+    OfflineMediaDownloadView,
+    OfflineAttemptStartView,
+    OfflineAttemptSyncView,
+    OfflineAttemptSubmitView,
 )
 
 router = DefaultRouter()
@@ -33,5 +37,25 @@ router.register(r"grading/manual", ManualGradingViewSet, basename="manual-gradin
 router.register(r"attempt-grades", AttemptGradeViewSet, basename="attempt-grade")
 
 urlpatterns = [
+    path(
+        "student/offline-attempts/start/",
+        OfflineAttemptStartView.as_view(),
+        name="student-offline-attempt-start",
+    ),
+    path(
+        "student/attempts/<uuid:attempt_public_id>/sync/",
+        OfflineAttemptSyncView.as_view(),
+        name="student-offline-attempt-sync",
+    ),
+    path(
+        "student/attempts/<uuid:attempt_public_id>/offline-submit/",
+        OfflineAttemptSubmitView.as_view(),
+        name="student-offline-attempt-submit",
+    ),
+    path(
+        "student/offline-media/<uuid:media_public_id>/",
+        OfflineMediaDownloadView.as_view(),
+        name="student-offline-media",
+    ),
     path("", include(router.urls)),
 ]

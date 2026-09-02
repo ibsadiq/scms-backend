@@ -748,12 +748,18 @@ class TermResult(models.Model):
     class_teacher_remarks = models.TextField(
         blank=True,
         null=True,
-        help_text="Remarks from class teacher"
+        help_text="Class teacher's assessment/remarks"
     )
     principal_remarks = models.TextField(
         blank=True,
         null=True,
-        help_text="Remarks from principal/head teacher"
+        help_text="Principal's assessment/remarks"
+    )
+
+    grading_scale_snapshot = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Snapshot of the complete grading scheme rules at computation time"
     )
 
     # Metadata
@@ -1047,7 +1053,7 @@ class SubjectResult(models.Model):
         verbose_name_plural = "Subject Results"
 
     def __str__(self):
-        return f"{self.annual_result.student.full_name} - {self.subject.name} - Annual"
+        return f"{self.term_result.student.full_name} - {self.subject.name} - Term"
 
 
 class PromotionDecision(models.Model):

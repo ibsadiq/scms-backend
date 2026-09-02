@@ -15,8 +15,17 @@ from .exam import (
     ExamBlueprintSerializer,
     ExamQuestionManagementSerializer,
     CBTExamManagementSerializer,
+    PublishedExamRevisionMetadataSerializer,
     CBTExamCreateSerializer,
     StudentAvailableExamSerializer,
+    CBTExamAvailabilitySerializer,
+)
+from .grants import AttemptGrantStudentSerializer
+from .offline_package import OfflinePackageRequestSerializer
+from .offline_sync import (
+    OfflineAttemptStartSerializer,
+    OfflineSyncSerializer,
+    OfflineSubmitSerializer,
 )
 from .attempt import (
     AttemptQuestionOptionSerializer,
@@ -27,6 +36,7 @@ from .attempt import (
 from .responses import (
     AnswerSaveSerializer,
     FlagQuestionSerializer,
+    SubmissionSerializer,
 )
 from .grading import (
     AttemptQuestionGradeSerializer,
@@ -53,8 +63,15 @@ __all__ = [
     "ExamBlueprintSerializer",
     "ExamQuestionManagementSerializer",
     "CBTExamManagementSerializer",
+    "PublishedExamRevisionMetadataSerializer",
     "CBTExamCreateSerializer",
     "StudentAvailableExamSerializer",
+    "CBTExamAvailabilitySerializer",
+    "AttemptGrantStudentSerializer",
+    "OfflinePackageRequestSerializer",
+    "OfflineAttemptStartSerializer",
+    "OfflineSyncSerializer",
+    "OfflineSubmitSerializer",
     # Attempt
     "AttemptQuestionOptionSerializer",
     "AttemptQuestionSerializer",
@@ -63,6 +80,7 @@ __all__ = [
     # Responses
     "AnswerSaveSerializer",
     "FlagQuestionSerializer",
+    "SubmissionSerializer",
     # Grading
     "AttemptQuestionGradeSerializer",
     "AttemptGradeSerializer",

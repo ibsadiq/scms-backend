@@ -10,6 +10,10 @@ from .student import (
     StudentExamViewSet,
     StudentAttemptViewSet,
     AttemptQuestionViewSet,
+    OfflineMediaDownloadView,
+    OfflineAttemptStartView,
+    OfflineAttemptSyncView,
+    OfflineAttemptSubmitView,
 )
 from .grading import (
     ManualGradingViewSet,
@@ -27,6 +31,10 @@ __all__ = [
     "StudentExamViewSet",
     "StudentAttemptViewSet",
     "AttemptQuestionViewSet",
+    "OfflineMediaDownloadView",
+    "OfflineAttemptStartView",
+    "OfflineAttemptSyncView",
+    "OfflineAttemptSubmitView",
     # Grading
     "ManualGradingViewSet",
     "AttemptGradeViewSet",

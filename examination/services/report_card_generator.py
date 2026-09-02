@@ -193,15 +193,48 @@ class ReportCardGenerator:
             return 'Good'
 
         subject_rows = []
+
+        total_subjects = subject_results.count()
+        passed_subjects = 0
+        failed_subjects = 0
+        highest_score = None
+        lowest_score = None
+        grade_analysis_map = {}
+
         for sr in subject_results:
             scores_by_component = {
                 s.component_id: s.score for s in sr.assessment_scores.select_related('component')
             }
+
+            remark = ''
+            if sr.grading_rule_snapshot and isinstance(sr.grading_rule_snapshot, dict):
+                remark = sr.grading_rule_snapshot.get('remark', '')
+            if not remark:
+                remark = get_remark_for_grade(sr.grade)
+
             subject_rows.append({
                 'result': sr,
                 'component_scores': [scores_by_component.get(c.id, '-') for c in components],
-                'remark': get_remark_for_grade(sr.grade),
+                'remark': remark,
             })
+
+            # Pass/Fail calculation using is_pass
+            if getattr(sr, 'is_pass', False):
+                passed_subjects += 1
+            else:
+                failed_subjects += 1
+
+            # Highest / Lowest scores
+            if sr.total_score is not None:
+                score_val = float(sr.total_score)
+                if highest_score is None or score_val > highest_score:
+                    highest_score = score_val
+                if lowest_score is None or score_val < lowest_score:
+                    lowest_score = score_val
+
+            # Grade Analysis
+            grade_key = sr.grade or 'N/A'
+            grade_analysis_map[grade_key] = grade_analysis_map.get(grade_key, 0) + 1
 
         logo_uri = None
         if client_tenant and getattr(client_tenant, 'logo', None) and client_tenant.logo:
@@ -222,25 +255,69 @@ class ReportCardGenerator:
             'motto': getattr(client_tenant, 'motto', '') or '' if client_tenant else '',
         }
 
+        # 1. Authoritative Grade Scale from TermResult.grading_scale_snapshot
         grade_legend = []
-        if scheme:
+        grade_scale_source = None
+        scale_snapshot = getattr(term_result, 'grading_scale_snapshot', None)
+        if scale_snapshot and isinstance(scale_snapshot, list) and len(scale_snapshot) > 0:
+            sorted_rules = sorted(
+                scale_snapshot,
+                key=lambda x: float(x.get('min_score', 0)),
+                reverse=True
+            )
+            grade_legend = [
+                {
+                    'letter': r.get('grade', ''),
+                    'range': f"{int(float(r.get('min_score', 0)))}-{int(float(r.get('max_score', 0)))}",
+                    'remark': r.get('remark', '') or '',
+                }
+                for r in sorted_rules
+            ]
+            grade_scale_source = "snapshot"
+        elif scheme:
             for rule in scheme.grade_rules.all().order_by('-min_score'):
                 grade_legend.append({
                     'letter': rule.grade,
                     'range': f"{int(rule.min_score)}-{int(rule.max_score)}",
                     'remark': rule.remark or '',
                 })
+            grade_scale_source = "legacy_live_fallback"
+
+        # 2. Grade Analysis ordered according to the grading scale order
+        scale_order_list = [item['letter'] for item in grade_legend]
+        scale_order_map = {grade: idx for idx, grade in enumerate(scale_order_list)}
+
+        grade_analysis = [{'grade': k, 'count': v} for k, v in grade_analysis_map.items()]
+        grade_analysis = sorted(
+            grade_analysis,
+            key=lambda x: (scale_order_map.get(x['grade'], 999), str(x['grade']))
+        )
+
+        performance_summary = None
+        if total_subjects > 0:
+            performance_summary = {
+                'total_subjects': total_subjects,
+                'passed_subjects': passed_subjects,
+                'failed_subjects': failed_subjects,
+                'highest_score': highest_score,
+                'lowest_score': lowest_score,
+                'average_percentage': term_result.average_percentage,
+                'grade': term_result.grade,
+                'gpa': term_result.gpa,
+                'position': term_result.position_in_class,
+                'total_students': term_result.total_students,
+            }
 
         attendance_stats = self._get_attendance_stats()
 
         from examination.models import BehavioralDomain
         behavioral_ratings = list(term_result.behavioral_ratings.select_related('trait').order_by('trait__order', 'trait__name'))
-        
+
         affective_traits = []
         psychomotor_traits = []
         for br in behavioral_ratings:
             if not br.trait.is_active:
-                # Based on Step 9: Historical Integrity, inactive traits with stored ratings MUST still render.
+                # Based on Historical Integrity, inactive traits with stored ratings MUST still render.
                 pass
             item = {
                 'name': br.trait.name,
@@ -250,14 +327,9 @@ class ReportCardGenerator:
                 affective_traits.append(item)
             elif br.trait.domain == BehavioralDomain.PSYCHOMOTOR:
                 psychomotor_traits.append(item)
-                
-        behavioral_rating_legend = [
-            {'value': 5, 'label': 'Excellent'},
-            {'value': 4, 'label': 'Very Good'},
-            {'value': 3, 'label': 'Good'},
-            {'value': 2, 'label': 'Fair'},
-            {'value': 1, 'label': 'Poor'}
-        ]
+
+        from examination.services.behavioral_rating_service import BehavioralRatingService
+        behavioral_rating_legend = BehavioralRatingService.RATING_INDEX
 
         context = {
             'school': school_info,
@@ -281,10 +353,14 @@ class ReportCardGenerator:
             'total_students': term_result.total_students,
             'components': components,
             'subject_rows': subject_rows,
+            'blank_rows': range(max(0, 20 - len(subject_rows))),
+            'performance_summary': performance_summary,
             'subject_count': subject_results.count(),
             'class_teacher_remark': term_result.class_teacher_remarks or 'No remarks provided',
             'admin_remark': term_result.principal_remarks or 'No remarks provided',
             'grade_legend': grade_legend,
+            'grade_analysis': grade_analysis,
+            'grade_scale_source': grade_scale_source,
             'attendance': attendance_stats,
             'affective_traits': affective_traits,
             'psychomotor_traits': psychomotor_traits,

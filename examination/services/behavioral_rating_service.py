@@ -14,6 +14,14 @@ class BehavioralRatingService:
     Ensures lifecycle constraints, authorization, and data integrity.
     """
 
+    RATING_INDEX = [
+        {"value": 5, "label": "Excellent"},
+        {"value": 4, "label": "Very Good"},
+        {"value": 3, "label": "Good"},
+        {"value": 2, "label": "Fair"},
+        {"value": 1, "label": "Needs Improvement"}
+    ]
+
     @classmethod
     def get_applicable_traits(cls, student_section: str = None) -> List[BehavioralTrait]:
         """
@@ -48,17 +56,30 @@ class BehavioralRatingService:
         Validate if the user is authorized to enter behavioral ratings for this result.
         Only the homeroom teacher, or admin/management can enter it.
         """
-        if user.is_superuser or user.groups.filter(name__in=["admin", "management"]).exists():
+        if not user or not user.is_authenticated:
+            raise ValidationError("Authentication credentials were not provided.")
+        if user.is_superuser or getattr(user, 'is_admin', False) or user.groups.filter(name__in=["admin", "management"]).exists():
             return True
-            
+
         classroom = term_result.classroom
         if not classroom:
             raise ValidationError("Term result is not linked to a classroom.")
-            
-        # Check if user is the homeroom teacher
-        if classroom.class_teacher and classroom.class_teacher.user == user:
+
+        if classroom.class_teacher_id:
+            from academic.models import Teacher
+            if Teacher.objects.filter(id=classroom.class_teacher_id, user=user).exists():
+                return True
+            if hasattr(classroom, "class_teacher") and classroom.class_teacher and classroom.class_teacher.user_id == user.id:
+                return True
+
+        teacher = getattr(user, 'teacher', None)
+        if not teacher:
+            from academic.models import Teacher
+            teacher = Teacher.objects.filter(user=user).first()
+
+        if teacher and classroom.class_teacher_id == teacher.id:
             return True
-            
+
         raise ValidationError("You are not authorized to enter behavioral ratings for this classroom.")
 
     @classmethod

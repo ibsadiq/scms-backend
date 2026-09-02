@@ -18,6 +18,7 @@ from cbt.models import (
 )
 from cbt.serializers import (
     CBTExamManagementSerializer,
+    CBTExamAvailabilitySerializer,
     CBTExamCreateSerializer,
     ExamBlueprintSerializer,
     BlueprintRuleSerializer,
@@ -120,6 +121,17 @@ class CBTExamViewSet(viewsets.ModelViewSet):
             exam, context={"request": request}
         )
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["patch"], url_path="availability")
+    @transaction.atomic
+    def availability(self, request, pk=None):
+        exam = CBTExam.objects.select_for_update().get(pk=self.get_object().pk)
+        serializer = CBTExamAvailabilitySerializer(
+            exam, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
     @transaction.atomic
     def update(self, request, *args, **kwargs):

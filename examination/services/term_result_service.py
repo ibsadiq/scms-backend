@@ -73,11 +73,23 @@ class TermResultService:
         for entry in entries:
             by_subject.setdefault(entry.subject_id, []).append(entry)
 
+        scale_snapshot = [
+            {
+                "grade": rule.grade,
+                "min_score": str(rule.min_score),
+                "max_score": str(rule.max_score),
+                "remark": rule.remark or "",
+                "grade_point": str(rule.grade_point) if rule.grade_point is not None else "",
+            }
+            for rule in scheme.grade_rules.all().order_by("-min_score")
+        ] if scheme else []
+
         term_result, _ = TermResult.objects.update_or_create(
             student=student, term=term, academic_year=academic_year,
             defaults={
                 "grading_scheme": scheme,
-                "scheme_name": scheme.name,
+                "scheme_name": scheme.name if scheme else "",
+                "grading_scale_snapshot": scale_snapshot,
                 "classroom": classroom,
                 "total_marks": Decimal("0"),
                 "average_percentage": Decimal("0"),
@@ -166,6 +178,7 @@ class TermResultService:
         term_result.grade = overall_grade_rule.grade
         term_result.gpa = overall_grade_rule.grade_point
         term_result.is_pass = overall_pass
+        term_result.grading_scale_snapshot = scale_snapshot
         term_result.save()
 
         if not skip_ranking:

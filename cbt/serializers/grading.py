@@ -129,7 +129,7 @@ class PendingEssayGradingSerializer(serializers.Serializer):
     admission_number = serializers.SerializerMethodField()
     exam_title = serializers.CharField(source="attempt.cbt_exam.title")
     subject_name = serializers.CharField(source="attempt.cbt_exam.subject.name")
-    question_text = serializers.CharField(source="exam_question.question_version.text")
+    question_text = serializers.SerializerMethodField()
     submitted_text = serializers.SerializerMethodField()
     max_marks = serializers.SerializerMethodField()
     submitted_at = serializers.DateTimeField(source="attempt.submitted_at")
@@ -141,7 +141,13 @@ class PendingEssayGradingSerializer(serializers.Serializer):
         return getattr(obj.attempt.student, "admission_number", "")
 
     def get_max_marks(self, obj):
-        return str(obj.exam_question.marks)
+        marks = obj.published_question.marks if obj.published_question_id else obj.exam_question.marks
+        return str(marks)
+
+    def get_question_text(self, obj):
+        if obj.published_question_id:
+            return obj.published_question.question_text
+        return obj.exam_question.question_version.text
 
     def get_submitted_text(self, obj):
         if hasattr(obj, "answer") and hasattr(obj.answer, "text_response"):

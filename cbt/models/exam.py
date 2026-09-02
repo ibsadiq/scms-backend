@@ -15,6 +15,7 @@ from .choices import (
     QuestionType,
     QuestionDifficulty,
     CBTExamStatus,
+    AttemptExpiryPolicy,
 )
 from .question_bank import QuestionVersion
 
@@ -55,6 +56,14 @@ class CBTExam(models.Model):
 
     duration_minutes = models.PositiveIntegerField()
 
+    available_from = models.DateTimeField(null=True, blank=True)
+    available_until = models.DateTimeField(null=True, blank=True)
+    attempt_expiry_policy = models.CharField(
+        max_length=24,
+        choices=AttemptExpiryPolicy.choices,
+        default=AttemptExpiryPolicy.CAP_AT_EXAM_CLOSE,
+    )
+
     status = models.CharField(
         max_length=20,
         choices=CBTExamStatus.choices,
@@ -91,7 +100,15 @@ class CBTExam(models.Model):
                     "unique_cbt_exam_per_"
                     "session_subject_class_component"
                 ),
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(available_from__isnull=True)
+                    | models.Q(available_until__isnull=True)
+                    | models.Q(available_from__lt=models.F("available_until"))
+                ),
+                name="cbt_exam_valid_availability_interval",
+            ),
         ]
         indexes = [
             models.Index(
@@ -116,6 +133,13 @@ class CBTExam(models.Model):
             errors["duration_minutes"] = (
                 "Duration must be greater than zero."
             )
+
+        if (
+            self.available_from
+            and self.available_until
+            and self.available_from >= self.available_until
+        ):
+            errors["available_until"] = "Availability end must be after its start."
 
         if (
             self.session_id

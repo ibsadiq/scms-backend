@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.core.exceptions import ValidationError as DjangoValidationError, PermissionDenied
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 
 from academic.models import AllocatedSubject
 from academic.services.academic_authority_service import AcademicAuthorityService
@@ -44,12 +45,15 @@ class ManualGradingViewSet(viewsets.ViewSet):
         user = request.user
         qs = AttemptQuestion.objects.filter(
             attempt__status=ExamAttemptStatus.SUBMITTED,
-            exam_question__question_version__question__question_type=QuestionType.ESSAY,
             grade__status=QuestionGradingStatus.PENDING_MANUAL,
+        ).filter(
+            Q(published_question__question_type=QuestionType.ESSAY)
+            | Q(exam_question__question_version__question_type=QuestionType.ESSAY)
         ).select_related(
             "attempt__student__user",
             "attempt__cbt_exam__subject",
             "exam_question__question_version",
+            "published_question",
             "answer__text_response",
         )
 

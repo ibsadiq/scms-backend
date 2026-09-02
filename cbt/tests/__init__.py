@@ -8,6 +8,13 @@ from .test_phase1_hardening import (
     PhaseOneQuestionDeliveryTests,
     PhaseOneLifecycleAndScopeTests,
 )
+from .test_phase2_sync import PhaseTwoSyncTests
+from .test_phase2_concurrency import PhaseTwoConcurrencyTests
+from .test_phase3_publication import PublishedExamRevisionTests
+from .test_phase4_availability_and_grants import PhaseFourAvailabilityAndGrantTests
+from .test_phase5_offline_package import PhaseFiveOfflinePackageTests
+from .test_phase6_offline_sync import PhaseSixOfflineSyncTests
+from .test_phase6_concurrency import PhaseSixConcurrencyTests
 
 __all__ = [
     "QuestionBankAPITests",
@@ -18,4 +25,11 @@ __all__ = [
     "CBTSecurityAPITests",
     "PhaseOneQuestionDeliveryTests",
     "PhaseOneLifecycleAndScopeTests",
+    "PhaseTwoSyncTests",
+    "PhaseTwoConcurrencyTests",
+    "PublishedExamRevisionTests",
+    "PhaseFourAvailabilityAndGrantTests",
+    "PhaseFiveOfflinePackageTests",
+    "PhaseSixOfflineSyncTests",
+    "PhaseSixConcurrencyTests",
 ]

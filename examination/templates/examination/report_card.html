@@ -6,7 +6,7 @@
     <style>
         @page {
             size: A4 portrait;
-            margin: 6mm 8mm;
+            margin: 5mm 7mm;
         }
 
         * {
@@ -15,10 +15,14 @@
             box-sizing: border-box;
         }
 
+        html, body {
+            height: 100%;
+        }
+
         body {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            font-size: 8.5pt;
-            line-height: 1.25;
+            font-size: 7.6pt;
+            line-height: 1.15;
             color: #0f172a;
             background: #ffffff;
         }
@@ -31,7 +35,7 @@
         .header-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 18px;
+            margin-bottom: 6px;
         }
 
         .header-table td {
@@ -48,31 +52,31 @@
         }
 
         .school-logo {
-            max-width: 65px;
-            max-height: 65px;
+            max-width: 46px;
+            max-height: 46px;
             object-fit: contain;
             display: block;
-            margin: 0 auto 3px auto;
+            margin: 0 auto 2px auto;
         }
 
         .school-badge-placeholder {
-            width: 50px;
-            height: 50px;
-            margin: 0 auto 3px auto;
+            width: 38px;
+            height: 38px;
+            margin: 0 auto 2px auto;
             border: 1.5px solid #1e293b;
             border-radius: 50%;
             background-color: #f8fafc;
             text-align: center;
-            line-height: 46px;
+            line-height: 34px;
         }
 
         .school-motto-text {
-            font-size: 8pt;
+            font-size: 7pt;
             font-weight: 300;
             font-style: italic;
             color: #475569;
-            line-height: 1.25;
-            margin-top: 2px;
+            line-height: 1.15;
+            margin-top: 1px;
             text-align: center;
             word-wrap: break-word;
         }
@@ -80,32 +84,32 @@
         .header-right-col {
             width: 30%;
             text-align: right;
-            padding-top: 2px;
+            padding-top: 1px;
         }
 
         .school-name-text {
-            font-size: 11.5pt;
+            font-size: 10.5pt;
             font-weight: 800;
             color: #0f172a;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 2px;
+            letter-spacing: 0.4px;
+            margin-bottom: 1px;
         }
 
         .school-contact-line {
-            font-size: 8pt;
+            font-size: 7pt;
             color: #334155;
-            line-height: 1.3;
+            line-height: 1.2;
         }
 
         .report-title-banner {
             text-align: center;
-            font-size: 11pt;
+            font-size: 10pt;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-top: 6px;
-            margin-bottom: 8px;
+            letter-spacing: 0.8px;
+            margin-top: 2px;
+            margin-bottom: 5px;
             color: #0f172a;
         }
 
@@ -113,16 +117,17 @@
         .details-box {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 6px;
+            margin-bottom: 5px;
             border: 1.5px solid #0f172a;
+            page-break-inside: avoid;
         }
 
         .details-box-header {
             background-color: #f1f5f9;
             font-weight: 800;
-            font-size: 8.5pt;
+            font-size: 7.6pt;
             text-transform: uppercase;
-            padding: 3px 6px;
+            padding: 2px 6px;
             border-bottom: 1px solid #0f172a;
             color: #0f172a;
         }
@@ -133,8 +138,8 @@
         }
 
         .details-inner-table td {
-            padding: 3px 6px;
-            font-size: 8.5pt;
+            padding: 2px 6px;
+            font-size: 7.6pt;
             vertical-align: middle;
         }
 
@@ -151,16 +156,16 @@
         }
 
         .photo-container {
-            width: 75px;
+            width: 58px;
             text-align: center;
             vertical-align: middle !important;
-            padding: 3px !important;
+            padding: 2px !important;
             border-left: 1px solid #cbd5e1;
         }
 
         .student-passport {
-            width: 65px;
-            height: 75px;
+            width: 50px;
+            height: 58px;
             object-fit: cover;
             border: 1px solid #0f172a;
             display: block;
@@ -168,8 +173,8 @@
         }
 
         .student-passport-svg {
-            width: 65px;
-            height: 75px;
+            width: 50px;
+            height: 58px;
             border: 1px solid #0f172a;
             display: block;
             margin: 0 auto;
@@ -179,9 +184,10 @@
         .results-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 6px;
-            font-size: 8.5pt;
+            margin-bottom: 5px;
+            font-size: 7.6pt;
             border: 1px solid #0f172a;
+            table-layout: fixed;
         }
 
         .results-table th {
@@ -189,14 +195,26 @@
             color: #0f172a;
             font-weight: 800;
             text-transform: uppercase;
-            font-size: 8pt;
-            padding: 4px 3px;
+            font-size: 7pt;
+            padding: 3px 2px;
             border: 1px solid #0f172a;
             text-align: center;
         }
 
+        .results-table th.vertical-header {
+            height: 78px;
+            white-space: nowrap;
+        }
+
+        .vertical-text {
+            transform: rotate(-90deg);
+            display: inline-block;
+            vertical-align: middle;
+            text-align: center;
+        }
+
         .results-table td {
-            padding: 3px 5px;
+            padding: 1.5px 4px;
             border: 1px solid #cbd5e1;
             vertical-align: middle;
         }
@@ -213,14 +231,14 @@
         .summary-stats-box {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 8px;
+            margin-bottom: 0;
             border: 1px solid #0f172a;
             background-color: #ffffff;
-            font-size: 8.5pt;
+            font-size: 7.6pt;
         }
 
         .summary-stats-box td {
-            padding: 4px 8px;
+            padding: 2px 8px;
             vertical-align: middle;
             border-right: 1px solid #cbd5e1;
         }
@@ -242,65 +260,55 @@
         /* ── Comments Section ───────────────────────────────────── */
         .comments-box {
             border: 1px solid #cbd5e1;
-            padding: 5px 8px;
-            margin-bottom: 8px;
+            padding: 3px 8px;
+            margin-bottom: 4px;
             background-color: #ffffff;
-            font-size: 8.5pt;
+            font-size: 7.6pt;
+            page-break-inside: avoid;
         }
 
         .comments-label {
             font-weight: 700;
             color: #0f172a;
-
         }
 
         .comments-content {
             font-style: italic;
             color: #334155;
-            margin-top: 2px;
+            margin-top: 1px;
         }
 
         /* ── Behavioral Ratings Tables ───────────────────────────── */
         .behavioral-tables-container {
             width: 100%;
-            display: table;
-            margin-bottom: 8px;
-            table-layout: fixed;
         }
 
-        .behavioral-domain-col {
-            display: table-cell;
-            vertical-align: top;
-            width: 50%;
-            padding-right: 4px;
-        }
-        .behavioral-domain-col:last-child {
-            padding-right: 0;
-            padding-left: 4px;
+        .behavioral-domain-row {
+            margin-bottom: 4px;
         }
 
         .behavioral-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 7.5pt;
+            font-size: 7pt;
             border: 1px solid #0f172a;
         }
-        
+
         .behavioral-title {
             font-weight: 800;
-            font-size: 8pt;
+            font-size: 7.2pt;
             text-transform: uppercase;
             text-align: center;
             background-color: #e2e8f0;
             border-bottom: 1px solid #0f172a;
-            padding: 3px;
+            padding: 2px;
         }
 
         .behavioral-table th {
             background-color: #f8fafc;
             color: #0f172a;
             border: 1px solid #cbd5e1;
-            padding: 2px;
+            padding: 1.5px;
             text-align: center;
             font-weight: 700;
         }
@@ -310,50 +318,71 @@
         }
         .behavioral-table td {
             border: 1px solid #cbd5e1;
-            padding: 2px;
+            padding: 1.5px;
             text-align: center;
         }
 
         /* ── Signatures & Stamp ─────────────────────────────────── */
         .signature-table {
             width: 100%;
-            margin-top: 10px;
+            margin-top: 5px;
             border-collapse: collapse;
+            page-break-inside: avoid;
         }
 
         .sig-cell-left {
             width: 50%;
             vertical-align: top;
             padding-right: 20px;
-            font-size: 8.5pt;
+            font-size: 7.6pt;
         }
 
         .sig-cell-right {
             width: 50%;
             vertical-align: top;
             padding-left: 20px;
-            font-size: 8.5pt;
+            font-size: 7.6pt;
         }
 
         .sig-name {
             font-weight: 700;
             color: #0f172a;
-            margin-top: 2px;
+            margin-top: 1px;
         }
 
         .stamp-note {
-            font-size: 7.5pt;
+            font-size: 6.8pt;
             color: #64748b;
             margin-top: 1px;
         }
 
         .footer-line {
             border-top: 1px solid #cbd5e1;
-            margin-top: 10px;
-            padding-top: 3px;
+            margin-top: 4px;
+            padding-top: 2px;
             text-align: center;
-            font-size: 7pt;
+            font-size: 6.5pt;
             color: #64748b;
+        }
+
+        .grid-row {
+            display: table;
+            width: 100%;
+            margin-bottom: 5px;
+            table-layout: fixed;
+            border-bottom: 1.5px solid #0f172a;
+            padding-bottom: 4px;
+            page-break-inside: avoid;
+        }
+
+        .grid-cell-left {
+            display: table-cell;
+            vertical-align: top;
+        }
+
+        .grid-cell-right {
+            display: table-cell;
+            vertical-align: top;
         }
     </style>
 </head>
@@ -369,7 +398,7 @@
                     <img src="{{ school.logo }}" class="school-logo" alt="School Crest" />
                     {% else %}
                     <div class="school-badge-placeholder">
-                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="1.8">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="1.8">
                             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
                         </svg>
                     </div>
@@ -413,7 +442,7 @@
                         {% if student_photo %}
                         <img src="{{ student_photo }}" class="student-passport" alt="Student Photo" />
                         {% elif gender|lower == 'female' or gender|lower == 'f' %}
-                        <svg class="student-passport-svg" viewBox="0 0 100 120" width="65" height="75">
+                        <svg class="student-passport-svg" viewBox="0 0 100 120" width="50" height="58">
                             <rect width="100" height="120" fill="#f1f5f9" rx="2"/>
                             <circle cx="50" cy="40" r="18" fill="#475569"/>
                             <circle cx="50" cy="41" r="14" fill="#f8fafc"/>
@@ -421,7 +450,7 @@
                             <path d="M20 105 c0-16 12-26 30-26 s30 10 30 26 z" fill="#475569"/>
                         </svg>
                         {% else %}
-                        <svg class="student-passport-svg" viewBox="0 0 100 120" width="65" height="75">
+                        <svg class="student-passport-svg" viewBox="0 0 100 120" width="50" height="58">
                             <rect width="100" height="120" fill="#f1f5f9" rx="2"/>
                             <path d="M32 36 c0-12 8-20 18-20 s18 8 18 20 c0 3-2 10-4 12 c-4-3-8-4-14-4 s-10 1-14 4 c-2-2-4-9-4-12 z" fill="#334155"/>
                             <circle cx="50" cy="42" r="14" fill="#f8fafc"/>
@@ -445,122 +474,184 @@
             </table>
         </div>
 
-        <!-- Subject Score Table -->
-        <table class="results-table">
-            <thead>
-                <tr>
-                    <th style="width: 5%;">SN</th>
-                    <th style="width: 32%;" class="text-left">Subject</th>
-                    <th style="width: 10%;">Max Score</th>
-                    {% for component in components %}
-                    <th style="width: 11%;">{{ component.name }} ({{ component.max_score|floatformat:0 }})</th>
-                    {% endfor %}
-                    <th style="width: 12%;">Total (100%)</th>
-                    <th style="width: 8%;">Grade</th>
-                    <th style="width: 16%;">Remarks</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in subject_rows %}
-                <tr>
-                    <td class="text-center">{{ forloop.counter }}</td>
-                    <td class="font-bold text-left">{{ row.result.subject.name }}</td>
-                    <td class="text-center">100</td>
-                    {% for score in row.component_scores %}
-                    <td class="text-center">{{ score }}</td>
-                    {% endfor %}
-                    <td class="text-center font-bold">{{ row.result.total_score }}</td>
-                    <td class="text-center font-bold">{{ row.result.grade }}</td>
-                    <td class="text-center">{{ row.remark }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <!-- Summary Statistics Grid -->
-        <table class="summary-stats-box">
-            <tr>
-                <td>
-                    <span class="stat-label">Total Score:</span>
-                    <span class="stat-value">{{ total_marks }} / {{ total_possible }}</span>
-                </td>
-                <td>
-                    <span class="stat-label">Grade:</span>
-                    <span class="stat-value">{{ grade }}</span>
-                </td>
-                <td>
-                    <span class="stat-label">Attendance:</span>
-                    <span class="stat-value">{% if attendance %}{{ attendance.present }}/{{ attendance.total_days }} Days ({{ attendance.percentage }}%){% else %}N/A{% endif %}</span>
-                </td>
-            </tr>
-            <tr>
-                <td>
-                    <span class="stat-label">Percentage:</span>
-                    <span class="stat-value">{{ average_percentage }}%</span>
-                </td>
-                <td colspan="2">
-                    <span class="stat-label">Class Position:</span>
-                    <span class="stat-value">{% if position %}{{ position }}{% else %}1st{% endif %} / {{ total_students|default:"35" }}</span>
-                </td>
-            </tr>
-        </table>
-
-        <!-- Behavioral Domains Grid -->
-        {% if affective_traits or psychomotor_traits %}
-        <div class="behavioral-tables-container">
-            <div class="behavioral-domain-col">
-                <table class="behavioral-table">
-                    <tr>
-                        <td colspan="6" class="behavioral-title">AFFECTIVE DOMAIN</td>
-                    </tr>
-                    <tr>
-                        <th class="trait-name">TRAITS</th>
-                        <th>5</th><th>4</th><th>3</th><th>2</th><th>1</th>
-                    </tr>
-                    {% for item in affective_traits %}
-                    <tr>
-                        <td class="trait-name">{{ item.name }}</td>
-                        <td>{% if item.rating == 5 %}X{% endif %}</td>
-                        <td>{% if item.rating == 4 %}X{% endif %}</td>
-                        <td>{% if item.rating == 3 %}X{% endif %}</td>
-                        <td>{% if item.rating == 2 %}X{% endif %}</td>
-                        <td>{% if item.rating == 1 %}X{% endif %}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="6">No ratings</td></tr>
-                    {% endfor %}
+        <!-- Unified Results Grid: Cognitive (70%) & Behavioral (30%) -->
+        <div class="grid-row">
+            <!-- Cognitive Domain (Academic Results) -->
+            <div class="grid-cell-left" style="width: {% if affective_traits or psychomotor_traits %}68%{% else %}100%{% endif %}; padding-right: {% if affective_traits or psychomotor_traits %}6px{% else %}0{% endif %}; border-right: {% if affective_traits or psychomotor_traits %}1.5px solid #cbd5e1{% else %}none{% endif %};">
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 4%;">SN</th>
+                            <th class="text-left" style="width: 25%;">Subject</th>
+                            <th class="vertical-header"><span class="vertical-text">Max Score</span></th>
+                            {% for component in components %}
+                            <th class="vertical-header"><span class="vertical-text">{{ component.name }} ({{ component.max_score|floatformat:0 }})</span></th>
+                            {% endfor %}
+                            <th class="vertical-header"><span class="vertical-text">Total (100%)</span></th>
+                            <th class="vertical-header"><span class="vertical-text">Grade</span></th>
+                            <th class="vertical-header"><span class="vertical-text">Position</span></th>
+                            <th style="width: 14%;" class="vertical-header"><span class="vertical-text">Remarks</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in subject_rows %}
+                        <tr>
+                            <td class="text-center">{{ forloop.counter }}</td>
+                            <td class="font-bold text-left">{{ row.result.subject.name }}</td>
+                            <td class="text-center">100</td>
+                            {% for score in row.component_scores %}
+                            <td class="text-center">{{ score }}</td>
+                            {% endfor %}
+                            <td class="text-center font-bold">{{ row.result.total_score }}</td>
+                            <td class="text-center font-bold">{{ row.result.grade }}</td>
+                            <td class="text-center">{{ row.result.position|default:"-" }}</td>
+                            <td class="text-center" style="font-size: 6.5pt;">{{ row.remark }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% for _ in blank_rows %}
+                        <tr>
+                            <td class="text-center">&nbsp;</td>
+                            <td class="text-left">&nbsp;</td>
+                            <td class="text-center">&nbsp;</td>
+                            {% for component in components %}
+                            <td class="text-center">&nbsp;</td>
+                            {% endfor %}
+                            <td class="text-center">&nbsp;</td>
+                            <td class="text-center">&nbsp;</td>
+                            <td class="text-center">&nbsp;</td>
+                            <td class="text-center">&nbsp;</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
                 </table>
             </div>
-            <div class="behavioral-domain-col">
-                <table class="behavioral-table">
-                    <tr>
-                        <td colspan="6" class="behavioral-title">PSYCHOMOTOR DOMAIN</td>
-                    </tr>
-                    <tr>
-                        <th class="trait-name">TRAITS</th>
-                        <th>5</th><th>4</th><th>3</th><th>2</th><th>1</th>
-                    </tr>
-                    {% for item in psychomotor_traits %}
-                    <tr>
-                        <td class="trait-name">{{ item.name }}</td>
-                        <td>{% if item.rating == 5 %}X{% endif %}</td>
-                        <td>{% if item.rating == 4 %}X{% endif %}</td>
-                        <td>{% if item.rating == 3 %}X{% endif %}</td>
-                        <td>{% if item.rating == 2 %}X{% endif %}</td>
-                        <td>{% if item.rating == 1 %}X{% endif %}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="6">No ratings</td></tr>
-                    {% endfor %}
-                </table>
+
+            <!-- Behavioral Domains -->
+            {% if affective_traits or psychomotor_traits %}
+            <div class="grid-cell-right" style="width: 32%; padding-left: 6px;">
+                <div class="behavioral-tables-container">
+
+                    {% if affective_traits %}
+                    <div class="behavioral-domain-row">
+                        <table class="behavioral-table">
+                            <tr><td colspan="6" class="behavioral-title">AFFECTIVE DOMAIN</td></tr>
+                            <tr><th class="trait-name">TRAITS</th><th>5</th><th>4</th><th>3</th><th>2</th><th>1</th></tr>
+                            {% for item in affective_traits %}
+                            <tr>
+                                <td class="trait-name">{{ item.name }}</td>
+                                <td>{% if item.rating == 5 %}X{% endif %}</td>
+                                <td>{% if item.rating == 4 %}X{% endif %}</td>
+                                <td>{% if item.rating == 3 %}X{% endif %}</td>
+                                <td>{% if item.rating == 2 %}X{% endif %}</td>
+                                <td>{% if item.rating == 1 %}X{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </table>
+                    </div>
+                    {% endif %}
+
+                    {% if psychomotor_traits %}
+                    <div class="behavioral-domain-row">
+                        <table class="behavioral-table">
+                            <tr><td colspan="6" class="behavioral-title">PSYCHOMOTOR DOMAIN</td></tr>
+                            <tr><th class="trait-name">TRAITS</th><th>5</th><th>4</th><th>3</th><th>2</th><th>1</th></tr>
+                            {% for item in psychomotor_traits %}
+                            <tr>
+                                <td class="trait-name">{{ item.name }}</td>
+                                <td>{% if item.rating == 5 %}X{% endif %}</td>
+                                <td>{% if item.rating == 4 %}X{% endif %}</td>
+                                <td>{% if item.rating == 3 %}X{% endif %}</td>
+                                <td>{% if item.rating == 2 %}X{% endif %}</td>
+                                <td>{% if item.rating == 1 %}X{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </table>
+                    </div>
+                    {% endif %}
+
+                    <!-- Behavioral Rating Legend -->
+                    <div style="text-align: center; font-size: 6.5pt; color: #475569; margin-top: 2px;">
+                        <strong>Rating Guide:</strong>
+                        {% for item in behavioral_rating_legend %}
+                            {{ item.value }} - {{ item.label }}{% if not forloop.last %} &middot; {% endif %}
+                        {% endfor %}
+                    </div>
+
+                </div>
             </div>
+            {% endif %}
         </div>
-        {% endif %}
+
+        <!-- Performance & Attendance Summaries -->
+        <div class="grid-row">
+            {% if performance_summary %}
+            <div class="grid-cell-left" style="width: 50%; padding-right: 6px; border-right: 1.5px solid #cbd5e1;">
+                <table class="summary-stats-box">
+                    <tr><td colspan="2" class="details-box-header text-center">PERFORMANCE SUMMARY</td></tr>
+                    <tr><td class="stat-label">Total Score</td><td class="stat-value">{{ total_marks }} / {{ total_possible }}</td></tr>
+                    <tr><td class="stat-label">Average</td><td class="stat-value">{{ average_percentage }}%</td></tr>
+                    <tr><td class="stat-label">Overall Grade</td><td class="stat-value">{{ grade }}</td></tr>
+                    {% if gpa %}<tr><td class="stat-label">GPA</td><td class="stat-value">{{ gpa }}</td></tr>{% endif %}
+                    {% if position %}<tr><td class="stat-label">Position</td><td class="stat-value">{{ position }} / {{ total_students }}</td></tr>{% endif %}
+                    <tr><td class="stat-label">Subjects</td><td class="stat-value">{{ performance_summary.total_subjects }}</td></tr>
+                    <tr><td class="stat-label">Passed / Failed</td><td class="stat-value">{{ performance_summary.passed_subjects }} / {{ performance_summary.failed_subjects }}</td></tr>
+                    {% if performance_summary.highest_score %}<tr><td class="stat-label">Highest Score</td><td class="stat-value">{{ performance_summary.highest_score|floatformat:2 }}</td></tr>{% endif %}
+                    {% if performance_summary.lowest_score %}<tr><td class="stat-label">Lowest Score</td><td class="stat-value">{{ performance_summary.lowest_score|floatformat:2 }}</td></tr>{% endif %}
+                </table>
+            </div>
+            {% endif %}
+
+            {% if attendance %}
+            <div class="grid-cell-right" style="width: 50%; padding-left: 6px;">
+                <table class="summary-stats-box">
+                    <tr><td colspan="2" class="details-box-header text-center">ATTENDANCE SUMMARY</td></tr>
+                    <tr><td class="stat-label">School Days</td><td class="stat-value">{{ attendance.total_days }}</td></tr>
+                    <tr><td class="stat-label">Days Present</td><td class="stat-value">{{ attendance.present }}</td></tr>
+                    <tr><td class="stat-label">Days Absent</td><td class="stat-value">{{ attendance.absent }}</td></tr>
+                    {% if attendance.late %}<tr><td class="stat-label">Times Late</td><td class="stat-value">{{ attendance.late }}</td></tr>{% endif %}
+                    <tr><td class="stat-label">Attendance</td><td class="stat-value">{{ attendance.percentage }}%</td></tr>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Grade Analysis & Grade Scale -->
+        <div class="grid-row">
+            {% if grade_analysis %}
+            <div class="grid-cell-left" style="width: 50%; padding-right: 6px; border-right: 1.5px solid #cbd5e1;">
+                <table class="summary-stats-box">
+                    <tr><td colspan="2" class="details-box-header text-center">GRADE ANALYSIS</td></tr>
+                    {% for ga in grade_analysis %}
+                    <tr><td class="stat-label text-center">{{ ga.grade }}</td><td class="stat-value text-center">{{ ga.count }} subject{{ ga.count|pluralize }}</td></tr>
+                    {% endfor %}
+                </table>
+            </div>
+            {% endif %}
+
+            {% if grade_legend %}
+            <div class="grid-cell-right" style="width: 50%; padding-left: 6px;">
+                <table class="summary-stats-box">
+                    <tr><td colspan="3" class="details-box-header text-center">APPLICABLE GRADE SCALE</td></tr>
+                    {% for gl in grade_legend %}
+                    <tr>
+                        <td class="stat-label text-center">{{ gl.letter }}</td>
+                        <td class="stat-value text-center">{{ gl.range }}</td>
+                        <td class="stat-value">{{ gl.remark }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+            {% endif %}
+        </div>
 
         <!-- Comments Section -->
         <div class="comments-box">
+            <span class="comments-label">Homeroom Teacher's comments:</span>
+            <span class="comments-content">{{ class_teacher_remark|default:"No remarks provided." }}</span>
+        </div>
+        <div class="comments-box">
             <span class="comments-label">Principal's comments:</span>
-            <span class="comments-content">{{ admin_remark|default:"Excellent performance. Emeka is an outstanding and diligent student." }}</span>
+            <span class="comments-content">{{ admin_remark|default:"No remarks provided." }}</span>
         </div>
 
         <!-- Signatures & Stamp Block -->
@@ -568,12 +659,12 @@
             <tr>
                 <td class="sig-cell-left">
                     <div class="stat-label">Teacher's Signature:</div>
-                    <div class="sig-name">{{ class_teacher_name|default:"Adewale B. (JSS 1A)" }}</div>
+                    <div class="sig-name">{{ class_teacher_name|default:"___________________________" }}</div>
                     <div class="stamp-note">Date: {{ generated_date|date:"d/m/Y" }}</div>
                 </td>
                 <td class="sig-cell-right">
                     <div class="stat-label">Principal's Signature & Stamp:</div>
-                    <div class="sig-name">{{ principal_name|default:"Margaret O. Nwachukwu" }}</div>
+                    <div class="sig-name">{{ principal_name|default:"___________________________" }}</div>
                 </td>
             </tr>
         </table>

@@ -28,10 +28,36 @@ class CBTExamStatus(models.TextChoices):
     PUBLISHED = "PUBLISHED", "Published"
     CLOSED = "CLOSED", "Closed"
 
+
+class AttemptExpiryPolicy(models.TextChoices):
+    CAP_AT_EXAM_CLOSE = "CAP_AT_EXAM_CLOSE", "Cap at exam close"
+    DURATION_ONLY = "DURATION_ONLY", "Duration only"
+
+
+class AttemptGrantStatus(models.TextChoices):
+    ACTIVE = "ACTIVE", "Active"
+    CONSUMED = "CONSUMED", "Consumed"
+    REVOKED = "REVOKED", "Revoked"
+
+
+class AttemptGrantSource(models.TextChoices):
+    ONLINE_START = "ONLINE_START", "Online start"
+    OFFLINE_PREPARATION = "OFFLINE_PREPARATION", "Offline preparation"
+
 class ExamAttemptStatus(models.TextChoices):
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     SUBMITTED = "SUBMITTED", "Submitted"
     EXPIRED = "EXPIRED", "Expired"
+
+
+class AttemptStartSource(models.TextChoices):
+    ONLINE = "ONLINE", "Online"
+    OFFLINE_RECONCILED = "OFFLINE_RECONCILED", "Offline reconciled"
+
+
+class AnswerEventOrigin(models.TextChoices):
+    ONLINE = "ONLINE", "Online"
+    OFFLINE_SYNC = "OFFLINE_SYNC", "Offline sync"
 
 
 class QuestionGradingStatus(models.TextChoices):

@@ -34,11 +34,7 @@ class ManualGradingService:
         attempt_question = (
             attempt_question.__class__.objects
             .select_for_update()
-            .select_related(
-                "attempt",
-                "exam_question",
-                "exam_question__question_version",
-            )
+            .select_related("attempt")
             .get(pk=attempt_question.pk)
         )
 
@@ -53,16 +49,12 @@ class ManualGradingService:
                 "can be manually graded."
             )
 
-        version = (
-            attempt_question
-            .exam_question
-            .question_version
+        question_type = (
+            attempt_question.published_question.question_type
+            if attempt_question.published_question_id
+            else attempt_question.exam_question.question_version.question_type
         )
-
-        if (
-            version.question_type
-            != QuestionType.ESSAY
-        ):
+        if question_type != QuestionType.ESSAY:
             raise ValidationError(
                 "Only essay questions require "
                 "manual grading."
@@ -80,9 +72,9 @@ class ManualGradingService:
             )
 
         max_marks = (
-            attempt_question
-            .exam_question
-            .marks
+            attempt_question.published_question.marks
+            if attempt_question.published_question_id
+            else attempt_question.exam_question.marks
         )
 
         if marks < 0:

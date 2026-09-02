@@ -1,11 +1,13 @@
 import secrets
+from dataclasses import dataclass
 from datetime import timedelta
+import hashlib
+import json
+import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
-
-from academic.models import StudentClassEnrollment
 
 from ..models import (
     CBTExam,
@@ -16,10 +18,24 @@ from ..models import (
     AttemptQuestionOption,
     AttemptMatchingItem,
     QuestionType,
+    PublishedExamChoice,
+    PublishedExamMatchingItem,
+    AttemptExpiryPolicy,
+    AttemptGrantStatus,
 )
+from .published_exam_revision_service import PublishedExamRevisionService
+from .exam_access_service import CBTExamAccessService, ExamAccessState
+from .attempt_grant_service import AttemptGrantService
 
 
 _rng = secrets.SystemRandom()
+
+
+@dataclass(frozen=True)
+class SubmissionResult:
+    attempt: ExamAttempt
+    outcome: str
+    finalized_now: bool
 
 
 class ExamAttemptService:
@@ -34,6 +50,7 @@ class ExamAttemptService:
         *,
         exam,
         student,
+        now=None,
     ):
         exam = (
             CBTExam.objects
@@ -44,6 +61,7 @@ class ExamAttemptService:
             )
             .get(pk=exam.pk)
         )
+        now = now or timezone.now()
 
         if exam.status != CBTExamStatus.PUBLISHED:
             raise ValidationError(
@@ -62,23 +80,22 @@ class ExamAttemptService:
 
         if existing_attempt:
             if (
+                existing_attempt.attempt_grant_id
+                and existing_attempt.attempt_grant.status == AttemptGrantStatus.REVOKED
+            ):
+                raise ValidationError("Your attempt authorization has been revoked.")
+            if (
                 existing_attempt.status
                 == ExamAttemptStatus.IN_PROGRESS
             ):
-                if ExamAttemptService.is_expired(
-                    existing_attempt
-                ):
+                if now >= existing_attempt.expires_at:
                     return (
                         ExamAttemptService
                         ._handle_expiry(
                             attempt=existing_attempt
                         )
                     )
-
-                raise ValidationError(
-                    "You already have an active attempt "
-                    "for this CBT exam."
-                )
+                return existing_attempt
 
             if (
                 existing_attempt.status
@@ -100,40 +117,43 @@ class ExamAttemptService:
                 "You already have an attempt for this CBT exam."
             )
 
-        enrollment = (
-            StudentClassEnrollment.objects
-            .select_related(
-                "student",
-                "classroom",
-                "academic_year",
-            )
-            .filter(
-                student=student,
-                academic_year=exam.session.academic_year,
-                classroom=exam.classroom,
-                is_active=True,
-            )
-            .first()
-        )
-
-        if enrollment is None:
-            raise ValidationError(
-                "Student is not eligible to take this CBT exam."
-            )
-
         if not exam.exam_questions.exists():
             raise ValidationError(
                 "This CBT exam does not contain any questions."
             )
 
-        started_at = timezone.now()
+        published_revision = PublishedExamRevisionService.ensure_current_for_exam(exam)
+        access = CBTExamAccessService.evaluate(
+            student=student,
+            exam=exam,
+            now=now,
+            attempt=None,
+            revision=published_revision,
+        )
+        if access.state != ExamAccessState.AVAILABLE:
+            raise ValidationError(access.message)
+        enrollment = access.enrollment
+        grant = AttemptGrantService.issue(
+            student=student,
+            exam=exam,
+            revision=published_revision,
+            now=now,
+            exam_locked=True,
+        )
+
+        started_at = now
 
         expires_at = (
             started_at
             + timedelta(
-                minutes=exam.duration_minutes
+                minutes=published_revision.duration_minutes
             )
         )
+        if (
+            exam.attempt_expiry_policy == AttemptExpiryPolicy.CAP_AT_EXAM_CLOSE
+            and exam.available_until is not None
+        ):
+            expires_at = min(expires_at, exam.available_until)
 
         attempt = ExamAttempt.objects.create(
             cbt_exam=exam,
@@ -143,7 +163,12 @@ class ExamAttemptService:
             started_at=started_at,
             expires_at=expires_at,
             last_activity_at=started_at,
+            published_revision=published_revision,
+            attempt_grant=grant,
         )
+
+        grant.status = AttemptGrantStatus.CONSUMED
+        grant.save(update_fields=["status", "updated_at"])
 
         ExamAttemptService._create_attempt_questions(
             attempt=attempt,
@@ -161,6 +186,34 @@ class ExamAttemptService:
         attempt,
     ):
         exam = attempt.cbt_exam
+
+        if attempt.published_revision_id:
+            published_questions = list(
+                attempt.published_revision.questions.prefetch_related(
+                    "choices", "matching_items"
+                ).order_by("order")
+            )
+            if attempt.published_revision.shuffle_questions:
+                _rng.shuffle(published_questions)
+            AttemptQuestion.objects.bulk_create([
+                AttemptQuestion(
+                    attempt=attempt,
+                    published_question=question,
+                    display_order=display_order,
+                )
+                for display_order, question in enumerate(published_questions, 1)
+            ])
+            created = list(
+                attempt.attempt_questions.select_related("published_question")
+                .prefetch_related(
+                    "published_question__choices",
+                    "published_question__matching_items",
+                ).order_by("display_order")
+            )
+            for attempt_question in created:
+                ExamAttemptService._create_option_order(attempt_question=attempt_question)
+                ExamAttemptService._create_matching_order(attempt_question=attempt_question)
+            return
 
         exam_questions = list(
             exam.exam_questions
@@ -232,6 +285,27 @@ class ExamAttemptService:
     ):
         exam = attempt_question.attempt.cbt_exam
 
+        if attempt_question.published_question_id:
+            question = attempt_question.published_question
+            if question.question_type not in {
+                QuestionType.SINGLE_CHOICE,
+                QuestionType.MULTIPLE_CHOICE,
+                QuestionType.TRUE_FALSE,
+            }:
+                return
+            choices = list(question.choices.all().order_by("order"))
+            if attempt_question.attempt.published_revision.shuffle_options:
+                _rng.shuffle(choices)
+            AttemptQuestionOption.objects.bulk_create([
+                AttemptQuestionOption(
+                    attempt_question=attempt_question,
+                    published_choice=choice,
+                    display_order=display_order,
+                )
+                for display_order, choice in enumerate(choices, 1)
+            ])
+            return
+
         version = (
             attempt_question
             .exam_question
@@ -268,6 +342,34 @@ class ExamAttemptService:
 
     @staticmethod
     def _create_matching_order(*, attempt_question):
+        if attempt_question.published_question_id:
+            question = attempt_question.published_question
+            if question.question_type != QuestionType.MATCHING:
+                return
+            left = list(question.matching_items.filter(side="LEFT").order_by("order"))
+            right = list(question.matching_items.filter(side="RIGHT").order_by("order"))
+            if question.interaction_config.get("shuffle_right_items", True):
+                _rng.shuffle(right)
+            else:
+                right.sort(key=lambda item: (item.text.casefold(), item.pk))
+            AttemptMatchingItem.objects.bulk_create([
+                AttemptMatchingItem(
+                    attempt_question=attempt_question,
+                    published_item=item,
+                    side=AttemptMatchingItem.Side.LEFT,
+                    display_order=order,
+                )
+                for order, item in enumerate(left, 1)
+            ] + [
+                AttemptMatchingItem(
+                    attempt_question=attempt_question,
+                    published_item=item,
+                    side=AttemptMatchingItem.Side.RIGHT,
+                    display_order=order,
+                )
+                for order, item in enumerate(right, 1)
+            ])
+            return
         version = attempt_question.exam_question.question_version
         if version.question_type != QuestionType.MATCHING:
             return
@@ -391,6 +493,9 @@ class ExamAttemptService:
     def submit(
         *,
         attempt,
+        submission_id=None,
+        allow_expired_reconciliation=False,
+        client_submitted_at=None,
     ):
         attempt = (
             ExamAttempt.objects
@@ -406,7 +511,12 @@ class ExamAttemptService:
             attempt.status
             == ExamAttemptStatus.SUBMITTED
         ):
-            return attempt
+            outcome = (
+                "DUPLICATE"
+                if submission_id and attempt.submission_id == submission_id
+                else "ALREADY_SUBMITTED"
+            )
+            return SubmissionResult(attempt, outcome, False)
 
         if (
             attempt.status
@@ -424,27 +534,112 @@ class ExamAttemptService:
                 "This exam attempt cannot be submitted."
             )
 
-        if ExamAttemptService.is_expired(attempt):
-            return ExamAttemptService._handle_expiry(
+        delayed_submission_is_valid = (
+            allow_expired_reconciliation
+            and client_submitted_at is not None
+            and attempt.started_at <= client_submitted_at < attempt.expires_at
+        )
+        if ExamAttemptService.is_expired(attempt) and not delayed_submission_is_valid:
+            expired_attempt = ExamAttemptService._handle_expiry(
                 attempt=attempt
+            )
+            return SubmissionResult(
+                expired_attempt,
+                "ACCEPTED" if expired_attempt.status == ExamAttemptStatus.SUBMITTED else "EXPIRED",
+                expired_attempt.status == ExamAttemptStatus.SUBMITTED,
             )
 
         now = timezone.now()
+        submission_id = submission_id or uuid.uuid4()
 
         attempt.status = ExamAttemptStatus.SUBMITTED
+        attempt.submission_id = submission_id
+        attempt.submitted_revision = attempt.revision
+        attempt.submission_snapshot_hash = ExamAttemptService._snapshot_hash(attempt)
         attempt.submitted_at = now
+        if client_submitted_at is not None:
+            attempt.client_reported_submitted_at = client_submitted_at
         attempt.last_activity_at = now
 
         attempt.save(
             update_fields=[
                 "status",
+                "submission_id",
+                "submitted_revision",
+                "submission_snapshot_hash",
                 "submitted_at",
+                "client_reported_submitted_at",
                 "last_activity_at",
                 "updated_at",
             ]
         )
 
-        return attempt
+        return SubmissionResult(attempt, "ACCEPTED", True)
+
+    @staticmethod
+    def _snapshot_hash(attempt):
+        questions = []
+        attempt_questions = (
+            attempt.attempt_questions
+            .select_related("exam_question__question_version", "published_question", "answer")
+            .prefetch_related(
+                "answer__selected_options__published_choice",
+                "answer__blank_responses__published_blank",
+                "answer__matching_responses__published_left_item",
+                "answer__matching_responses__published_right_item",
+            )
+            .order_by("display_order")
+        )
+        for question in attempt_questions:
+            answer = getattr(question, "answer", None)
+            response = None
+            if answer and answer.is_answered:
+                q_type = (
+                    question.published_question.question_type
+                    if question.published_question_id
+                    else question.exam_question.question_version.question_type
+                )
+                if q_type in {
+                    QuestionType.SINGLE_CHOICE,
+                    QuestionType.MULTIPLE_CHOICE,
+                    QuestionType.TRUE_FALSE,
+                }:
+                    response = {"option_ids": sorted(
+                        str(item.published_choice.public_id) if item.published_choice_id else str(item.question_option_id)
+                        for item in answer.selected_options.all()
+                    )}
+                elif q_type in {QuestionType.SHORT_ANSWER, QuestionType.ESSAY}:
+                    response = {"text": answer.text_response.text}
+                elif q_type == QuestionType.NUMERIC:
+                    response = {"value": str(answer.numeric_response.value)}
+                elif q_type == QuestionType.FILL_BLANK:
+                    response = {
+                        "responses": {
+                            (str(item.published_blank.public_id) if item.published_blank_id else str(item.blank_id)): item.answer
+                            for item in answer.blank_responses.all()
+                        }
+                    }
+                elif q_type == QuestionType.MATCHING:
+                    response = {
+                        "matches": {
+                            (str(item.published_left_item.public_id) if item.published_left_item_id else str(item.left_pair_id)):
+                            (str(item.published_right_item.public_id) if item.published_right_item_id else str(item.selected_right_pair_id))
+                            for item in answer.matching_responses.all()
+                        }
+                    }
+            questions.append({
+                "attempt_question": str(question.public_id),
+                "response": response,
+            })
+        canonical = {
+            "attempt": str(attempt.public_id),
+            "revision": attempt.revision,
+            "questions": questions,
+        }
+        encoded = json.dumps(
+            canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     # =========================================================
     # HANDLE EXPIRY
@@ -464,12 +659,20 @@ class ExamAttemptService:
         exam = attempt.cbt_exam
         now = timezone.now()
 
-        if exam.auto_submit:
+        auto_submit = (
+            attempt.published_revision.auto_submit
+            if attempt.published_revision_id
+            else exam.auto_submit
+        )
+        if auto_submit:
             attempt.status = (
                 ExamAttemptStatus.SUBMITTED
             )
 
             attempt.submitted_at = now
+            attempt.submission_id = attempt.submission_id or uuid.uuid4()
+            attempt.submitted_revision = attempt.revision
+            attempt.submission_snapshot_hash = ExamAttemptService._snapshot_hash(attempt)
 
         else:
             attempt.status = (
@@ -484,6 +687,9 @@ class ExamAttemptService:
             update_fields=[
                 "status",
                 "submitted_at",
+                "submission_id",
+                "submitted_revision",
+                "submission_snapshot_hash",
                 "last_activity_at",
                 "updated_at",
             ]

@@ -15,9 +15,18 @@ class AssessmentSessionSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_by", "created_on"]
 
     def validate(self, attrs):
-        instance = AssessmentSession(**{**(self.instance.__dict__ if self.instance else {}), **attrs})
+        attrs_copy = attrs.copy()
+        attrs_copy.pop("classrooms", None)
+
+        instance_dict = {}
+        if self.instance:
+            for field in self.instance._meta.fields:
+                instance_dict[field.name] = getattr(self.instance, field.name)
+        instance_dict.update(attrs_copy)
+
+        instance = AssessmentSession(**instance_dict)
         instance.pk = self.instance.pk if self.instance else None
-        instance.full_clean(exclude=["id", "classrooms"])  # M2M excluded, same reason as above
+        instance.full_clean(exclude=["id", "classrooms"])
         return attrs
 
 
