@@ -135,14 +135,54 @@ def send_email(
         return 0
 
 
-def send_teacher_invitation(invitation):
+def get_invitation_base_url(request=None, frontend_url=None) -> str:
+    """
+    Resolves the frontend base URL for tenant-aware invitation links.
+    Priority:
+    1. Explicit frontend_url passed as argument
+    2. Request Origin header / frontend_url payload / Host header
+    3. Tenant's website/domain URL from get_school_settings()
+    4. settings.FRONTEND_URL fallback
+    """
+    if frontend_url:
+        return str(frontend_url).rstrip('/')
+
+    if request:
+        origin = None
+        if hasattr(request, 'headers') and request.headers.get('Origin'):
+            origin = request.headers.get('Origin')
+        elif hasattr(request, 'META') and request.META.get('HTTP_ORIGIN'):
+            origin = request.META.get('HTTP_ORIGIN')
+        elif hasattr(request, 'data') and isinstance(request.data, dict) and request.data.get('frontend_url'):
+            origin = request.data.get('frontend_url')
+
+        if origin:
+            return origin.rstrip('/')
+
+        if hasattr(request, 'get_host'):
+            scheme = getattr(request, 'scheme', 'https')
+            host = request.get_host()
+            if host:
+                return f"{scheme}://{host}".rstrip('/')
+
+    school_settings = get_school_settings()
+    if school_settings.get('website'):
+        return str(school_settings['website']).rstrip('/')
+
+    return getattr(settings, 'FRONTEND_URL', 'http://localhost:3000').rstrip('/')
+
+
+def send_teacher_invitation(invitation, request=None, frontend_url=None):
     """
     Send invitation email to a teacher.
 
     Args:
         invitation: UserInvitation model instance
+        request: Optional HttpRequest/DRF Request for tenant origin extraction
+        frontend_url: Optional explicit frontend base URL
     """
-    invitation_url = f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/accept-invitation/{invitation.token}"
+    base_url = get_invitation_base_url(request=request, frontend_url=frontend_url)
+    invitation_url = f"{base_url}/accept-invitation/{invitation.token}"
 
     # Get school name from database
     school_settings = get_school_settings()
@@ -163,14 +203,17 @@ def send_teacher_invitation(invitation):
     )
 
 
-def send_parent_invitation(invitation):
+def send_parent_invitation(invitation, request=None, frontend_url=None):
     """
     Send invitation email to a parent.
 
     Args:
         invitation: UserInvitation model instance
+        request: Optional HttpRequest/DRF Request for tenant origin extraction
+        frontend_url: Optional explicit frontend base URL
     """
-    invitation_url = f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/accept-invitation/{invitation.token}"
+    base_url = get_invitation_base_url(request=request, frontend_url=frontend_url)
+    invitation_url = f"{base_url}/accept-invitation/{invitation.token}"
 
     # Get school name from database
     school_settings = get_school_settings()
@@ -191,14 +234,17 @@ def send_parent_invitation(invitation):
     )
 
 
-def send_accountant_invitation(invitation):
+def send_accountant_invitation(invitation, request=None, frontend_url=None):
     """
     Send invitation email to an accountant.
 
     Args:
         invitation: UserInvitation model instance
+        request: Optional HttpRequest/DRF Request for tenant origin extraction
+        frontend_url: Optional explicit frontend base URL
     """
-    invitation_url = f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/accept-invitation/{invitation.token}"
+    base_url = get_invitation_base_url(request=request, frontend_url=frontend_url)
+    invitation_url = f"{base_url}/accept-invitation/{invitation.token}"
 
     # Get school name from database
     school_settings = get_school_settings()

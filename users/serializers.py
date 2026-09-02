@@ -608,7 +608,8 @@ class TeacherSerializer(serializers.ModelSerializer):
 
             try:
                 from core.email_utils import send_teacher_invitation
-                send_teacher_invitation(invitation)
+                request = self.context.get("request")
+                send_teacher_invitation(invitation, request=request)
             except Exception as e:
                 print(f"Failed to send invitation email: {str(e)}")
 
@@ -888,7 +889,7 @@ class ParentSerializer(serializers.ModelSerializer):
                     send_parent_invitation,
                 )
 
-                send_parent_invitation(invitation)
+                send_parent_invitation(invitation, request=request)
             except Exception:
                 # Replace with logger.exception()
                 # if logging is configured here.
