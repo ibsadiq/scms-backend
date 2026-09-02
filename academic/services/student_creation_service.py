@@ -38,6 +38,7 @@ class StudentCreationService:
         image=None,
         parent_first_name="",
         parent_last_name="",
+        parent_address="",
         actor=None,
     ):
         """
@@ -86,6 +87,7 @@ class StudentCreationService:
             email=parent_email,
             first_name=parent_first_name or first_name,
             last_name=parent_last_name or last_name,
+            address=parent_address or street or "",
         )
 
         admission_number = (

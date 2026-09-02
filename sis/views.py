@@ -186,7 +186,7 @@ class BulkUploadStudentsView(APIView):
             workbook = openpyxl.load_workbook(file, data_only=True)
             sheet = workbook.active
 
-            columns = [
+            columns_10 = [
                 "first_name",
                 "middle_name",
                 "last_name",
@@ -198,14 +198,21 @@ class BulkUploadStudentsView(APIView):
                 "classroom_id",
                 "gender",
             ]
+            columns_11 = columns_10 + ["parent_address"]
 
-            actual_columns = [cell.value for cell in sheet[1]][:len(columns)]
-            if actual_columns != columns:
+            raw_header = [cell.value for cell in sheet[1] if cell.value is not None]
+            cleaned_header = [str(v).strip().lower() for v in raw_header]
+
+            if len(cleaned_header) >= 11 and (cleaned_header[:11] == columns_11 or (cleaned_header[:10] == columns_10 and cleaned_header[10] in ("parent_address", "address"))):
+                columns = columns_11
+            elif len(cleaned_header) >= 10 and cleaned_header[:10] == columns_10:
+                columns = columns_10
+            else:
                 return Response(
                     {
                         "error": "Invalid Students worksheet columns.",
-                        "expected_columns": columns,
-                        "actual_columns": actual_columns,
+                        "expected_columns": columns_11,
+                        "actual_columns": raw_header[:11],
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -299,6 +306,7 @@ class BulkUploadStudentsView(APIView):
                             religion=student_data.get("religion"),
                             parent_first_name=student_data["parent_first_name"].title(),
                             parent_last_name=student_data["parent_last_name"].title(),
+                            parent_address=student_data.get("parent_address") or "",
                             actor=request.user,
                         )
                         created_students.append(student)
