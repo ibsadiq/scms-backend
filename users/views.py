@@ -20,6 +20,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from drf_spectacular.utils import extend_schema
 from django.utils import timezone
 from django.db.models import Sum, Count
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
 
@@ -339,7 +340,7 @@ class UserDetailView(views.APIView):
 
 
 class ParentListView(generics.ListCreateAPIView):
-    queryset = Parent.objects.all().prefetch_related("children", "children__classroom")
+    queryset = Parent.objects.all().select_related("user").prefetch_related("children", "children__classroom")
     serializer_class = ParentSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = ParentFilter
@@ -427,7 +428,7 @@ class ParentDetailView(views.APIView):
         )
 # Teacher Views
 class TeacherListView(generics.ListCreateAPIView):
-    queryset = Teacher.objects.all()
+    queryset = Teacher.objects.all().select_related("user", "staff")
     serializer_class = TeacherSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = TeacherFilter
@@ -575,6 +576,94 @@ class TeacherResendInvitationView(APIView):
             "message": "Invitation email sent successfully.",
             "invitation_id": invitation.id,
         })
+
+
+class ParentResendInvitationView(APIView):
+    """
+    API View to send or resend an invitation email to a parent.
+    POST /api/users/parents/{id}/resend-invitation/
+    """
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        import datetime
+        from django.utils import timezone
+        from academic.models import Parent
+        from academic.services.parent_identity_service import ParentIdentityService
+        from users.invitation_models import UserInvitation
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        parent = get_object_or_404(Parent.objects.select_related("user"), pk=pk)
+        email = (parent.email or "").strip().lower()
+        if not email:
+            return Response(
+                {"error": "Parent does not have an email address on file. Please add an email address first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if parent.user and parent.user.has_usable_password():
+            return Response(
+                {"error": "Parent already has an active portal account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ensure/resolve parent identity safely with collision protections
+        try:
+            parent = ParentIdentityService.resolve_parent(
+                phone_number=parent.phone_number,
+                email=email,
+                first_name=parent.first_name,
+                last_name=parent.last_name,
+            )
+        except DjangoValidationError as exc:
+            msg = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
+            return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        invitation = (
+            UserInvitation.objects.filter(
+                email__iexact=email,
+                role="parent",
+                status="pending",
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if invitation and not invitation.is_expired:
+            invitation.expires_at = timezone.now() + datetime.timedelta(days=7)
+            invitation.parent_profile_id = parent.id
+            invitation.save()
+        else:
+            if invitation:
+                invitation.status = "expired"
+                invitation.save()
+            invitation = UserInvitation.objects.create(
+                email=email,
+                first_name=parent.first_name or "",
+                last_name=parent.last_name or "",
+                role="parent",
+                parent_profile_id=parent.id,
+                invited_by=request.user,
+            )
+
+        def _dispatch():
+            try:
+                from core.email_utils import send_parent_invitation
+                send_parent_invitation(invitation, request=request)
+            except Exception as e:
+                logger.exception(f"Failed to send parent invitation email: {e}")
+
+        transaction.on_commit(_dispatch)
+
+        return Response({
+            "message": "Invitation email sent successfully.",
+            "invitation_id": invitation.id,
+            "has_portal_account": False,
+            "invitation_status": "PENDING",
+        }, status=status.HTTP_200_OK)
 
 
 class BulkUploadTeachersView(APIView):

@@ -57,6 +57,21 @@ class TeacherInvitationAndLastLoginTests(TenantTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.data["last_login"])
 
+    def test_teacher_login_updates_last_login(self):
+        login_res = self.client.post(
+            "/api/users/login/",
+            {"email": "teacher.new@school.test", "password": "teacher-password"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, status.HTTP_200_OK)
+        self.teacher_user.refresh_from_db()
+        self.assertIsNotNone(self.teacher_user.last_login)
+
+        # Teacher endpoint now returns the updated last_login
+        response = self.client.get(f"/api/users/teachers/{self.teacher.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data["last_login"])
+
     @patch("core.email_utils.send_teacher_invitation")
     def test_resend_invitation_succeeds_when_no_last_login(self, mock_send):
         mock_send.return_value = True

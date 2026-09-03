@@ -14,6 +14,7 @@ from users.views import (
     UserDetailView,
     ParentListView,
     ParentDetailView,
+    ParentResendInvitationView,
     TeacherListView,
     TeacherDetailView,
     TeacherResendInvitationView,
@@ -61,6 +62,7 @@ urlpatterns = [
     # Parent URLs
     path("parents/", ParentListView.as_view(), name="parent-list-create"),
     path("parents/<int:pk>/", ParentDetailView.as_view(), name="parent-detail"),
+    path("parents/<int:pk>/resend-invitation/", ParentResendInvitationView.as_view(), name="parent-resend-invitation"),
     # Dashboard URLs
     path("teacher/dashboard/", TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("parent/dashboard/", ParentDashboardView.as_view(), name="parent-dashboard"),

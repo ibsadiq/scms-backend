@@ -711,6 +711,10 @@ class ParentSerializer(serializers.ModelSerializer):
         default=False,
     )
 
+    has_portal_account = serializers.SerializerMethodField()
+    invitation_status = serializers.SerializerMethodField()
+    last_login = serializers.DateTimeField(source="user.last_login", read_only=True, allow_null=True)
+
     students = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -738,6 +742,9 @@ class ParentSerializer(serializers.ModelSerializer):
             "inactive",
             "children_details",
             "children",
+            "has_portal_account",
+            "invitation_status",
+            "last_login",
             "send_invitation",
             "students",
         ]
@@ -745,6 +752,9 @@ class ParentSerializer(serializers.ModelSerializer):
             "id",
             "children_details",
             "children",
+            "has_portal_account",
+            "invitation_status",
+            "last_login",
         ]
 
     def get_children_details(self, obj):
@@ -765,6 +775,40 @@ class ParentSerializer(serializers.ModelSerializer):
 
     def get_children(self, obj):
         return self.get_children_details(obj)
+
+    def get_has_portal_account(self, obj):
+        return bool(obj.user_id and obj.user and obj.user.has_usable_password())
+
+    def get_invitation_status(self, obj):
+        from users.invitation_models import UserInvitation
+        from django.db.models import Q
+
+        if obj.user_id and obj.user and obj.user.has_usable_password():
+            return "ACCEPTED"
+
+        q = Q(parent_profile_id=obj.pk)
+        if obj.email:
+            q |= Q(email__iexact=obj.email, role="parent")
+
+        invitation = (
+            UserInvitation.objects.filter(q)
+            .order_by("-created_at")
+            .first()
+        )
+        if not invitation:
+            return None
+
+        if invitation.status == "pending":
+            return "EXPIRED" if invitation.is_expired else "PENDING"
+
+        return invitation.status.upper()
+
+    def validate(self, attrs):
+        send_invitation = attrs.get("send_invitation", False)
+        email = attrs.get("email") or (self.instance.email if self.instance else None)
+        if send_invitation and not email:
+            raise serializers.ValidationError({"email": ["A valid email address is required to send an invitation."]})
+        return attrs
 
     def validate_email(self, value):
         if not value:
@@ -869,33 +913,49 @@ class ParentSerializer(serializers.ModelSerializer):
         if student_ids is not None:
             ParentStudentService.sync_students(parent, student_ids)
 
-        if send_invitation:
+        if send_invitation and parent.email:
+            import datetime
+            from django.utils import timezone
+            from users.invitation_models import UserInvitation
+
             request = self.context.get("request")
-            invited_by = (
-                request.user
-                if request
-                else None
+            invited_by = request.user if request else None
+
+            invitation = (
+                UserInvitation.objects.filter(
+                    email__iexact=parent.email,
+                    role="parent",
+                    status="pending",
+                )
+                .order_by("-created_at")
+                .first()
             )
 
-            invitation = UserInvitation.objects.create(
-                email=parent.email,
-                first_name=parent.first_name,
-                last_name=parent.last_name,
-                role="parent",
-                parent_profile_id=parent.id,
-                invited_by=invited_by,
-            )
-
-            try:
-                from core.email_utils import (
-                    send_parent_invitation,
+            if invitation and not invitation.is_expired:
+                invitation.expires_at = timezone.now() + datetime.timedelta(days=7)
+                invitation.parent_profile_id = parent.id
+                invitation.save()
+            else:
+                if invitation:
+                    invitation.status = "expired"
+                    invitation.save()
+                invitation = UserInvitation.objects.create(
+                    email=parent.email,
+                    first_name=parent.first_name,
+                    last_name=parent.last_name,
+                    role="parent",
+                    parent_profile_id=parent.id,
+                    invited_by=invited_by,
                 )
 
-                send_parent_invitation(invitation, request=request)
-            except Exception:
-                # Replace with logger.exception()
-                # if logging is configured here.
-                pass
+            def _dispatch():
+                try:
+                    from core.email_utils import send_parent_invitation
+                    send_parent_invitation(invitation, request=request)
+                except Exception:
+                    pass
+
+            transaction.on_commit(_dispatch)
 
         return parent
 
@@ -1080,6 +1140,8 @@ class AcceptInvitationSerializer(serializers.Serializer):
 
         # Mark invitation as accepted
         invitation.mark_as_accepted()
+        from django.contrib.auth.models import update_last_login
+        update_last_login(None, user)
 
         return user
 

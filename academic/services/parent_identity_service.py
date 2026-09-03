@@ -37,6 +37,14 @@ class ParentIdentityService:
         return list(variants)
 
     @classmethod
+    def _phone_matches(cls, phone_a, phone_b):
+        if not phone_a or not phone_b:
+            return False
+        variants_a = set(cls.phone_variants(phone_a))
+        variants_b = set(cls.phone_variants(phone_b))
+        return bool(variants_a & variants_b)
+
+    @classmethod
     def _match(cls, queryset, *, phone, email, label):
         phone_matches = list(queryset.filter(phone_number__in=cls.phone_variants(phone)).order_by("pk")[:2]) if phone else []
         email_matches = list(queryset.filter(email__iexact=email).order_by("pk")[:2]) if email else []
@@ -52,38 +60,63 @@ class ParentIdentityService:
         email = email.strip().lower() if email else None
         if not phone and not email:
             raise ValidationError("A phone number or email is required for parent identity resolution.")
-        parent = cls._match(Parent.objects.select_for_update(), phone=phone, email=email, label="parent")
-        user = cls._match(CustomUser.objects.select_for_update(), phone=phone, email=email, label="user") if (phone or email) else None
-        if parent:
-            if user:
-                if parent.user_id and parent.user_id != user.pk:
+
+        # 1. Resolve candidate Parent and User records
+        parent_candidate = cls._match(Parent.objects.select_for_update(), phone=phone, email=email, label="parent")
+        user_candidate = cls._match(CustomUser.objects.select_for_update(), phone=phone, email=email, label="user") if (phone or email) else None
+
+        # 2. Cross-identifier consistency validations
+        if user_candidate:
+            if user_candidate.phone_number and phone and not cls._phone_matches(user_candidate.phone_number, phone):
+                raise ValidationError("Parent and user identifiers resolve to different identities.")
+            if user_candidate.email and email and user_candidate.email.strip().lower() != email:
+                raise ValidationError("Parent and user identifiers resolve to different identities.")
+
+        if parent_candidate:
+            if user_candidate:
+                if parent_candidate.user_id and parent_candidate.user_id != user_candidate.pk:
                     raise ValidationError("Parent and user identifiers resolve to different identities.")
-                if Parent.objects.filter(user=user).exclude(pk=parent.pk).exists():
+                if Parent.objects.filter(user=user_candidate).exclude(pk=parent_candidate.pk).exists():
                     raise ValidationError("Parent and user identifiers resolve to different identities.")
-                if user.phone_number and phone and user.phone_number not in cls.phone_variants(phone):
+                if parent_candidate.email and user_candidate.email and parent_candidate.email.strip().lower() != user_candidate.email.strip().lower():
+                    raise ValidationError("Parent and user identifiers resolve to different identities.")
+                if parent_candidate.phone_number and user_candidate.phone_number and not cls._phone_matches(parent_candidate.phone_number, user_candidate.phone_number):
                     raise ValidationError("Parent and user identifiers resolve to different identities.")
 
-            if not parent.user_id and email:
-                parent.user = user or cls._create_user(phone=phone, email=email, **profile)
+            if parent_candidate.phone_number and phone and not cls._phone_matches(parent_candidate.phone_number, phone):
+                raise ValidationError("Parent and user identifiers resolve to different identities.")
+            if parent_candidate.email and email and parent_candidate.email.strip().lower() != email:
+                raise ValidationError("Parent and user identifiers resolve to different identities.")
+            if parent_candidate.user:
+                if parent_candidate.user.phone_number and phone and not cls._phone_matches(parent_candidate.user.phone_number, phone):
+                    raise ValidationError("Parent and user identifiers resolve to different identities.")
+                if parent_candidate.user.email and email and parent_candidate.user.email.strip().lower() != email:
+                    raise ValidationError("Parent and user identifiers resolve to different identities.")
+
+            if not parent_candidate.user_id and email:
+                parent_candidate.user = user_candidate or cls._create_user(phone=phone, email=email, **profile)
                 update_fields = ["user"]
-                if not parent.email:
-                    parent.email = email
+                if not parent_candidate.email:
+                    parent_candidate.email = email
                     update_fields.append("email")
-                parent.save(update_fields=update_fields)
-            elif not parent.email and email:
-                parent.email = email
-                parent.save(update_fields=["email"])
+                parent_candidate.save(update_fields=update_fields)
+            elif not parent_candidate.email and email:
+                parent_candidate.email = email
+                parent_candidate.save(update_fields=["email"])
 
-            if parent.user:
-                cls._ensure_parent_role(parent.user)
-            return parent
-        if user and Parent.objects.filter(user=user).exists():
+            if parent_candidate.user:
+                cls._ensure_parent_role(parent_candidate.user)
+            return parent_candidate
+
+        if user_candidate and Parent.objects.filter(user=user_candidate).exists():
             raise ValidationError("A parent profile for this user already exists.")
-        user = None
-        if email:
-            user = user or cls._create_user(phone=phone, email=email, **profile)
-            if user:
-                cls._ensure_parent_role(user)
+
+        user = user_candidate
+        if not user and email:
+            user = cls._create_user(phone=phone, email=email, **profile)
+        if user:
+            cls._ensure_parent_role(user)
+
         return Parent.objects.create(
             user=user, phone_number=phone, email=email,
             first_name=profile.get("first_name", ""), middle_name=profile.get("middle_name", ""),
@@ -95,6 +128,10 @@ class ParentIdentityService:
     def _create_user(cls, *, phone, email, **profile):
         if not email:
             return None
+        if CustomUser.objects.filter(email__iexact=email).exists():
+            raise ValidationError("A user with this email address already exists.")
+        if phone and CustomUser.objects.filter(phone_number__in=cls.phone_variants(phone)).exists():
+            raise ValidationError("A user with this phone number already exists.")
         user = CustomUser(
             email=email,
             phone_number=phone, first_name=profile.get("first_name", "") or "",

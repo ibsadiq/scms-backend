@@ -375,10 +375,10 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        if instance.parent_guardian:
-            ret['parent_email'] = instance.parent_guardian.email
-            ret['parent_first_name'] = instance.parent_guardian.first_name
-            ret['parent_last_name'] = instance.parent_guardian.last_name
+        parent = instance.parent_guardian
+        ret["parent_email"] = parent.email if parent else None
+        ret["parent_first_name"] = parent.first_name if parent else None
+        ret["parent_last_name"] = parent.last_name if parent else None
         return ret
 
     def bulk_create(self, student_data_list):
@@ -404,6 +404,9 @@ class ScopedStudentReadSerializer(serializers.ModelSerializer):
     classroom = serializers.StringRelatedField(read_only=True)
     class_level = serializers.SerializerMethodField()
     grade_level = serializers.SerializerMethodField()
+    parent_email = serializers.CharField(read_only=True, default=None, allow_null=True)
+    parent_first_name = serializers.CharField(read_only=True, default=None, allow_null=True)
+    parent_last_name = serializers.CharField(read_only=True, default=None, allow_null=True)
 
     class Meta:
         model = Student
@@ -421,8 +424,19 @@ class ScopedStudentReadSerializer(serializers.ModelSerializer):
             "class_level",
             "grade_level",
             "image",
+            "parent_email",
+            "parent_first_name",
+            "parent_last_name",
         )
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        parent = instance.parent_guardian
+        ret["parent_email"] = parent.email if parent else None
+        ret["parent_first_name"] = parent.first_name if parent else None
+        ret["parent_last_name"] = parent.last_name if parent else None
+        return ret
 
     def get_class_level(self, obj):
         return str(obj.classroom.grade_level) if obj.classroom and obj.classroom.grade_level else None
