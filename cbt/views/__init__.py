@@ -25,6 +25,9 @@ from .invigilation import (
 from .analytics import (
     CBTAnalyticsViewSet,
 )
+from .scope import (
+    CBTAuthoringScopeView,
+)
 
 __all__ = [
     # Question Bank
@@ -33,6 +36,8 @@ __all__ = [
     "QuestionAttachmentViewSet",
     # Exam
     "CBTExamViewSet",
+    # Scope
+    "CBTAuthoringScopeView",
     # Student
     "StudentExamViewSet",
     "StudentAttemptViewSet",

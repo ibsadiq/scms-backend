@@ -6,6 +6,7 @@ from cbt.views import (
     QuestionViewSet,
     QuestionAttachmentViewSet,
     CBTExamViewSet,
+    CBTAuthoringScopeView,
     StudentExamViewSet,
     StudentAttemptViewSet,
     AttemptQuestionViewSet,
@@ -64,6 +65,11 @@ urlpatterns = [
         "student/offline-media/<uuid:media_public_id>/",
         OfflineMediaDownloadView.as_view(),
         name="student-offline-media",
+    ),
+    path(
+        "authoring-scope/",
+        CBTAuthoringScopeView.as_view(),
+        name="cbt-authoring-scope",
     ),
     path("", include(router.urls)),
 ]

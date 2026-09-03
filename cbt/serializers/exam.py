@@ -14,7 +14,7 @@ from cbt.models import (
     PublishedExamRevision,
 )
 from cbt.serializers.question_bank import QuestionVersionSerializer
-from cbt.services import CBTActorService
+from cbt.services import CBTActorService, CBTAcademicScopeService
 
 
 class BlueprintRuleSerializer(serializers.ModelSerializer):
@@ -179,6 +179,37 @@ class CBTExamManagementSerializer(serializers.ModelSerializer):
         return PublishedExamRevisionMetadataSerializer(revision).data
 
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        start = attrs.get("available_from", getattr(self.instance, "available_from", None))
+        end = attrs.get("available_until", getattr(self.instance, "available_until", None))
+        if start and end and start >= end:
+            raise serializers.ValidationError(
+                {"available_until": "Availability end must be after its start."}
+            )
+
+        if user and user.is_authenticated:
+            subject = attrs.get("subject", getattr(self.instance, "subject", None))
+            classroom = attrs.get("classroom", getattr(self.instance, "classroom", None))
+            session = attrs.get("session", getattr(self.instance, "session", None))
+
+            if subject and not CBTAcademicScopeService.can_use_subject(user, subject, session=session):
+                raise serializers.ValidationError(
+                    {"subject": "You are not authorized to create or manage exams for this subject."}
+                )
+
+            if classroom and subject and not CBTAcademicScopeService.can_use_classroom_for_subject(
+                user, classroom, subject, session=session
+            ):
+                raise serializers.ValidationError(
+                    {"classroom": "You are not allocated to teach this subject in this classroom."}
+                )
+
+        return attrs
+
+
 class CBTExamCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CBTExam
@@ -201,7 +232,8 @@ class CBTExamCreateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        user = self.context["request"].user
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
 
         start = attrs.get("available_from")
         end = attrs.get("available_until")
@@ -210,23 +242,22 @@ class CBTExamCreateSerializer(serializers.ModelSerializer):
                 {"available_until": "Availability end must be after its start."}
             )
 
-        # Non-admin teachers must be allocated to the subject and classroom
-        if not (user.is_superuser or user.is_staff or getattr(user, "is_admin", False)):
-            try:
-                teacher = CBTActorService.resolve_teacher(user)
-            except DjangoValidationError:
-                teacher = None
+        if user and user.is_authenticated:
+            subject = attrs.get("subject")
+            classroom = attrs.get("classroom")
+            session = attrs.get("session")
 
-            if teacher:
-                is_allocated = AllocatedSubject.objects.filter(
-                    teacher_name=teacher,
-                    subject=attrs["subject"],
-                    class_room=attrs["classroom"],
-                ).exists()
-                if not is_allocated:
-                    raise serializers.ValidationError(
-                        "You are not allocated to teach this subject in this classroom."
-                    )
+            if subject and not CBTAcademicScopeService.can_use_subject(user, subject, session=session):
+                raise serializers.ValidationError(
+                    {"subject": "You are not authorized to create or manage exams for this subject."}
+                )
+
+            if classroom and subject and not CBTAcademicScopeService.can_use_classroom_for_subject(
+                user, classroom, subject, session=session
+            ):
+                raise serializers.ValidationError(
+                    {"classroom": "You are not allocated to teach this subject in this classroom."}
+                )
 
         return attrs
 

@@ -9,7 +9,14 @@ class AssessmentComponentSerializer(serializers.ModelSerializer):
         fields = ["id", "scheme", "name", "max_score", "weight", "order"]
 
     def validate(self, attrs):
-        instance = AssessmentComponent(**{**(self.instance.__dict__ if self.instance else {}), **attrs})
+        attrs_copy = attrs.copy()
+        instance_dict = {}
+        if self.instance:
+            for field in self.instance._meta.fields:
+                instance_dict[field.name] = getattr(self.instance, field.name)
+        instance_dict.update(attrs_copy)
+
+        instance = AssessmentComponent(**instance_dict)
         instance.pk = self.instance.pk if self.instance else None
         instance.full_clean(exclude=["id"])
         return attrs
@@ -21,7 +28,14 @@ class GradeRuleSerializer(serializers.ModelSerializer):
         fields = ["id", "scheme", "min_score", "max_score", "grade", "remark", "grade_point"]
 
     def validate(self, attrs):
-        instance = GradeRule(**{**(self.instance.__dict__ if self.instance else {}), **attrs})
+        attrs_copy = attrs.copy()
+        instance_dict = {}
+        if self.instance:
+            for field in self.instance._meta.fields:
+                instance_dict[field.name] = getattr(self.instance, field.name)
+        instance_dict.update(attrs_copy)
+
+        instance = GradeRule(**instance_dict)
         instance.pk = self.instance.pk if self.instance else None
         instance.full_clean(exclude=["id"])
         return attrs
@@ -41,12 +55,18 @@ class PromotionRuleSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        instance = PromotionRule(**{
-            k: v for k, v in {**(self.instance.__dict__ if self.instance else {}), **attrs}.items()
-            if k != "required_pass_subjects"  # M2M can't go through the unsaved-instance constructor
-        })
+        attrs_copy = attrs.copy()
+        attrs_copy.pop("required_pass_subjects", None)  # M2M can't go through the unsaved-instance constructor
+
+        instance_dict = {}
+        if self.instance:
+            for field in self.instance._meta.fields:
+                instance_dict[field.name] = getattr(self.instance, field.name)
+        instance_dict.update(attrs_copy)
+
+        instance = PromotionRule(**instance_dict)
         instance.pk = self.instance.pk if self.instance else None
-        instance.full_clean(exclude=["id"])
+        instance.full_clean(exclude=["id", "required_pass_subjects"])
         return attrs
 
 
@@ -63,7 +83,14 @@ class GradingSchemeSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        instance = GradingScheme(**{**(self.instance.__dict__ if self.instance else {}), **attrs})
+        attrs_copy = attrs.copy()
+        instance_dict = {}
+        if self.instance:
+            for field in self.instance._meta.fields:
+                instance_dict[field.name] = getattr(self.instance, field.name)
+        instance_dict.update(attrs_copy)
+
+        instance = GradingScheme(**instance_dict)
         instance.pk = self.instance.pk if self.instance else None
         instance.full_clean(exclude=["id"])
         return attrs

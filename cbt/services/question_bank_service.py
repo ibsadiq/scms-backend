@@ -983,7 +983,8 @@ class QuestionBankService:
     @transaction.atomic
     def align_learning_objective(
         *,
-        question_version,
+        question_version=None,
+        version=None,
         learning_objective,
         is_primary=False,
     ):
@@ -991,20 +992,24 @@ class QuestionBankService:
         Aligns a QuestionVersion with a LearningObjective, validating curriculum scope.
         Safely unsets any existing primary alignment if is_primary is True.
         """
+        target_version = question_version or version
+        if not target_version:
+            raise ValidationError("A question version is required for objective alignment.")
+
         QuestionCurriculumService.validate_objective(
-            question_version=question_version,
+            question_version=target_version,
             learning_objective=learning_objective,
         )
 
         if is_primary:
-            question_version.objective_alignments.filter(
+            target_version.objective_alignments.filter(
                 is_primary=True
             ).update(is_primary=False)
 
         alignment, _ = (
             QuestionLearningObjective.objects
             .update_or_create(
-                question_version=question_version,
+                question_version=target_version,
                 learning_objective=learning_objective,
                 defaults={
                     "is_primary": is_primary,
@@ -1018,13 +1023,18 @@ class QuestionBankService:
     @transaction.atomic
     def remove_learning_objective(
         *,
-        question_version,
+        question_version=None,
+        version=None,
         learning_objective,
     ):
         """
         Removes a learning objective alignment from a QuestionVersion.
         """
+        target_version = question_version or version
+        if not target_version:
+            raise ValidationError("A question version is required.")
+
         return QuestionLearningObjective.objects.filter(
-            question_version=question_version,
+            question_version=target_version,
             learning_objective=learning_objective,
         ).delete()

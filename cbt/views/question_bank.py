@@ -233,7 +233,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
         objective = get_object_or_404(LearningObjective, pk=objective_id)
         try:
             alignment = QuestionBankService.align_learning_objective(
-                version=question.current_version,
+                question_version=question.current_version,
                 learning_objective=objective,
                 is_primary=is_primary,
             )

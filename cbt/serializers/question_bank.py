@@ -14,7 +14,7 @@ from cbt.models import (
     QuestionDifficulty,
     QuestionStatus,
 )
-from cbt.services import QuestionBankService, CBTActorService
+from cbt.services import QuestionBankService, CBTActorService, CBTAcademicScopeService
 
 
 class QuestionOptionSerializer(serializers.ModelSerializer):
@@ -181,6 +181,17 @@ class QuestionBankSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["created_by", "created_at", "updated_at"]
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            subject = attrs.get("subject", getattr(self.instance, "subject", None))
+            if subject and not CBTAcademicScopeService.can_use_subject(user, subject):
+                raise serializers.ValidationError(
+                    {"subject": "You are not authorized to create or update question banks for this subject."}
+                )
+        return attrs
+
     def create(self, validated_data):
         user = self.context["request"].user
         try:
@@ -242,7 +253,7 @@ class QuestionDetailSerializer(QuestionListSerializer):
     )
     versions = QuestionVersionSerializer(many=True, read_only=True)
     grade_levels = serializers.PrimaryKeyRelatedField(
-        many=True, read_only=True
+        queryset=GradeLevel.objects.all(), many=True, required=False
     )
 
     class Meta(QuestionListSerializer.Meta):
@@ -251,6 +262,69 @@ class QuestionDetailSerializer(QuestionListSerializer):
             "current_version_detail",
             "versions",
         ]
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            subject = attrs.get("subject", getattr(self.instance, "subject", None))
+            if subject and not CBTAcademicScopeService.can_use_subject(user, subject):
+                raise serializers.ValidationError(
+                    {"subject": "You are not authorized to manage questions for this subject."}
+                )
+
+            # Grade levels validation
+            grade_levels = attrs.get("grade_levels", None)
+            if grade_levels is None and self.instance:
+                grade_levels = list(self.instance.grade_levels.all())
+            elif grade_levels is None:
+                grade_levels = []
+
+            if subject and grade_levels:
+                for gl in grade_levels:
+                    if not CBTAcademicScopeService.can_use_grade_level_for_subject(user, gl, subject):
+                        raise serializers.ValidationError(
+                            {"grade_levels": f"Grade level '{gl}' is not within your teaching scope for this subject."}
+                        )
+
+            # Bank validation
+            bank = attrs.get("bank", getattr(self.instance, "bank", None))
+            if bank and subject and bank.subject_id != getattr(subject, "pk", subject):
+                raise serializers.ValidationError(
+                    {"bank": "Question bank subject must match the question subject."}
+                )
+
+            # Topic validation
+            topic = attrs.get("topic", getattr(self.instance, "topic", None))
+            if topic and subject:
+                if topic.subject_id != getattr(subject, "pk", subject):
+                    raise serializers.ValidationError(
+                        {"topic": "Topic must belong to the same subject as the question."}
+                    )
+                if grade_levels:
+                    gl_ids = [getattr(g, "pk", g) for g in grade_levels]
+                    if topic.grade_level_id not in gl_ids:
+                        raise serializers.ValidationError(
+                            {"topic": "The selected topic's grade level must be included in the question grade levels."}
+                        )
+                if not CBTAcademicScopeService.can_use_topic(user, topic, subject, grade_levels=grade_levels):
+                    raise serializers.ValidationError(
+                        {"topic": "The selected topic is not valid or not instructional for this question."}
+                    )
+
+            # SubTopic validation
+            subtopic = attrs.get("subtopic", getattr(self.instance, "subtopic", None))
+            if subtopic:
+                if not topic:
+                    raise serializers.ValidationError(
+                        {"subtopic": "A topic is required when a subtopic is selected."}
+                    )
+                if subtopic.topic_id != getattr(topic, "pk", topic):
+                    raise serializers.ValidationError(
+                        {"subtopic": "Subtopic must belong to the selected topic."}
+                    )
+
+        return attrs
 
 
 class QuestionCreateSerializer(serializers.Serializer):
@@ -279,6 +353,60 @@ class QuestionCreateSerializer(serializers.Serializer):
     explanation = serializers.CharField(required=False, allow_blank=True, default="")
     options = serializers.ListField(child=serializers.DictField(), required=False, default=list)
     answer_definition = serializers.DictField(required=False, default=dict)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            subject = attrs.get("subject")
+            if subject and not CBTAcademicScopeService.can_use_subject(user, subject):
+                raise serializers.ValidationError(
+                    {"subject": "You are not authorized to author questions for this subject."}
+                )
+
+            grade_levels = attrs.get("grade_levels", [])
+            if subject and grade_levels:
+                for gl in grade_levels:
+                    if not CBTAcademicScopeService.can_use_grade_level_for_subject(user, gl, subject):
+                        raise serializers.ValidationError(
+                            {"grade_levels": f"Grade level '{gl}' is not within your teaching scope for this subject."}
+                        )
+
+            bank = attrs.get("bank")
+            if bank and subject and bank.subject_id != getattr(subject, "pk", subject):
+                raise serializers.ValidationError(
+                    {"bank": "Question bank subject must match the question subject."}
+                )
+
+            topic = attrs.get("topic")
+            if topic and subject:
+                if topic.subject_id != getattr(subject, "pk", subject):
+                    raise serializers.ValidationError(
+                        {"topic": "Topic must belong to the same subject as the question."}
+                    )
+                if grade_levels:
+                    gl_ids = [getattr(g, "pk", g) for g in grade_levels]
+                    if topic.grade_level_id not in gl_ids:
+                        raise serializers.ValidationError(
+                            {"topic": "The selected topic's grade level must be included in the question grade levels."}
+                        )
+                if not CBTAcademicScopeService.can_use_topic(user, topic, subject, grade_levels=grade_levels):
+                    raise serializers.ValidationError(
+                        {"topic": "The selected topic is not valid or not instructional for this question."}
+                    )
+
+            subtopic = attrs.get("subtopic")
+            if subtopic:
+                if not topic:
+                    raise serializers.ValidationError(
+                        {"subtopic": "A topic is required when a subtopic is selected."}
+                    )
+                if subtopic.topic_id != getattr(topic, "pk", topic):
+                    raise serializers.ValidationError(
+                        {"subtopic": "Subtopic must belong to the selected topic."}
+                    )
+
+        return attrs
 
     def create(self, validated_data):
         user = self.context["request"].user

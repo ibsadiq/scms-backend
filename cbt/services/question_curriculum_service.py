@@ -16,10 +16,13 @@ class QuestionCurriculumService:
             learning_objective.curriculum_topic
         )
 
-        if (
+        obj_subject_id = (
             curriculum_topic.topic.subject_id
-            != question.subject_id
-        ):
+            if (curriculum_topic.topic and curriculum_topic.topic.subject_id)
+            else (curriculum_topic.curriculum_subject.subject_id if curriculum_topic.curriculum_subject else None)
+        )
+
+        if obj_subject_id != question.subject_id:
             raise ValidationError(
                 "Learning objective subject must match "
                 "the question subject."

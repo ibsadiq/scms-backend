@@ -16,9 +16,11 @@ from .attempt_grant_service import AttemptGrantService, VerifiedAttemptGrant
 from .offline_package_service import OfflinePackageService, OfflinePackageError
 from .offline_sync_service import OfflineSyncService, OfflineSyncError
 from .analytics_service import CBTAnalyticsService
+from .cbt_academic_scope_service import CBTAcademicScopeService
 
 __all__ = [
     "CBTActorService",
+    "CBTAcademicScopeService",
     "QuestionCurriculumService",
     "QuestionBankService",
     "BlueprintValidationService",
