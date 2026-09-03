@@ -353,6 +353,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         many=True, source="subject_specialization", read_only=True
     )
     send_invitation = serializers.BooleanField(write_only=True, required=False, default=False)
+    last_login = serializers.DateTimeField(source="user.last_login", read_only=True, allow_null=True)
 
     class Meta:
         model = Teacher
@@ -378,6 +379,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             "designation",
             "salary",
             "image",
+            "last_login",
             "send_invitation",
         ]
 

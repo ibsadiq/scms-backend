@@ -1,8 +1,10 @@
+import datetime
 import openpyxl
 import re
 from django.db import transaction
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import views
 from rest_framework.views import APIView
@@ -11,6 +13,52 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import status, generics
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+
+
+def parse_date_of_birth(value):
+    """
+    Parses and validates a date_of_birth value from Excel/user input.
+    Accepts:
+      - None, blank/whitespace-only string -> (None, None)
+      - datetime.date or datetime.datetime -> (date, None)
+      - Strings in YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY format -> (date, None)
+    Returns:
+      - (datetime.date or None, None) on success
+      - (None, error_message) on validation failure
+    """
+    if value is None:
+        return None, None
+
+    if isinstance(value, datetime.datetime):
+        dob = value.date()
+    elif isinstance(value, datetime.date):
+        dob = value
+    elif isinstance(value, str):
+        val_str = value.strip()
+        if not val_str:
+            return None, None
+
+        dob = None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                parsed = datetime.datetime.strptime(val_str, fmt)
+                if parsed.year < 1900:
+                    return None, "date_of_birth must be a valid date in YYYY-MM-DD or DD/MM/YYYY format."
+                dob = parsed.date()
+                break
+            except ValueError:
+                continue
+
+        if dob is None:
+            return None, "date_of_birth must be a valid date in YYYY-MM-DD or DD/MM/YYYY format."
+    else:
+        return None, "date_of_birth must be a valid date in YYYY-MM-DD or DD/MM/YYYY format."
+
+    today = timezone.now().date()
+    if dob > today:
+        return None, "date_of_birth cannot be in the future."
+
+    return dob, None
 
 
 from academic.models import Student, ClassRoom, Parent
@@ -186,7 +234,23 @@ class BulkUploadStudentsView(APIView):
             workbook = openpyxl.load_workbook(file, data_only=True)
             sheet = workbook.active
 
-            columns_10 = [
+            columns_12 = [
+                "first_name",
+                "middle_name",
+                "last_name",
+                "date_of_birth",
+                "parent_contact",
+                "parent_email",
+                "parent_first_name",
+                "parent_last_name",
+                "religion",
+                "classroom_id",
+                "gender",
+                "parent_address",
+            ]
+            columns_11_dob = columns_12[:11]
+
+            columns_11_legacy = [
                 "first_name",
                 "middle_name",
                 "last_name",
@@ -197,22 +261,33 @@ class BulkUploadStudentsView(APIView):
                 "religion",
                 "classroom_id",
                 "gender",
+                "parent_address",
             ]
-            columns_11 = columns_10 + ["parent_address"]
+            columns_10_legacy = columns_11_legacy[:10]
 
             raw_header = [cell.value for cell in sheet[1] if cell.value is not None]
             cleaned_header = [str(v).strip().lower() for v in raw_header]
 
-            if len(cleaned_header) >= 11 and (cleaned_header[:11] == columns_11 or (cleaned_header[:10] == columns_10 and cleaned_header[10] in ("parent_address", "address"))):
-                columns = columns_11
-            elif len(cleaned_header) >= 10 and cleaned_header[:10] == columns_10:
-                columns = columns_10
+            if len(cleaned_header) >= 12 and (
+                cleaned_header[:12] == columns_12
+                or (cleaned_header[:11] == columns_11_dob and cleaned_header[11] in ("parent_address", "address"))
+            ):
+                columns = columns_12
+            elif len(cleaned_header) >= 11 and cleaned_header[:11] == columns_11_dob:
+                columns = columns_11_dob
+            elif len(cleaned_header) >= 11 and (
+                cleaned_header[:11] == columns_11_legacy
+                or (cleaned_header[:10] == columns_10_legacy and cleaned_header[10] in ("parent_address", "address"))
+            ):
+                columns = columns_11_legacy
+            elif len(cleaned_header) >= 10 and cleaned_header[:10] == columns_10_legacy:
+                columns = columns_10_legacy
             else:
                 return Response(
                     {
                         "error": "Invalid Students worksheet columns.",
-                        "expected_columns": columns_11,
-                        "actual_columns": raw_header[:11],
+                        "expected_columns": columns_12,
+                        "actual_columns": raw_header[:12],
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -235,22 +310,9 @@ class BulkUploadStudentsView(APIView):
                     for key, value in student_data.items()
                 }
                 errors = []
-                for field in ("first_name", "last_name", "parent_email", "parent_first_name", "parent_last_name"):
+                for field in ("first_name", "last_name"):
                     if not cleaned.get(field):
                         errors.append(f"{field} is required")
-
-                email = cleaned.get("parent_email")
-                if email:
-                    try:
-                        validate_email(email)
-                    except DjangoValidationError:
-                        errors.append("parent_email must contain one valid email address")
-
-                contact = ParentIdentityService.normalize_phone(cleaned.get("parent_contact"))
-                if not contact or not re.fullmatch(r"\+[1-9]\d{9,14}", contact):
-                    errors.append("parent_contact must be a valid phone number, not an address")
-                else:
-                    cleaned["parent_contact"] = contact
 
                 classroom = None
                 classroom_id = cleaned.get("classroom_id")
@@ -262,6 +324,36 @@ class BulkUploadStudentsView(APIView):
                     except (ClassRoom.DoesNotExist, TypeError, ValueError):
                         errors.append(f"classroom_id {classroom_id!r} does not exist")
 
+                has_parent = any(
+                    bool(str(cleaned.get(f) or "").strip())
+                    for f in ("parent_contact", "parent_email", "parent_first_name", "parent_last_name", "parent_address")
+                )
+
+                if has_parent:
+                    contact = ParentIdentityService.normalize_phone(cleaned.get("parent_contact"))
+                    if not contact or not re.fullmatch(r"\+[1-9]\d{9,14}", contact):
+                        errors.append("parent_contact must be a valid phone number, not an address")
+                    else:
+                        cleaned["parent_contact"] = contact
+
+                    email = cleaned.get("parent_email")
+                    if email:
+                        try:
+                            validate_email(email)
+                        except DjangoValidationError:
+                            errors.append("parent_email must contain one valid email address")
+
+                    if not cleaned.get("parent_first_name"):
+                        errors.append("parent_first_name is required when parent details are supplied")
+                    if not cleaned.get("parent_last_name"):
+                        errors.append("parent_last_name is required when parent details are supplied")
+                else:
+                    cleaned["parent_contact"] = None
+                    cleaned["parent_email"] = None
+                    cleaned["parent_first_name"] = ""
+                    cleaned["parent_last_name"] = ""
+                    cleaned["parent_address"] = ""
+
                 gender = str(cleaned.get("gender") or "").title()
                 religion = str(cleaned.get("religion") or "").title()
                 if gender and gender not in {"Male", "Female", "Other"}:
@@ -270,6 +362,12 @@ class BulkUploadStudentsView(APIView):
                     errors.append("religion must be Islam, Christian, or Other")
                 cleaned["gender"] = gender or None
                 cleaned["religion"] = religion or None
+
+                dob, dob_error = parse_date_of_birth(cleaned.get("date_of_birth"))
+                if dob_error:
+                    errors.append(dob_error)
+                else:
+                    cleaned["date_of_birth"] = dob
 
                 if errors:
                     not_created.append({"row": i, **student_data, "errors": errors})
@@ -299,15 +397,17 @@ class BulkUploadStudentsView(APIView):
                             classroom=student_data["classroom"],
                             first_name=student_data["first_name"].title(),
                             last_name=student_data["last_name"].title(),
-                            parent_phone=student_data["parent_contact"],
-                            parent_email=student_data["parent_email"].lower(),
+                            parent_phone=student_data.get("parent_contact") or None,
+                            parent_email=student_data["parent_email"].lower() if student_data.get("parent_email") else None,
                             middle_name=(student_data.get("middle_name") or "").title(),
                             gender=student_data.get("gender"),
                             religion=student_data.get("religion"),
-                            parent_first_name=student_data["parent_first_name"].title(),
-                            parent_last_name=student_data["parent_last_name"].title(),
+                            date_of_birth=student_data.get("date_of_birth"),
+                            parent_first_name=(student_data.get("parent_first_name") or "").title(),
+                            parent_last_name=(student_data.get("parent_last_name") or "").title(),
                             parent_address=student_data.get("parent_address") or "",
                             actor=request.user,
+                            send_invitation=False,
                         )
                         created_students.append(student)
             except Exception as exc:

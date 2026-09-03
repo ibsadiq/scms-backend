@@ -193,6 +193,10 @@ class Teacher(models.Model):
     def deleted(self):
         return self.inactive
 
+    @property
+    def last_login(self):
+        return self.user.last_login if self.user else None
+
     def save(self, *args, **kwargs):
         if not self.user:
             raise ValidationError("Teacher must have an associated user account. Create the CustomUser first.")

@@ -53,19 +53,37 @@ class ParentIdentityService:
         if not phone and not email:
             raise ValidationError("A phone number or email is required for parent identity resolution.")
         parent = cls._match(Parent.objects.select_for_update(), phone=phone, email=email, label="parent")
-        user = cls._match(CustomUser.objects.select_for_update(), phone=phone, email=email, label="user")
+        user = cls._match(CustomUser.objects.select_for_update(), phone=phone, email=email, label="user") if (phone or email) else None
         if parent:
-            if user and parent.user_id and parent.user_id != user.pk:
-                raise ValidationError("Parent and user identifiers resolve to different identities.")
-            if not parent.user_id:
+            if user:
+                if parent.user_id and parent.user_id != user.pk:
+                    raise ValidationError("Parent and user identifiers resolve to different identities.")
+                if Parent.objects.filter(user=user).exclude(pk=parent.pk).exists():
+                    raise ValidationError("Parent and user identifiers resolve to different identities.")
+                if user.phone_number and phone and user.phone_number not in cls.phone_variants(phone):
+                    raise ValidationError("Parent and user identifiers resolve to different identities.")
+
+            if not parent.user_id and email:
                 parent.user = user or cls._create_user(phone=phone, email=email, **profile)
-                parent.save(update_fields=["user"])
-            cls._ensure_parent_role(parent.user)
+                update_fields = ["user"]
+                if not parent.email:
+                    parent.email = email
+                    update_fields.append("email")
+                parent.save(update_fields=update_fields)
+            elif not parent.email and email:
+                parent.email = email
+                parent.save(update_fields=["email"])
+
+            if parent.user:
+                cls._ensure_parent_role(parent.user)
             return parent
         if user and Parent.objects.filter(user=user).exists():
             raise ValidationError("A parent profile for this user already exists.")
-        user = user or cls._create_user(phone=phone, email=email, **profile)
-        cls._ensure_parent_role(user)
+        user = None
+        if email:
+            user = user or cls._create_user(phone=phone, email=email, **profile)
+            if user:
+                cls._ensure_parent_role(user)
         return Parent.objects.create(
             user=user, phone_number=phone, email=email,
             first_name=profile.get("first_name", ""), middle_name=profile.get("middle_name", ""),
@@ -75,8 +93,10 @@ class ParentIdentityService:
 
     @classmethod
     def _create_user(cls, *, phone, email, **profile):
+        if not email:
+            return None
         user = CustomUser(
-            email=email or f"parent_{(phone or 'unknown').replace('+', '')}@ssyncportal.local",
+            email=email,
             phone_number=phone, first_name=profile.get("first_name", "") or "",
             middle_name=profile.get("middle_name", "") or "", last_name=profile.get("last_name", "") or "",
             is_parent=True, is_active=True,

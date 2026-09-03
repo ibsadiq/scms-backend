@@ -18,6 +18,7 @@ from academic.services.parent_student_service import ParentStudentService
 
 class BulkUploadFileSerializer(serializers.Serializer):
     file = serializers.FileField()
+    send_invitations = serializers.BooleanField(required=False, default=True)
 
 
 class BulkStudentUpdatedSerializer(serializers.Serializer):
@@ -151,8 +152,9 @@ class StudentSerializer(serializers.ModelSerializer):
         queryset=ClassRoom.objects.all(), write_only=True, required=False
     )
     parent_email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
-    parent_first_name = serializers.CharField(write_only=True, required=False)
-    parent_last_name = serializers.CharField(write_only=True, required=False)
+    parent_first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    parent_last_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    send_invitation = serializers.BooleanField(write_only=True, required=False, default=False)
     class_of_year = serializers.CharField(
         write_only=False, required=False, allow_null=True
     )
@@ -189,6 +191,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "parent_email", # write-only
             "parent_first_name", # write-only
             "parent_last_name", # write-only
+            "send_invitation", # write-only
             "siblings",
             "status",
             "image",
@@ -272,6 +275,8 @@ class StudentSerializer(serializers.ModelSerializer):
         data["middle_name"] = data.get("middle_name", "").title()
         data["last_name"] = data["last_name"].title()
 
+        send_invitation = data.pop("send_invitation", False)
+
         try:
             return StudentCreationService.create_student(
                 classroom=classroom,
@@ -291,7 +296,9 @@ class StudentSerializer(serializers.ModelSerializer):
                 image=data.get("image"),
                 parent_first_name=data.pop("parent_first_name", ""),
                 parent_last_name=data.pop("parent_last_name", ""),
+                parent_address=data.pop("parent_address", ""),
                 actor=getattr(self.context.get("request"), "user", None),
+                send_invitation=send_invitation,
             )
         except DjangoValidationError as e:
             detail = e.message_dict if hasattr(e, "message_dict") else e.messages

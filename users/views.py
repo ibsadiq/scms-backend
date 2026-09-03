@@ -513,6 +513,70 @@ class TeacherDetailView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class TeacherResendInvitationView(APIView):
+    """
+    API View to send or resend an invitation email to a teacher who has no last login.
+    POST /api/users/teachers/{id}/resend-invitation/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        import datetime
+        teacher = get_object_or_404(Teacher, pk=pk)
+        email = teacher.email
+        if not email:
+            return Response(
+                {"error": "Teacher does not have an email address."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if teacher.user and teacher.user.last_login:
+            return Response(
+                {"error": "Teacher has already logged in."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        invitation = (
+            UserInvitation.objects.filter(
+                email=email,
+                role="teacher",
+                status="pending",
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if invitation and not invitation.is_expired:
+            invitation.expires_at = timezone.now() + datetime.timedelta(days=7)
+            invitation.save()
+        else:
+            if invitation:
+                invitation.status = "expired"
+                invitation.save()
+            invitation = UserInvitation.objects.create(
+                email=email,
+                first_name=teacher.first_name,
+                last_name=teacher.last_name,
+                role="teacher",
+                teacher_profile_id=teacher.id,
+                invited_by=request.user,
+            )
+
+        try:
+            from core.email_utils import send_teacher_invitation
+            send_teacher_invitation(invitation, request=request)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to send invitation email: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({
+            "message": "Invitation email sent successfully.",
+            "invitation_id": invitation.id,
+        })
+
+
 class BulkUploadTeachersView(APIView):
     """
     API View to handle bulk uploading of teachers from an Excel file with Staff integration.

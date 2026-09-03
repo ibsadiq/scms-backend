@@ -23,8 +23,8 @@ class StudentCreationService:
         classroom,
         first_name,
         last_name,
-        parent_phone,
-        parent_email,
+        parent_phone=None,
+        parent_email=None,
         student_phone=None,
         middle_name="",
         gender=None,
@@ -40,6 +40,7 @@ class StudentCreationService:
         parent_last_name="",
         parent_address="",
         actor=None,
+        send_invitation=False,
     ):
         """
         Creates a student, resolves parent identity, generates the
@@ -82,13 +83,32 @@ class StudentCreationService:
                 "The selected classroom has no grade level configured."
             )
 
-        parent = ParentIdentityService.resolve_parent(
-            phone_number=parent_phone,
-            email=parent_email,
-            first_name=parent_first_name or first_name,
-            last_name=parent_last_name or last_name,
-            address=parent_address or street or "",
+        parent_fields_present = any(
+            bool(str(val).strip())
+            for val in [parent_phone, parent_email, parent_first_name, parent_last_name, parent_address]
+            if val is not None
         )
+
+        parent = None
+        if parent_fields_present:
+            norm_phone = ParentIdentityService.normalize_phone(parent_phone) if parent_phone else None
+            clean_email = parent_email.strip().lower() if parent_email else None
+            if not norm_phone and not clean_email:
+                raise ValidationError("A valid phone number or email is required when parent information is provided.")
+
+            parent = ParentIdentityService.resolve_parent(
+                phone_number=norm_phone,
+                email=clean_email,
+                first_name=parent_first_name or "",
+                last_name=parent_last_name or "",
+                address=parent_address or street or "",
+            )
+
+        if send_invitation:
+            if not parent:
+                raise ValidationError("A parent or guardian is required when sending an invitation.")
+            if not parent.email:
+                raise ValidationError("A valid parent email address is required to send an invitation.")
 
         admission_number = (
             NumberingService.generate_student_admission_number(
@@ -96,6 +116,9 @@ class StudentCreationService:
                 grade_level=classroom.grade_level,
             )
         )
+
+        if not date_of_birth:
+            date_of_birth = None
 
         student_kwargs = {
             "admission_number": admission_number,
@@ -109,7 +132,7 @@ class StudentCreationService:
             "city": city,
             "street": street,
             "blood_group": blood_group,
-            "parent_contact": parent.phone_number,
+            "parent_contact": parent.phone_number if parent else None,
             "phone_number": student_phone,
             "parent_guardian": parent,
             "can_login": False,
@@ -132,12 +155,13 @@ class StudentCreationService:
             notes="Direct Admin Creation",
         )
 
-        transaction.on_commit(
-            lambda: cls._issue_parent_invitation(
-                parent=parent,
-                actor=actor,
+        if send_invitation:
+            transaction.on_commit(
+                lambda: cls._issue_parent_invitation(
+                    parent=parent,
+                    actor=actor,
+                )
             )
-        )
 
         return student
 
