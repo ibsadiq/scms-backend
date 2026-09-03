@@ -403,7 +403,7 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         new_amount = request.data.get('new_amount')
         reason = request.data.get('reason', 'Manual adjustment')
 
-        if not new_amount:
+        if new_amount is None or new_amount == '':
             return Response(
                 {'error': 'new_amount is required'},
                 status=status.HTTP_400_BAD_REQUEST
