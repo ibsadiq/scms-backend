@@ -731,6 +731,7 @@ class ParentSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "phone_number",
+            "alt_phone",
             "address",
             "gender",
             "parent_type",
@@ -851,6 +852,13 @@ class ParentSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate_alt_phone(self, value):
+        if not value:
+            return None
+        from academic.services.parent_identity_service import ParentIdentityService
+        normalized = ParentIdentityService.normalize_phone(value)
+        return normalized or str(value).strip()
+
     def validate_students(self, value):
         if not value:
             return []
@@ -892,7 +900,7 @@ class ParentSerializer(serializers.ModelSerializer):
 
         identity_fields = {
             key: validated_data.get(key)
-            for key in ("first_name", "middle_name", "last_name", "occupation", "parent_type", "address")
+            for key in ("first_name", "middle_name", "last_name", "occupation", "parent_type", "address", "alt_phone", "alt_email")
         }
         try:
             parent = ParentIdentityService.resolve_parent(

@@ -1514,11 +1514,11 @@ class ResendInvitationView(APIView):
                 )
 
                 if invitation.role == 'teacher':
-                    send_teacher_invitation(invitation)
+                    send_teacher_invitation(invitation, request=request)
                 elif invitation.role == 'parent':
-                    send_parent_invitation(invitation)
+                    send_parent_invitation(invitation, request=request)
                 elif invitation.role == 'accountant':
-                    send_accountant_invitation(invitation)
+                    send_accountant_invitation(invitation, request=request)
                 else:
                     return Response(
                         {"error": f"Unknown invitation role: {invitation.role}"},

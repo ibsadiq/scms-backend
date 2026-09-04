@@ -120,11 +120,14 @@ class ParentIdentityService:
                 user.save(update_fields=["phone_number"])
             cls._ensure_parent_role(user)
 
+        alt_phone = cls.normalize_phone(profile.get("alt_phone")) if profile.get("alt_phone") else None
         return Parent.objects.create(
             user=user, phone_number=phone, email=email,
             first_name=profile.get("first_name", ""), middle_name=profile.get("middle_name", ""),
             last_name=profile.get("last_name", ""), occupation=profile.get("occupation", ""),
             parent_type=profile.get("parent_type", ""), address=profile.get("address", ""),
+            alt_phone=alt_phone,
+            alt_email=profile.get("alt_email"),
         )
 
     @classmethod

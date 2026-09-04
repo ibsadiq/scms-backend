@@ -50,6 +50,12 @@ class Parent(models.Model):
     single_parent = models.BooleanField(
         default=False, blank=True, help_text="Is he/she a single parent"
     )
+    alt_phone = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        help_text="Alternate phone number",
+    )
     alt_email = models.EmailField(blank=True, null=True, help_text="Personal email")
     date = models.DateTimeField(auto_now_add=True)
     image = models.ImageField(upload_to="Parent_images", blank=True)

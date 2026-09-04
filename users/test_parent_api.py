@@ -727,6 +727,72 @@ class ParentAPITests(TenantTestCase):
         self.assertFalse(Parent.objects.filter(pk=parent.pk).exists())
         self.assertTrue(CustomUser.objects.filter(pk=user_pk).exists())
 
+    def test_create_parent_with_alt_phone(self):
+        response = self.client.post("/api/users/parents/", {
+            "first_name": "AltPhone",
+            "last_name": "Parent",
+            "phone_number": "08011220011",
+            "alt_phone": "08099887766",
+            "email": "altphone.parent@test.com",
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["alt_phone"], "+2348099887766")
+        parent = Parent.objects.get(pk=response.data["id"])
+        self.assertEqual(parent.alt_phone, "+2348099887766")
+
+    def test_update_parent_alt_phone_and_clear(self):
+        parent = Parent.objects.create(
+            first_name="UpdateAlt",
+            last_name="Parent",
+            phone_number="+2348011220022",
+            email="updatealt@test.com",
+        )
+        res_update = self.client.patch(f"/api/users/parents/{parent.pk}/", {
+            "alt_phone": "08055667788",
+        }, format="json")
+        self.assertEqual(res_update.status_code, 200, res_update.data)
+        self.assertEqual(res_update.data["alt_phone"], "+2348055667788")
+        parent.refresh_from_db()
+        self.assertEqual(parent.alt_phone, "+2348055667788")
+
+        res_clear = self.client.patch(f"/api/users/parents/{parent.pk}/", {
+            "alt_phone": "",
+        }, format="json")
+        self.assertEqual(res_clear.status_code, 200, res_clear.data)
+        self.assertIsNone(res_clear.data["alt_phone"])
+        parent.refresh_from_db()
+        self.assertIsNone(parent.alt_phone)
+
+    def test_parent_list_and_detail_contain_alt_phone(self):
+        parent = Parent.objects.create(
+            first_name="ListAlt",
+            last_name="Parent",
+            phone_number="+2348011220033",
+            alt_phone="+2348077665544",
+            email="listalt@test.com",
+        )
+        res_detail = self.client.get(f"/api/users/parents/{parent.pk}/")
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertEqual(res_detail.data["alt_phone"], "+2348077665544")
+
+        res_list = self.client.get("/api/users/parents/")
+        self.assertEqual(res_list.status_code, 200)
+        results = res_list.data if isinstance(res_list.data, list) else res_list.data.get("results", [])
+        matched = next((p for p in results if p["id"] == parent.pk), None)
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["alt_phone"], "+2348077665544")
+
+    def test_resolve_parent_persists_alt_phone(self):
+        parent = ParentIdentityService.resolve_parent(
+            phone_number="08011220044",
+            alt_phone="08033445566",
+            email="resolvealt@test.com",
+            first_name="Resolve",
+            last_name="Alt",
+        )
+        self.assertEqual(parent.alt_phone, "+2348033445566")
+
+
 
 class ParentIdentityServiceTests(TenantTestCase):
     @classmethod
@@ -821,6 +887,74 @@ class ParentIdentityServiceTests(TenantTestCase):
             email="variant.user@test.com",
         )
         self.assertEqual(parent.user, user)
+
+    def test_parent_invitation_email_is_tenant_aware_matching_teacher_invitation(self):
+        from django.core import mail
+        from rest_framework.test import APIRequestFactory
+        from core.email_utils import send_parent_invitation, send_teacher_invitation
+        from tenants.models import Client
+
+        tenant = Client.objects.get(schema_name=self.tenant.schema_name)
+        tenant.name = "Prestige International Academy"
+        tenant.primary_color = "#123456"
+        tenant.save()
+
+        parent_invite = UserInvitation.objects.create(
+            email="parent.tenant@test.com",
+            first_name="Pauletta",
+            last_name="Rent",
+            role="parent",
+            invited_by=self.admin,
+        )
+        teacher_invite = UserInvitation.objects.create(
+            email="teacher.tenant@test.com",
+            first_name="Teach",
+            last_name="Er",
+            role="teacher",
+            invited_by=self.admin,
+        )
+
+        mail.outbox.clear()
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/",
+            HTTP_HOST=self.domain.domain,
+            HTTP_ORIGIN=f"https://{self.domain.domain}",
+        )
+
+        send_parent_invitation(parent_invite, request=request)
+        send_teacher_invitation(teacher_invite, request=request)
+
+        self.assertEqual(len(mail.outbox), 2)
+        parent_mail = mail.outbox[0]
+        teacher_mail = mail.outbox[1]
+
+        # Verify subject includes tenant school name
+        self.assertIn("Prestige International Academy", parent_mail.subject)
+        self.assertIn("Prestige International Academy", teacher_mail.subject)
+
+        # Verify invitation link is tenant-aware
+        expected_parent_url = f"https://{self.domain.domain}/accept-invitation/{parent_invite.token}"
+        expected_teacher_url = f"https://{self.domain.domain}/accept-invitation/{teacher_invite.token}"
+        self.assertIn(expected_parent_url, parent_mail.body)
+        self.assertIn(expected_teacher_url, teacher_mail.body)
+
+        # Verify HTML body includes tenant branding and primary color
+        parent_html = parent_mail.alternatives[0][0]
+        teacher_html = teacher_mail.alternatives[0][0]
+        self.assertIn("Prestige International Academy", parent_html)
+        self.assertIn("Prestige International Academy", teacher_html)
+        self.assertIn("#123456", parent_html)
+        self.assertIn("#123456", teacher_html)
+
+        # Verify fallback when request is None still resolves tenant domain/branding
+        mail.outbox.clear()
+        send_parent_invitation(parent_invite, request=None)
+        self.assertEqual(len(mail.outbox), 1)
+        fallback_mail = mail.outbox[0]
+        self.assertIn("Prestige International Academy", fallback_mail.subject)
+        self.assertIn(f"{self.domain.domain}/accept-invitation/{parent_invite.token}", fallback_mail.body)
+
 
 
 
