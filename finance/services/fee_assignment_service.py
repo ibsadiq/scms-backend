@@ -129,7 +129,14 @@ class FeeAssignmentService:
         ).order_by("start_date", "pk").first()
 
     @classmethod
-    def sync_fees_for_enrollment(cls, *, enrollment, term=None):
+    def sync_fees_for_enrollment(
+        cls,
+        *,
+        enrollment,
+        term=None,
+        dry_run=False,
+        return_details=False,
+    ):
         """
         Authoritative fee synchronization for an active student enrollment.
         Uses enrollment.student, enrollment.classroom, and enrollment.academic_year.
@@ -137,6 +144,15 @@ class FeeAssignmentService:
         Strictly confines fee assignments to enrollment.academic_year.
         """
         if not enrollment or not enrollment.is_active:
+            if return_details:
+                return {
+                    "applicable_count": 0,
+                    "created_count": 0,
+                    "existing_count": 0,
+                    "would_create_count": 0,
+                    "skipped": True,
+                    "skip_reason": "Enrollment is inactive or missing",
+                }
             return 0
 
         student = enrollment.student
@@ -144,14 +160,31 @@ class FeeAssignmentService:
         academic_year = enrollment.academic_year
 
         if not student or not student.is_active or not classroom or not academic_year:
+            if return_details:
+                return {
+                    "applicable_count": 0,
+                    "created_count": 0,
+                    "existing_count": 0,
+                    "would_create_count": 0,
+                    "skipped": True,
+                    "skip_reason": "Student is inactive or missing classroom/academic_year",
+                }
             return 0
 
         # Ensure student snapshot has classroom set in-memory for applies_to_student checks
-        if student.classroom_id != classroom.pk:
-            student.classroom = classroom
+        student.classroom = classroom
 
         effective_term = term or cls.resolve_effective_term(academic_year)
         if not effective_term:
+            if return_details:
+                return {
+                    "applicable_count": 0,
+                    "created_count": 0,
+                    "existing_count": 0,
+                    "would_create_count": 0,
+                    "skipped": True,
+                    "skip_reason": f"No term found for academic year '{academic_year}'",
+                }
             return 0
 
         # Only query FeeStructures strictly matching the enrollment's academic_year
@@ -170,7 +203,11 @@ class FeeAssignmentService:
             academic_year=academic_year
         ).filter(fee_filter).prefetch_related("grade_levels", "classrooms")
 
-        assigned_count = 0
+        applicable_count = 0
+        created_count = 0
+        existing_count = 0
+        would_create_count = 0
+
         for fee in fees:
             target_term = fee.term if fee.term_id else effective_term
 
@@ -179,11 +216,38 @@ class FeeAssignmentService:
                 continue
 
             if fee.applies_to_student(student, target_term):
-                assigned_count += cls.assign_fee_to_student(
-                    fee_structure=fee,
+                applicable_count += 1
+                already_exists = StudentFeeAssignment.objects.filter(
                     student=student,
+                    fee_structure=fee,
                     term=target_term,
-                )
+                ).exists()
 
-        return assigned_count
+                if already_exists:
+                    existing_count += 1
+                elif dry_run:
+                    would_create_count += 1
+                else:
+                    created = cls.assign_fee_to_student(
+                        fee_structure=fee,
+                        student=student,
+                        term=target_term,
+                    )
+                    if created:
+                        created_count += 1
+                    else:
+                        existing_count += 1
+
+        if return_details:
+            return {
+                "applicable_count": applicable_count,
+                "created_count": created_count,
+                "existing_count": existing_count,
+                "would_create_count": would_create_count,
+                "skipped": False,
+                "skip_reason": None,
+            }
+
+        return would_create_count if dry_run else created_count
+
 
