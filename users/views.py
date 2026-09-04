@@ -420,8 +420,7 @@ class ParentDetailView(views.APIView):
         from academic.services.parent_student_service import ParentStudentService
 
         parent = self.get_object(pk)
-        ParentStudentService.detach_all(parent)
-        parent.delete()
+        ParentStudentService.delete_parent(parent)
 
         return Response(
             status=status.HTTP_204_NO_CONTENT

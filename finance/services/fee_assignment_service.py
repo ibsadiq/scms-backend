@@ -86,3 +86,104 @@ class FeeAssignmentService:
             )
             created = False
         return int(created)
+
+    @classmethod
+    def resolve_effective_term(cls, academic_year):
+        """
+        Resolves the authoritative Term for a given AcademicYear.
+        Works seamlessly before, during, and after term dates.
+        """
+        if not academic_year:
+            return None
+        from django.utils import timezone
+        today = timezone.localdate()
+
+        # 1. Active term encompassing today
+        term = Term.objects.filter(
+            academic_year=academic_year,
+            start_date__lte=today,
+            end_date__gte=today,
+        ).order_by("start_date").first()
+        if term:
+            return term
+
+        # 2. Upcoming term in this academic year (pre-session / onboarding)
+        term = Term.objects.filter(
+            academic_year=academic_year,
+            start_date__gt=today,
+        ).order_by("start_date").first()
+        if term:
+            return term
+
+        # 3. Most recent completed term in this academic year
+        term = Term.objects.filter(
+            academic_year=academic_year,
+            end_date__lt=today,
+        ).order_by("-end_date").first()
+        if term:
+            return term
+
+        # 4. Fallback: First term ordered by start_date or pk
+        return Term.objects.filter(
+            academic_year=academic_year,
+        ).order_by("start_date", "pk").first()
+
+    @classmethod
+    def sync_fees_for_enrollment(cls, *, enrollment, term=None):
+        """
+        Authoritative fee synchronization for an active student enrollment.
+        Uses enrollment.student, enrollment.classroom, and enrollment.academic_year.
+        Works before, during, and after term commencement dates.
+        Strictly confines fee assignments to enrollment.academic_year.
+        """
+        if not enrollment or not enrollment.is_active:
+            return 0
+
+        student = enrollment.student
+        classroom = enrollment.classroom
+        academic_year = enrollment.academic_year
+
+        if not student or not student.is_active or not classroom or not academic_year:
+            return 0
+
+        # Ensure student snapshot has classroom set in-memory for applies_to_student checks
+        if student.classroom_id != classroom.pk:
+            student.classroom = classroom
+
+        effective_term = term or cls.resolve_effective_term(academic_year)
+        if not effective_term:
+            return 0
+
+        # Only query FeeStructures strictly matching the enrollment's academic_year
+        from django.db.models import Q
+        active_subscriptions = list(
+            ServiceSubscription.objects.filter(
+                student=student, is_active=True
+            ).values_list("service_id", flat=True)
+        )
+
+        fee_filter = Q(is_mandatory=True)
+        if active_subscriptions:
+            fee_filter |= Q(optional_service_id__in=active_subscriptions)
+
+        fees = FeeStructure.objects.filter(
+            academic_year=academic_year
+        ).filter(fee_filter).prefetch_related("grade_levels", "classrooms")
+
+        assigned_count = 0
+        for fee in fees:
+            target_term = fee.term if fee.term_id else effective_term
+
+            if fee.term_id and fee.term_id != effective_term.pk:
+                # Fee is explicitly configured for another term (e.g. Second Term fee during First Term enrollment)
+                continue
+
+            if fee.applies_to_student(student, target_term):
+                assigned_count += cls.assign_fee_to_student(
+                    fee_structure=fee,
+                    student=student,
+                    term=target_term,
+                )
+
+        return assigned_count
+

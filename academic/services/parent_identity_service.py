@@ -115,6 +115,9 @@ class ParentIdentityService:
         if not user and email:
             user = cls._create_user(phone=phone, email=email, **profile)
         if user:
+            if phone and not user.phone_number:
+                user.phone_number = phone
+                user.save(update_fields=["phone_number"])
             cls._ensure_parent_role(user)
 
         return Parent.objects.create(
@@ -145,9 +148,19 @@ class ParentIdentityService:
 
     @staticmethod
     def _ensure_parent_role(user):
+        update_fields = []
         if not user.is_parent:
             user.is_parent = True
-            user.save(update_fields=["is_parent"])
+            update_fields.append("is_parent")
+        if not user.is_active:
+            user.is_active = True
+            update_fields.append("is_active")
+        if not user.active_role:
+            user.active_role = user.get_effective_role()
+            if user.active_role:
+                update_fields.append("active_role")
+        if update_fields:
+            user.save(update_fields=update_fields)
         group, _ = Group.objects.get_or_create(name="parent")
         user.groups.add(group)
 

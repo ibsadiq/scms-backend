@@ -1,9 +1,12 @@
+import logging
 from collections import Counter
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from academic.models import ClassRoom, Student, StudentClassEnrollment
+
+logger = logging.getLogger(__name__)
 
 
 class EnrollmentService:
@@ -19,11 +22,19 @@ class EnrollmentService:
             enrollment.is_active = True
             enrollment.notes = notes
             enrollment.save()
-            return enrollment, False
-        return StudentClassEnrollment.objects.create(
-            student=student, classroom=classroom, academic_year=academic_year,
-            is_active=True, notes=notes,
-        ), True
+            created = False
+        else:
+            enrollment = StudentClassEnrollment.objects.create(
+                student=student, classroom=classroom, academic_year=academic_year,
+                is_active=True, notes=notes,
+            )
+            created = True
+
+        if enrollment.is_active:
+            enrollment_id = enrollment.pk
+            transaction.on_commit(lambda: cls._sync_enrollment_fees(enrollment_id))
+
+        return enrollment, created
 
     @classmethod
     @transaction.atomic
@@ -92,4 +103,36 @@ class EnrollmentService:
                 student.classroom = row["classroom"]
                 changed_students.append(student)
         Student.objects.bulk_update(changed_students, ("classroom",))
+
+        active_ids = [e.pk for e in enrollments if e.is_active]
+        if active_ids:
+            transaction.on_commit(lambda: cls._sync_bulk_enrollment_fees(active_ids))
+
         return enrollments
+
+    @classmethod
+    def _sync_enrollment_fees(cls, enrollment_id):
+        try:
+            from finance.services.fee_assignment_service import FeeAssignmentService
+            enrollment = StudentClassEnrollment.objects.select_related(
+                "student", "classroom__grade_level", "academic_year"
+            ).filter(pk=enrollment_id, is_active=True).first()
+            if enrollment:
+                FeeAssignmentService.sync_fees_for_enrollment(enrollment=enrollment)
+        except Exception:
+            logger.exception("Failed to synchronize fees for enrollment %s", enrollment_id)
+
+    @classmethod
+    def _sync_bulk_enrollment_fees(cls, enrollment_ids):
+        try:
+            from finance.services.fee_assignment_service import FeeAssignmentService
+            enrollments = list(
+                StudentClassEnrollment.objects.select_related(
+                    "student", "classroom__grade_level", "academic_year"
+                ).filter(pk__in=enrollment_ids, is_active=True)
+            )
+            for enrollment in enrollments:
+                FeeAssignmentService.sync_fees_for_enrollment(enrollment=enrollment)
+        except Exception:
+            logger.exception("Failed to synchronize fees for bulk enrollments")
+

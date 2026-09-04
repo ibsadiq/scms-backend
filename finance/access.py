@@ -10,7 +10,11 @@ def accessible_student_ids(user):
         return Student.objects.filter(user=user).values_list("id", flat=True)
     parent = getattr(user, "parent", None)
     if getattr(user, "is_parent", False) and parent:
-        return Student.objects.filter(parent_guardian=parent).values_list("id", flat=True)
+        from django.db.models import Q
+        parent_filter = Q(parent_guardian=parent)
+        if parent.phone_number:
+            parent_filter |= Q(parent_contact=parent.phone_number)
+        return Student.objects.filter(parent_filter).values_list("id", flat=True)
     return Student.objects.none().values_list("id", flat=True)
 
 

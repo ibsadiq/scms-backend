@@ -66,12 +66,15 @@ class SISAccessTestCase(TenantTestCase):
 
         self.own_student = Student.objects.create(
             user=self.student_user, first_name="Own", last_name="Learner",
+            parent_guardian=self.parent,
             parent_contact=self.parent.phone_number, classroom=self.assigned_class,
+            admission_number="SIS-SUP-1",
             can_login=True,
         )
         self.other_student = Student.objects.create(
             first_name="Other", last_name="Learner", parent_contact="08110000002",
             classroom=self.other_class,
+            admission_number="SIS-SUP-2",
         )
 
     def authenticate(self, user):

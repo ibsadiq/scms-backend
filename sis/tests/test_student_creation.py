@@ -24,6 +24,7 @@ from school.testcases import TenantTestCase
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 from academic.services.student_creation_service import StudentCreationService
+from sis.serializers import StudentSerializer
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class StudentCreationTests(TenantTestCase):
@@ -711,6 +712,298 @@ class StudentCreationTests(TenantTestCase):
         self.assertIsNone(parent_a.user)
         self.assertIsNone(parent_a.email)
         self.assertEqual(Parent.objects.count(), 2)
+
+    def test_student_without_guardian_has_no_siblings(self):
+        """
+        Create multiple students with parent_guardian=None.
+        Retrieving one student must return: siblings == []
+        """
+        s1 = Student.objects.create(
+            first_name="Michael",
+            last_name="Stephen",
+            admission_number="SIB-NOGUARD-01",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+        s2 = Student.objects.create(
+            first_name="Nilsa",
+            last_name="Lekia",
+            admission_number="SIB-NOGUARD-02",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+        s3 = Student.objects.create(
+            first_name="Mmirioma",
+            last_name="Udochukwu",
+            admission_number="SIB-NOGUARD-03",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+
+        response = self.client.get(f"/api/sis/students/{s1.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["siblings"], [])
+
+        serializer_data = StudentSerializer(s1).data
+        self.assertEqual(serializer_data["siblings"], [])
+
+    def test_students_with_different_guardians_are_not_siblings(self):
+        """
+        Students with different parent_guardian records must not be siblings.
+        """
+        parent_a = Parent.objects.create(
+            phone_number="+2348011110001",
+            first_name="Parent",
+            last_name="Alpha",
+        )
+        parent_b = Parent.objects.create(
+            phone_number="+2348022220002",
+            first_name="Parent",
+            last_name="Beta",
+        )
+
+        s_a = Student.objects.create(
+            first_name="Alice",
+            last_name="Alpha",
+            admission_number="SIB-DIFF-01",
+            classroom=self.classroom,
+            parent_guardian=parent_a,
+            parent_contact=parent_a.phone_number,
+        )
+        s_b = Student.objects.create(
+            first_name="Bob",
+            last_name="Beta",
+            admission_number="SIB-DIFF-02",
+            classroom=self.classroom,
+            parent_guardian=parent_b,
+            parent_contact=parent_b.phone_number,
+        )
+
+        response_a = self.client.get(f"/api/sis/students/{s_a.id}/")
+        self.assertEqual(response_a.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_a.data["siblings"], [])
+
+        response_b = self.client.get(f"/api/sis/students/{s_b.id}/")
+        self.assertEqual(response_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_b.data["siblings"], [])
+
+    def test_students_sharing_guardian_are_siblings(self):
+        """
+        Students sharing the same non-null parent_guardian must appear as siblings.
+        """
+        parent = Parent.objects.create(
+            phone_number="+2348033330003",
+            first_name="Common",
+            last_name="Parent",
+        )
+        s1 = Student.objects.create(
+            first_name="First",
+            last_name="Child",
+            admission_number="SIB-SAME-01",
+            classroom=self.classroom,
+            parent_guardian=parent,
+            parent_contact=parent.phone_number,
+        )
+        s2 = Student.objects.create(
+            first_name="Second",
+            last_name="Child",
+            admission_number="SIB-SAME-02",
+            classroom=self.classroom,
+            parent_guardian=parent,
+            parent_contact=parent.phone_number,
+        )
+
+        response_1 = self.client.get(f"/api/sis/students/{s1.id}/")
+        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        sibling_ids_1 = [s["id"] for s in response_1.data["siblings"]]
+        self.assertEqual(sibling_ids_1, [s2.id])
+
+        response_2 = self.client.get(f"/api/sis/students/{s2.id}/")
+        self.assertEqual(response_2.status_code, status.HTTP_200_OK)
+        sibling_ids_2 = [s["id"] for s in response_2.data["siblings"]]
+        self.assertEqual(sibling_ids_2, [s1.id])
+
+    def test_sibling_list_excludes_student_itself(self):
+        """
+        A student's sibling list must never include the student itself.
+        """
+        parent = Parent.objects.create(
+            phone_number="+2348044440004",
+            first_name="Solo",
+            last_name="Parent",
+        )
+        student = Student.objects.create(
+            first_name="Only",
+            last_name="Child",
+            admission_number="SIB-EXCL-01",
+            classroom=self.classroom,
+            parent_guardian=parent,
+            parent_contact=parent.phone_number,
+        )
+
+        response = self.client.get(f"/api/sis/students/{student.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["siblings"], [])
+
+        sibling = Student.objects.create(
+            first_name="Second",
+            last_name="Child",
+            admission_number="SIB-EXCL-02",
+            classroom=self.classroom,
+            parent_guardian=parent,
+            parent_contact=parent.phone_number,
+        )
+        response_after = self.client.get(f"/api/sis/students/{student.id}/")
+        self.assertEqual(response_after.status_code, status.HTTP_200_OK)
+        returned_sibling_ids = [s["id"] for s in response_after.data["siblings"]]
+        self.assertNotIn(student.id, returned_sibling_ids)
+        self.assertIn(sibling.id, returned_sibling_ids)
+
+    def test_null_guardian_students_do_not_appear_as_siblings_of_each_other(self):
+        """
+        Multiple students with null guardians, null contacts, null emails must
+        never appear as siblings of each other (reproducing the production bug).
+        """
+        s1 = Student.objects.create(
+            first_name="Michael",
+            last_name="Stephen",
+            admission_number="SIB-NULL-01",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+        s2 = Student.objects.create(
+            first_name="Nilsa",
+            last_name="Lekia",
+            admission_number="SIB-NULL-02",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+        s3 = Student.objects.create(
+            first_name="Mmirioma",
+            last_name="Udochukwu",
+            admission_number="SIB-NULL-03",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+        s4 = Student.objects.create(
+            first_name="Odinaka",
+            last_name="Udochukwu",
+            admission_number="SIB-NULL-04",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+
+        for s in [s1, s2, s3, s4]:
+            res = self.client.get(f"/api/sis/students/{s.id}/")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+            self.assertEqual(res.data["siblings"], [])
+
+    def test_sibling_data_paths_in_detail_and_list_serializers(self):
+        """
+        Cover detail and list serialization paths to ensure neither leaks
+        unrelated siblings and legitimate siblings are correctly returned.
+        """
+        parent = Parent.objects.create(
+            phone_number="+2348055550005",
+            first_name="Twin",
+            last_name="Parent",
+        )
+        s_with_p1 = Student.objects.create(
+            first_name="TwinOne",
+            last_name="Child",
+            admission_number="SIB-SER-01",
+            classroom=self.classroom,
+            parent_guardian=parent,
+            parent_contact=parent.phone_number,
+        )
+        s_with_p2 = Student.objects.create(
+            first_name="TwinTwo",
+            last_name="Child",
+            admission_number="SIB-SER-02",
+            classroom=self.classroom,
+            parent_guardian=parent,
+            parent_contact=parent.phone_number,
+        )
+        s_no_p = Student.objects.create(
+            first_name="SoloNoParent",
+            last_name="Child",
+            admission_number="SIB-SER-03",
+            classroom=self.classroom,
+            parent_guardian=None,
+            parent_contact=None,
+        )
+
+        # 1. Detail endpoint check
+        res_detail = self.client.get(f"/api/sis/students/{s_no_p.id}/")
+        self.assertEqual(res_detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_detail.data["siblings"], [])
+
+        res_detail_twin = self.client.get(f"/api/sis/students/{s_with_p1.id}/")
+        self.assertEqual(res_detail_twin.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_detail_twin.data["siblings"]), 1)
+        self.assertEqual(res_detail_twin.data["siblings"][0]["id"], s_with_p2.id)
+
+        # 2. Detail serializer direct serialization
+        detail_data_no_p = StudentSerializer(s_no_p).data
+        self.assertEqual(detail_data_no_p["siblings"], [])
+
+        detail_data_twin = StudentSerializer(s_with_p1).data
+        self.assertEqual(len(detail_data_twin["siblings"]), 1)
+        self.assertEqual(detail_data_twin["siblings"][0]["id"], s_with_p2.id)
+
+        # 3. List endpoint check (confirming list view returns 200 and does not leak siblings)
+        res_list = self.client.get("/api/sis/students/")
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        for item in res_list.data.get("results", []):
+            self.assertNotIn("siblings", item)
+
+        # 4. Direct list serialization via StudentSerializer(many=True)
+        all_students = [s_no_p, s_with_p1, s_with_p2]
+        serialized_all = StudentSerializer(all_students, many=True).data
+        no_p_serialized = next(s for s in serialized_all if s["id"] == s_no_p.id)
+        twin_serialized = next(s for s in serialized_all if s["id"] == s_with_p1.id)
+        self.assertEqual(no_p_serialized["siblings"], [])
+        self.assertEqual(len(twin_serialized["siblings"]), 1)
+        self.assertEqual(twin_serialized["siblings"][0]["id"], s_with_p2.id)
+
+    def test_existing_bogus_m2m_links_are_not_returned_for_null_guardian_student(self):
+        """
+        Even if the database contains historical bogus rows in the siblings M2M
+        through-table for a student with parent_guardian=None, the serializer
+        and API must return siblings == [].
+        """
+        s1 = Student.objects.create(
+            first_name="Historical1",
+            last_name="Test",
+            admission_number="SIB-BOGUS-01",
+            classroom=self.classroom,
+            parent_guardian=None,
+        )
+        s2 = Student.objects.create(
+            first_name="Historical2",
+            last_name="Test",
+            admission_number="SIB-BOGUS-02",
+            classroom=self.classroom,
+            parent_guardian=None,
+        )
+        # Directly inject bogus M2M row
+        s1.siblings.add(s2)
+
+        # Detail endpoint must return []
+        res = self.client.get(f"/api/sis/students/{s1.id}/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["siblings"], [])
+
+        # Serializer must return []
+        self.assertEqual(StudentSerializer(s1).data["siblings"], [])
+
 
 
 

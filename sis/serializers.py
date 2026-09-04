@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 
 from academic.models import (
     StudentsMedicalHistory,
@@ -143,7 +144,7 @@ class StudentSerializer(serializers.ModelSerializer):
     classroom_name = serializers.SerializerMethodField()
     grade_level = serializers.SerializerMethodField()
     grade_level_name = serializers.SerializerMethodField()
-    siblings = SiblingSerializer(many=True, read_only=True)
+    siblings = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     portal_account_created = serializers.SerializerMethodField()
     image = serializers.ImageField(required=False, allow_null=True)
@@ -242,6 +243,19 @@ class StudentSerializer(serializers.ModelSerializer):
             gl = obj.classroom.grade_level
             return gl.alias if gl.alias else gl.default_name
         return None
+
+    @extend_schema_field(SiblingSerializer(many=True))
+    def get_siblings(self, obj):
+        if not obj.parent_guardian_id:
+            return []
+        siblings = (
+            Student.objects.filter(
+                parent_guardian_id=obj.parent_guardian_id
+            )
+            .exclude(pk=obj.pk)
+            .select_related("classroom", "classroom__grade_level")
+        )
+        return SiblingSerializer(siblings, many=True, context=self.context).data
 
     def validate_and_create_student(self, data):
         classroom = data.pop("classroom_id", None)

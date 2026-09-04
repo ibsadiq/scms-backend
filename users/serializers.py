@@ -976,6 +976,22 @@ class ParentSerializer(serializers.ModelSerializer):
             validated_data,
         )
 
+        if not parent.user_id and parent.email:
+            try:
+                parent = ParentIdentityService.resolve_parent(
+                    phone_number=parent.phone_number,
+                    email=parent.email,
+                    first_name=parent.first_name,
+                    middle_name=parent.middle_name,
+                    last_name=parent.last_name,
+                    occupation=parent.occupation,
+                    parent_type=parent.parent_type,
+                    address=parent.address,
+                )
+            except DjangoValidationError as exc:
+                detail = exc.message_dict if hasattr(exc, "message_dict") else exc.messages
+                raise serializers.ValidationError(detail)
+
         try:
             ParentIdentityService.sync_user(parent)
         except DjangoValidationError as exc:
@@ -1073,6 +1089,17 @@ class AcceptInvitationSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "This invitation has expired or has already been used."
                 )
+            if invitation.role == 'parent':
+                from academic.models import Parent
+                parent = None
+                if invitation.parent_profile_id:
+                    parent = Parent.objects.filter(id=invitation.parent_profile_id).first()
+                if not parent and invitation.email:
+                    parent = Parent.objects.filter(email__iexact=invitation.email).first()
+                if not parent:
+                    raise serializers.ValidationError(
+                        "The parent profile associated with this invitation no longer exists."
+                    )
             self.context['invitation'] = invitation
             return value
         except UserInvitation.DoesNotExist:
@@ -1118,18 +1145,24 @@ class AcceptInvitationSerializer(serializers.Serializer):
                     pass
 
         elif invitation.role == 'parent':
+            from academic.models import Parent
+            parent = None
+            if invitation.parent_profile_id:
+                parent = Parent.objects.filter(id=invitation.parent_profile_id).first()
+            if not parent and invitation.email:
+                parent = Parent.objects.filter(email__iexact=invitation.email).first()
+
+            if not parent:
+                raise serializers.ValidationError({
+                    "token": "The parent profile associated with this invitation no longer exists."
+                })
+
             user.is_parent = True
             group, _ = Group.objects.get_or_create(name='parent')
             user.groups.add(group)
 
-            # Link to parent profile if exists
-            if invitation.parent_profile_id:
-                try:
-                    parent = Parent.objects.get(id=invitation.parent_profile_id)
-                    parent.user = user
-                    parent.save()
-                except Parent.DoesNotExist:
-                    pass
+            parent.user = user
+            parent.save(update_fields=["user"])
 
         elif invitation.role == 'accountant':
             user.is_accountant = True

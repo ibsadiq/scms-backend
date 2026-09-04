@@ -9,16 +9,19 @@ class SISStudentFilterTests(SISAccessTestCase):
     def setUp(self):
         super().setUp()
         self.inactive = Student.objects.create(
-            first_name="Inactive", last_name="Learner", parent_contact="08110000003"
+            first_name="Inactive", last_name="Learner", parent_contact="08110000003",
+            admission_number="FILT-INACT-1",
         )
         Student.objects.filter(pk=self.inactive.pk).update(is_active=False)
         self.inactive.refresh_from_db()
         self.graduated = Student.objects.create(
             first_name="Graduated", last_name="Learner", parent_contact="08110000004",
+            admission_number="FILT-GRAD-1",
             graduation_date=date(2028, 7, 1),
         )
         self.withdrawn = Student.objects.create(
             first_name="Withdrawn", last_name="Learner", parent_contact="08110000005",
+            admission_number="FILT-WITH-1",
             date_dismissed=date(2028, 6, 1),
         )
 

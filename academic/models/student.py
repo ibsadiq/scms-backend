@@ -249,15 +249,18 @@ class Student(models.Model):
                     ),
                 )
 
-        existing_siblings = (
-            Student.objects
-            .filter(parent_contact=self.parent_contact)
-            .exclude(id=self.id)
-        )
+        if self.parent_guardian_id:
+            existing_siblings = (
+                Student.objects.filter(
+                    parent_guardian_id=self.parent_guardian_id
+                ).exclude(id=self.id)
+            )
+            self.siblings.set(existing_siblings)
+            for sibling in existing_siblings:
+                sibling.siblings.add(self)
+        else:
+            self.siblings.clear()
 
-        for sibling in existing_siblings:
-            self.siblings.add(sibling)
-            sibling.siblings.add(self)
     def update_debt_for_term(self, term):
         from finance.models import DebtRecord
 

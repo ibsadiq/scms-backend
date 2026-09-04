@@ -22,7 +22,8 @@ class SISStudentTenantIsolationTests(TenantTransactionTestCase):
     def setUp(self):
         self.admin_a = User.objects.create_user(email="sis-admin-a@test", password="x", is_admin=True)
         self.student_a = Student.objects.create(
-            first_name="Tenant A", last_name="Student", parent_contact="08220000001"
+            first_name="Tenant A", last_name="Student", parent_contact="08220000001",
+            admission_number="ISO-A-1",
         )
 
         suffix = uuid.uuid4().hex[:10]
@@ -35,10 +36,12 @@ class SISStudentTenantIsolationTests(TenantTransactionTestCase):
 
         with schema_context(self.tenant_b.schema_name):
             Student.objects.create(
-                first_name="Tenant B", last_name="Filler", parent_contact="08220000002"
+                first_name="Tenant B", last_name="Filler", parent_contact="08220000002",
+                admission_number="ISO-B-1",
             )
             self.student_b = Student.objects.create(
-                first_name="Secret Tenant B", last_name="Student", parent_contact="08220000003"
+                first_name="Secret Tenant B", last_name="Student", parent_contact="08220000003",
+                admission_number="ISO-B-2",
             )
 
     def client_for_tenant_a(self):

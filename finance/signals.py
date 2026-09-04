@@ -35,14 +35,9 @@ def schedule_fees_for_student(sender, instance, created, **kwargs):
     )
     if not became_active:
         return
-    current_term = Term.objects.filter(
-        academic_year__active_year=True,
-        start_date__lte=timezone.localdate(),
-        end_date__gte=timezone.localdate(),
-    ).first()
-    if current_term:
-        student_id, term_id = instance.pk, current_term.pk
-        transaction.on_commit(lambda: _assign_student(student_id, term_id))
+    student_id = instance.pk
+    transaction.on_commit(lambda: _assign_student(student_id))
+
 
 
 @receiver(post_save, sender=Term)
@@ -78,10 +73,18 @@ def _assign_fees(fee_ids, term_id):
         _assign_fee(fee_id, term_id)
 
 
-def _assign_student(student_id, term_id):
+def _assign_student(student_id, term_id=None):
+    from academic.models import StudentClassEnrollment
     from finance.services import FeeAssignmentService
 
-    FeeAssignmentService.assign_current_fees_to_student(
-        student=Student.objects.get(pk=student_id),
-        term=Term.objects.get(pk=term_id),
-    )
+    enrollment = StudentClassEnrollment.objects.select_related(
+        "student", "classroom__grade_level", "academic_year"
+    ).filter(
+        student_id=student_id,
+        is_active=True,
+        academic_year__active_year=True,
+    ).first()
+    if enrollment:
+        term = Term.objects.get(pk=term_id) if term_id else None
+        FeeAssignmentService.sync_fees_for_enrollment(enrollment=enrollment, term=term)
+
