@@ -9,6 +9,7 @@ from school.testcases import TenantTestCase
 from academic.models import ClassRoom, GradeLevel, Student, StudentClassEnrollment
 from administration.models import AcademicYear, Term
 from finance.models import (
+    FeeRecurrence,
     FeeStructure,
     FeeType,
     OptionalService,
@@ -415,3 +416,190 @@ class SyncEnrollmentFeesCommandTests(TenantTestCase):
                 academic_year="2026/2027",
             )
         self.assertIn("does not exist", str(ctx.exception))
+
+    def test_onetime_fee_existing_from_prior_year_skipped_in_current_year(self):
+        """ONE_TIME fee assigned in prior year must not be recreated during current year sync."""
+        prev_year = AcademicYear.objects.create(
+            name="2025/2026",
+            start_date=date(2025, 9, 1),
+            end_date=date(2026, 7, 31),
+            active_year=False,
+        )
+        prev_term = Term.objects.create(
+            name="First Term 2025",
+            academic_year=prev_year,
+            start_date=date(2025, 9, 1),
+            end_date=date(2025, 12, 15),
+        )
+        prev_fee = FeeStructure.objects.create(
+            name="Admission Fee 2025",
+            amount=Decimal("15000.00"),
+            academic_year=prev_year,
+            term=prev_term,
+            logical_fee_key="admission-fee",
+            recurrence=FeeRecurrence.ONE_TIME,
+            is_mandatory=False,
+        )
+        # Student 1 already paid ONE_TIME admission in 2025
+        StudentFeeAssignment.objects.create(
+            student=self.student_1,
+            fee_structure=prev_fee,
+            term=prev_term,
+            amount_owed=Decimal("15000.00"),
+            amount_paid=Decimal("15000.00"),
+            logical_fee_key="admission-fee",
+            recurrence=FeeRecurrence.ONE_TIME,
+            academic_year=prev_year,
+        )
+
+        # Current year has new FeeStructure for ONE_TIME admission
+        current_fee = FeeStructure.objects.create(
+            name="Admission Fee 2026",
+            amount=Decimal("20000.00"),
+            academic_year=self.year,
+            term=None,
+            logical_fee_key="admission-fee",
+            recurrence=FeeRecurrence.ONE_TIME,
+            is_mandatory=True,
+        )
+
+        out = StringIO()
+        call_command("sync_enrollment_fees", academic_year="2026/2027", stdout=out)
+        output = out.getvalue()
+
+        # Student 1 still only has 1 ONE_TIME admission assignment across all time
+        self.assertEqual(
+            StudentFeeAssignment.objects.filter(
+                student=self.student_1, logical_fee_key="admission-fee"
+            ).count(),
+            1,
+        )
+        # Student 2 (who had no prior assignment) received the 2026 admission fee
+        self.assertEqual(
+            StudentFeeAssignment.objects.filter(
+                student=self.student_2, logical_fee_key="admission-fee"
+            ).count(),
+            1,
+        )
+        assign_2 = StudentFeeAssignment.objects.get(
+            student=self.student_2, logical_fee_key="admission-fee"
+        )
+        self.assertEqual(assign_2.fee_structure, current_fee)
+        self.assertEqual(assign_2.term, self.term)
+        self.assertEqual(assign_2.recurrence, FeeRecurrence.ONE_TIME)
+        self.assertEqual(assign_2.academic_year, self.year)
+
+    def test_annual_fee_existing_earlier_term_skipped_in_later_term(self):
+        """ANNUAL fee assigned in Term 1 must not be duplicated when syncing for Term 2."""
+        term_2 = Term.objects.create(
+            name="Second Term",
+            academic_year=self.year,
+            start_date=date(2027, 1, 10),
+            end_date=date(2027, 4, 10),
+        )
+        annual_fee = FeeStructure.objects.create(
+            name="Annual ICT Levy",
+            amount=Decimal("10000.00"),
+            academic_year=self.year,
+            term=None,
+            logical_fee_key="annual-ict-levy",
+            recurrence=FeeRecurrence.ANNUAL,
+            is_mandatory=True,
+        )
+
+        # Sync for Term 1
+        call_command("sync_enrollment_fees", academic_year="2026/2027", term="First Term")
+        self.assertEqual(
+            StudentFeeAssignment.objects.filter(logical_fee_key="annual-ict-levy").count(),
+            2,
+        )
+
+        # Sync for Term 2
+        out = StringIO()
+        call_command("sync_enrollment_fees", academic_year="2026/2027", term="Second Term", stdout=out)
+        output = out.getvalue()
+
+        # No new annual assignments created for Term 2
+        self.assertEqual(
+            StudentFeeAssignment.objects.filter(logical_fee_key="annual-ict-levy").count(),
+            2,
+        )
+        self.assertIn("Assignments already existing:      2", output)
+
+    def test_per_term_fee_creates_assignment_for_each_term(self):
+        """PER_TERM fee with term=None creates an obligation for every processed term."""
+        term_2 = Term.objects.create(
+            name="Second Term",
+            academic_year=self.year,
+            start_date=date(2027, 1, 10),
+            end_date=date(2027, 4, 10),
+        )
+        per_term_fee = FeeStructure.objects.create(
+            name="Exam Materials",
+            amount=Decimal("5000.00"),
+            academic_year=self.year,
+            term=None,
+            logical_fee_key="exam-materials",
+            recurrence=FeeRecurrence.PER_TERM,
+            is_mandatory=True,
+        )
+
+        # Sync for Term 1
+        call_command("sync_enrollment_fees", academic_year="2026/2027", term="First Term")
+        t1_count = StudentFeeAssignment.objects.filter(
+            logical_fee_key="exam-materials", term=self.term
+        ).count()
+        self.assertEqual(t1_count, 2)
+
+        # Sync for Term 2
+        call_command("sync_enrollment_fees", academic_year="2026/2027", term="Second Term")
+        t2_count = StudentFeeAssignment.objects.filter(
+            logical_fee_key="exam-materials", term=term_2
+        ).count()
+        self.assertEqual(t2_count, 2)
+
+        # Total is 4 (2 students x 2 terms)
+        self.assertEqual(
+            StudentFeeAssignment.objects.filter(logical_fee_key="exam-materials").count(),
+            4,
+        )
+
+    def test_dry_run_recurrence_accurate(self):
+        """--dry-run reports accurate counts under recurrence rules without writing records."""
+        annual_fee = FeeStructure.objects.create(
+            name="Development Levy",
+            amount=Decimal("25000.00"),
+            academic_year=self.year,
+            term=None,
+            logical_fee_key="dev-levy",
+            recurrence=FeeRecurrence.ANNUAL,
+            is_mandatory=True,
+        )
+        # Pre-assign Student 1
+        StudentFeeAssignment.objects.create(
+            student=self.student_1,
+            fee_structure=annual_fee,
+            term=self.term,
+            amount_owed=Decimal("25000.00"),
+            amount_paid=Decimal("0.00"),
+            logical_fee_key="dev-levy",
+            recurrence=FeeRecurrence.ANNUAL,
+            academic_year=self.year,
+        )
+
+        initial_count = StudentFeeAssignment.objects.count()
+
+        out = StringIO()
+        call_command("sync_enrollment_fees", academic_year="2026/2027", dry_run=True, stdout=out)
+        output = out.getvalue()
+
+        # No database writes occurred
+        self.assertEqual(StudentFeeAssignment.objects.count(), initial_count)
+        self.assertIn("DRY RUN (zero database writes)", output)
+        # Student 1 already has annual_fee, Student 2 does not.
+        # General Tuition (mandatory_fee) is also unassigned for both.
+        # So would_create = 1 (Student 2 annual) + 2 (General Tuition) = 3
+        # already_existing = 1 (Student 1 annual)
+        self.assertIn("Assignments that would be created: 3", output)
+        self.assertIn("Assignments already existing:      1", output)
+

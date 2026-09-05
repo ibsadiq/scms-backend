@@ -11,8 +11,11 @@ from .models import (
     FeePaymentAllocation,
     Payment,
     PaymentCategory,
-    ReminderSetting
+    ReminderSetting,
+    FeeRecurrence,
+    FeeApplicability,
 )
+
 
 
 class FinanceMethodTotalSerializer(serializers.Serializer):
@@ -128,6 +131,22 @@ class FeeStructureSerializer(serializers.ModelSerializer):
     grade_level_names = serializers.SerializerMethodField()
     classroom_names = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    recurrence = serializers.ChoiceField(
+        choices=FeeRecurrence.choices,
+        default=FeeRecurrence.PER_TERM,
+        required=False,
+    )
+    applicability = serializers.ChoiceField(
+        choices=FeeApplicability.choices,
+        default=FeeApplicability.ALL_ELIGIBLE,
+        required=False,
+    )
+    logical_fee_key = serializers.SlugField(
+        max_length=120,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
 
     class Meta:
         model = FeeStructure
@@ -135,6 +154,9 @@ class FeeStructureSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'fee_type',
+            'recurrence',
+            'applicability',
+            'logical_fee_key',
             'amount',
             'academic_year',
             'academic_year_name',
@@ -153,6 +175,7 @@ class FeeStructureSerializer(serializers.ModelSerializer):
             'created_by_name',
         ]
         read_only_fields = ['created_at', 'updated_at']
+
 
     def get_grade_level_names(self, obj):
         """Return list of grade level names."""
@@ -237,6 +260,9 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
             'fee_structure',
             'fee_structure_name',
             'fee_type',
+            'logical_fee_key',
+            'recurrence',
+            'academic_year',
             'term',
             'term_name',
             'academic_year_name',
@@ -252,6 +278,7 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
             'assigned_date',
             'last_payment_date',
         ]
+
         read_only_fields = [
             'amount_paid',
             'assigned_date',

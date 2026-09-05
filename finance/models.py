@@ -38,6 +38,18 @@ class FeeType(models.TextChoices):
     OTHER = "Other", "Other"
 
 
+class FeeRecurrence(models.TextChoices):
+    PER_TERM = "PER_TERM", "Every Term"
+    ANNUAL = "ANNUAL", "Once Per Academic Year"
+    ONE_TIME = "ONE_TIME", "Once Per Student Lifetime"
+
+
+class FeeApplicability(models.TextChoices):
+    ALL_ELIGIBLE = "ALL_ELIGIBLE", "All Eligible Students"
+    NEW_STUDENTS_ONLY = "NEW_STUDENTS_ONLY", "New Students Only"
+
+
+
 # ============================================================================
 # OPTIONAL SERVICES MODELS
 # ============================================================================
@@ -151,11 +163,31 @@ class FeeStructure(models.Model):
         default=True,
         help_text="Mandatory fees are auto-assigned to all applicable students"
     )
+    recurrence = models.CharField(
+        max_length=20,
+        choices=FeeRecurrence.choices,
+        default=FeeRecurrence.PER_TERM,
+        help_text="Billing frequency: Every Term, Once Per Academic Year, or Once Per Student Lifetime",
+    )
+    applicability = models.CharField(
+        max_length=30,
+        choices=FeeApplicability.choices,
+        default=FeeApplicability.ALL_ELIGIBLE,
+        help_text="Eligibility: All Eligible Students or New Students Only",
+    )
+    logical_fee_key = models.SlugField(
+        max_length=120,
+        db_index=True,
+        blank=True,
+        default="",
+        help_text="Stable identifier representing the same logical fee across academic years",
+    )
     due_date = models.DateField(
         null=True,
         blank=True,
         help_text="Due date for this fee"
     )
+
 
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -226,24 +258,14 @@ class FeeStructure(models.Model):
 
     def applies_to_student(self, student, term=None):
         """Check if this fee structure applies to a given student."""
-        # Check grade levels
-        grade_levels_list = list(self.grade_levels.all())
-        if grade_levels_list:
-            student_grade = student.classroom.grade_level if (student.classroom and hasattr(student.classroom, "grade_level")) else None
-            if not student_grade or student_grade not in grade_levels_list:
-                return False
+        from finance.services.fee_assignment_service import FeeAssignmentService
 
-        # Check classrooms
-        classrooms_list = list(self.classrooms.all())
-        if classrooms_list:
-            if not student.classroom or student.classroom not in classrooms_list:
-                return False
-
-        # Check term
-        if self.term and term and self.term != term:
-            return False
-
-        return True
+        return FeeAssignmentService.is_student_applicable(
+            student=student,
+            fee_structure=self,
+            academic_year=self.academic_year,
+            term=term,
+        )
 
     def auto_assign_to_students(self, term=None):
         """
@@ -309,6 +331,29 @@ class StudentFeeAssignment(models.Model):
     assigned_date = models.DateTimeField(auto_now_add=True)
     last_payment_date = models.DateTimeField(null=True, blank=True)
 
+    # Historical snapshot metadata
+    logical_fee_key = models.SlugField(
+        max_length=120,
+        db_index=True,
+        blank=True,
+        default="",
+        help_text="Historical snapshot of fee structure's logical identity",
+    )
+    recurrence = models.CharField(
+        max_length=20,
+        choices=FeeRecurrence.choices,
+        default=FeeRecurrence.PER_TERM,
+        help_text="Historical snapshot of fee structure's recurrence policy",
+    )
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='fee_assignments',
+        help_text="Academic year in which this assignment obligation was incurred",
+    )
+
     class Meta:
         unique_together = ('student', 'fee_structure', 'term')
         ordering = ['-term', 'fee_structure__fee_type', 'student']
@@ -316,11 +361,26 @@ class StudentFeeAssignment(models.Model):
             models.CheckConstraint(condition=models.Q(amount_owed__gte=0), name='finance_assignment_owed_nonnegative'),
             models.CheckConstraint(condition=models.Q(amount_paid__gte=0), name='finance_assignment_paid_nonnegative'),
             models.CheckConstraint(condition=models.Q(amount_paid__lte=models.F('amount_owed')), name='finance_assignment_paid_lte_owed'),
+            models.UniqueConstraint(
+                fields=["student", "logical_fee_key"],
+                condition=models.Q(recurrence=FeeRecurrence.ONE_TIME) & ~models.Q(logical_fee_key=""),
+                name="finance_assignment_uniq_onetime_student_key",
+            ),
+            models.UniqueConstraint(
+                fields=["student", "logical_fee_key", "academic_year"],
+                condition=(
+                    models.Q(recurrence=FeeRecurrence.ANNUAL)
+                    & ~models.Q(logical_fee_key="")
+                    & models.Q(academic_year__isnull=False)
+                ),
+                name="finance_assignment_uniq_annual_student_key_year",
+            ),
         ]
         indexes = [
             models.Index(fields=['student', 'term']),
             models.Index(fields=['is_waived']),
         ]
+
 
     def __str__(self):
         return f"{self.student.full_name} - {self.fee_structure.name} ({self.term.name})"

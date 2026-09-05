@@ -6,7 +6,7 @@ from django.utils import timezone
 from academic.models import Student
 from administration.models import Term
 
-from .models import FeeStructure
+from .models import FeeRecurrence, FeeStructure
 
 
 @receiver(post_save, sender=FeeStructure)
@@ -54,7 +54,7 @@ def schedule_fees_for_term(sender, instance, created, **kwargs):
             academic_year=instance.academic_year,
             is_mandatory=True,
             term__isnull=True,
-        ).values_list("pk", flat=True)
+        ).exclude(recurrence=FeeRecurrence.ONE_TIME).values_list("pk", flat=True)
     )
     term_id = instance.pk
     transaction.on_commit(lambda: _assign_fees(fee_ids, term_id))

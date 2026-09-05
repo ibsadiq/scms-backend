@@ -27,6 +27,7 @@ from .models import (
     AuditAction
 )
 from .filters import StudentFeeAssignmentFilter
+from .services import FeeAssignmentService
 from .serializers import (
     OptionalServiceSerializer,
     ServiceSubscriptionSerializer,
@@ -341,14 +342,10 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         for student_id in student_ids:
             student = get_object_or_404(Student, id=student_id)
             if fee_structure.applies_to_student(student, term):
-                _, created = StudentFeeAssignment.objects.get_or_create(
-                    student=student,
+                created = FeeAssignmentService.assign_fee_to_student(
                     fee_structure=fee_structure,
+                    student=student,
                     term=term,
-                    defaults={
-                        'amount_owed': fee_structure.amount,
-                        'amount_paid': Decimal('0.00'),
-                    }
                 )
                 if created:
                     created_count += 1
