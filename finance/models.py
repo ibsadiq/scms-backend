@@ -278,6 +278,83 @@ class FeeStructure(models.Model):
         return FeeAssignmentService.assign_fee(fee_structure=self, term=term)
 
 
+class FeeTermSchedule(models.Model):
+    """
+    Defines term-specific pricing and due dates for recurring PER_TERM fee structures.
+    Only applicable when FeeStructure.recurrence == PER_TERM and FeeStructure.term is NULL.
+    """
+    fee_structure = models.ForeignKey(
+        FeeStructure,
+        on_delete=models.CASCADE,
+        related_name="term_schedules",
+        help_text="Parent recurring fee structure",
+    )
+    term = models.ForeignKey(
+        Term,
+        on_delete=models.CASCADE,
+        related_name="fee_term_schedules",
+        help_text="Specific academic term for this schedule",
+    )
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Optional term-specific override amount. If null, falls back to FeeStructure.amount.",
+    )
+    due_date = models.DateField(
+        help_text="Authoritative due date for fee assignments generated in this term",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["term__start_date", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fee_structure", "term"],
+                name="finance_unique_fee_structure_term_schedule",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(amount__isnull=True) | models.Q(amount__gt=0),
+                name="finance_schedule_amount_positive",
+            ),
+        ]
+
+    def __str__(self):
+        amount_str = f"₦{self.amount:,.2f}" if self.amount is not None else "Default"
+        return f"{self.fee_structure.name} - {self.term.name} ({amount_str}, Due: {self.due_date})"
+
+    def clean(self):
+        # 1. Parent recurrence must be PER_TERM
+        if self.fee_structure_id:
+            if self.fee_structure.recurrence != FeeRecurrence.PER_TERM:
+                raise ValidationError("Fee term schedules are only allowed for PER_TERM recurrence.")
+            # 2. Parent structure must target All Terms
+            if self.fee_structure.term_id is not None:
+                raise ValidationError("Fee term schedules cannot be configured for specific-term fee structures.")
+
+        # 3. Matching academic year
+        if self.term_id and self.fee_structure_id:
+            if self.term.academic_year_id != self.fee_structure.academic_year_id:
+                raise ValidationError("Schedule term must belong to the fee structure's academic year.")
+
+        # 4. Due date must fall within term dates
+        if self.due_date and self.term_id:
+            if self.term.start_date and self.due_date < self.term.start_date:
+                raise ValidationError(
+                    f"Due date cannot be before term start date ({self.term.start_date})."
+                )
+            if self.term.end_date and self.due_date > self.term.end_date:
+                raise ValidationError(
+                    f"Due date cannot be after term end date ({self.term.end_date})."
+                )
+
+        # 5. Amount validation if provided
+        if self.amount is not None and self.amount <= 0:
+            raise ValidationError("Amount must be a positive value.")
+
+
 class StudentFeeAssignment(models.Model):
     """
     Links students to specific fees they owe.
@@ -353,6 +430,12 @@ class StudentFeeAssignment(models.Model):
         related_name='fee_assignments',
         help_text="Academic year in which this assignment obligation was incurred",
     )
+    due_date = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Concrete historical due date for this financial obligation",
+    )
 
     class Meta:
         unique_together = ('student', 'fee_structure', 'term')
@@ -407,6 +490,13 @@ class StudentFeeAssignment(models.Model):
         if self.amount_paid > 0:
             return "Partial"
         return "Unpaid"
+
+    @property
+    def is_overdue(self):
+        """Check if fee obligation is past its due date and still has an unpaid balance."""
+        if self.is_fully_paid or self.is_waived or not self.due_date:
+            return False
+        return timezone.localdate() > self.due_date
 
     def clean(self):
         if self.amount_owed < 0:
@@ -566,6 +656,9 @@ class Receipt(models.Model):
             raise ValidationError("Amount must be a positive value.")
 
     def save(self, *args, **kwargs):
+        if hasattr(self, "payment_date") and hasattr(self.payment_date, "date") and callable(self.payment_date.date):
+            self.payment_date = self.payment_date.date()
+
         if self.receipt_number:
             return super().save(*args, **kwargs)
 

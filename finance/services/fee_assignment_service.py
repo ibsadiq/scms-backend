@@ -118,6 +118,51 @@ class FeeAssignmentService:
             ).first()
 
     @classmethod
+    def resolve_assignment_financials(cls, *, fee_structure, target_term):
+        """
+        Resolves the authoritative (amount, due_date) tuple for creating an assignment.
+
+        - ANNUAL / ONE_TIME:
+            Returns (fee_structure.amount, fee_structure.due_date)
+        - PER_TERM with specific term (fee_structure.term is not None):
+            Returns (fee_structure.amount, fee_structure.due_date)
+        - PER_TERM with All Terms (fee_structure.term is None):
+            Requires a matching FeeTermSchedule for target_term.
+            If missing, raises ValidationError.
+            If found:
+                amount = schedule.amount if schedule.amount is not None else fee_structure.amount
+                due_date = schedule.due_date
+        """
+        if fee_structure.recurrence in (FeeRecurrence.ANNUAL, FeeRecurrence.ONE_TIME):
+            return fee_structure.amount, fee_structure.due_date
+
+        # PER_TERM + specific term
+        if fee_structure.term_id is not None:
+            return fee_structure.amount, fee_structure.due_date
+
+        # PER_TERM + All Terms
+        if not target_term:
+            raise ValidationError(
+                f"Target term is required to resolve fee schedule for '{fee_structure.name}' (ID {fee_structure.pk})."
+            )
+
+        from finance.models import FeeTermSchedule
+        try:
+            schedule = FeeTermSchedule.objects.get(
+                fee_structure=fee_structure,
+                term=target_term,
+            )
+        except FeeTermSchedule.DoesNotExist:
+            term_name = getattr(target_term, "name", str(target_term))
+            raise ValidationError(
+                f'No fee term schedule is configured for "{term_name}".'
+            )
+
+        amount = schedule.amount if schedule.amount is not None else fee_structure.amount
+        due_date = schedule.due_date
+        return amount, due_date
+
+    @classmethod
     def _create_assignment_with_snapshot(cls, *, student, fee_structure, target_term):
         """
         Creates a new StudentFeeAssignment capturing immutable metadata snapshots.
@@ -127,6 +172,10 @@ class FeeAssignmentService:
         Re-raises any unrelated IntegrityError.
         """
         cls._validate_recurrence_logical_key(fee_structure)
+        resolved_amount, resolved_due_date = cls.resolve_assignment_financials(
+            fee_structure=fee_structure,
+            target_term=target_term,
+        )
 
         try:
             with transaction.atomic():
@@ -134,8 +183,9 @@ class FeeAssignmentService:
                     student=student,
                     fee_structure=fee_structure,
                     term=target_term,
-                    amount_owed=fee_structure.amount,
+                    amount_owed=resolved_amount,
                     amount_paid=Decimal("0.00"),
+                    due_date=resolved_due_date,
                     logical_fee_key=fee_structure.logical_fee_key,
                     recurrence=fee_structure.recurrence,
                     academic_year=fee_structure.academic_year,
@@ -270,9 +320,26 @@ class FeeAssignmentService:
         if classrooms:
             students = students.filter(classroom__in=classrooms)
 
-        terms = [fee_structure.term] if fee_structure.term_id else [term] if term else list(
-            Term.objects.filter(academic_year=fee_structure.academic_year).order_by("start_date")[:1]
-        )
+        if fee_structure.term_id:
+            terms = [fee_structure.term]
+        elif term:
+            terms = [term]
+        elif fee_structure.recurrence == FeeRecurrence.PER_TERM:
+            scheduled_terms = list(
+                Term.objects.filter(
+                    fee_term_schedules__fee_structure=fee_structure
+                ).order_by("start_date")
+            )
+            if not scheduled_terms:
+                raise ValidationError(
+                    f'No fee term schedule is configured for fee structure "{fee_structure.name}" (ID {fee_structure.pk}).'
+                )
+            terms = scheduled_terms
+        else:
+            terms = list(
+                Term.objects.filter(academic_year=fee_structure.academic_year).order_by("start_date")[:1]
+            )
+
         created_count = 0
         for student in students.iterator(chunk_size=500):
             for assignment_term in terms:
@@ -408,6 +475,7 @@ class FeeAssignmentService:
                     "would_create_count": 0,
                     "skipped": True,
                     "skip_reason": "Enrollment is inactive or missing",
+                    "errors": [],
                 }
             return 0
 
@@ -424,6 +492,7 @@ class FeeAssignmentService:
                     "would_create_count": 0,
                     "skipped": True,
                     "skip_reason": "Student is inactive or missing classroom/academic_year",
+                    "errors": [],
                 }
             return 0
 
@@ -440,6 +509,7 @@ class FeeAssignmentService:
                     "would_create_count": 0,
                     "skipped": True,
                     "skip_reason": f"No term found for academic year '{academic_year}'",
+                    "errors": [],
                 }
             return 0
 
@@ -462,6 +532,7 @@ class FeeAssignmentService:
         created_count = 0
         existing_count = 0
         would_create_count = 0
+        errors = []
 
         for fee in fees:
             target_term = cls._resolve_target_term(fee, context_term=effective_term)
@@ -484,18 +555,33 @@ class FeeAssignmentService:
 
                 if already_exists:
                     existing_count += 1
-                elif dry_run:
-                    would_create_count += 1
                 else:
-                    created = cls.assign_fee_to_student(
-                        fee_structure=fee,
-                        student=student,
-                        term=target_term,
-                    )
-                    if created:
-                        created_count += 1
+                    # Invariant: PER_TERM + All Terms requires a matching FeeTermSchedule for target_term
+                    if fee.recurrence == FeeRecurrence.PER_TERM and fee.term_id is None:
+                        if not fee.term_schedules.filter(term=target_term).exists():
+                            term_name = getattr(target_term, "name", str(target_term))
+                            error_msg = (
+                                f'No fee term schedule is configured for "{term_name}" '
+                                f'on fee structure "{fee.name}" (ID {fee.pk}).'
+                            )
+                            if return_details:
+                                errors.append(error_msg)
+                                continue
+                            else:
+                                raise ValidationError(error_msg)
+
+                    if dry_run:
+                        would_create_count += 1
                     else:
-                        existing_count += 1
+                        created = cls.assign_fee_to_student(
+                            fee_structure=fee,
+                            student=student,
+                            term=target_term,
+                        )
+                        if created:
+                            created_count += 1
+                        else:
+                            existing_count += 1
 
         if return_details:
             return {
@@ -505,6 +591,7 @@ class FeeAssignmentService:
                 "would_create_count": would_create_count,
                 "skipped": False,
                 "skip_reason": None,
+                "errors": errors,
             }
 
         return would_create_count if dry_run else created_count

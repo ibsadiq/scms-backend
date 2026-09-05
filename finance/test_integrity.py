@@ -10,7 +10,13 @@ from school.testcases import TenantTestCase
 from academic.models import ClassRoom, GradeLevel, Student, StudentClassEnrollment
 from academic.services.enrollment_service import EnrollmentService
 from administration.models import AcademicYear, Term
-from finance.models import FeePaymentAllocation, FeeStructure, Receipt, StudentFeeAssignment
+from finance.models import (
+    FeePaymentAllocation,
+    FeeStructure,
+    FeeTermSchedule,
+    Receipt,
+    StudentFeeAssignment,
+)
 from finance.services import FeeAssignmentService, PaymentAllocationService
 
 
@@ -232,6 +238,18 @@ class EnrollmentFeeAssignmentTests(TenantTestCase):
             term=None,
             is_mandatory=True,
             created_by=self.user,
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=self.fee_all_terms,
+            term=self.term_1,
+            amount=Decimal("5000.00"),
+            due_date=self.term_1.start_date + timedelta(days=14),
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=self.fee_all_terms,
+            term=self.term_2,
+            amount=Decimal("5000.00"),
+            due_date=self.term_2.start_date + timedelta(days=14),
         )
         # Fee scoped to JSS 1 only
         self.fee_jss1_only = FeeStructure.objects.create(

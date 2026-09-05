@@ -11,6 +11,7 @@ from administration.models import AcademicYear, Term
 from finance.models import (
     FeeRecurrence,
     FeeStructure,
+    FeeTermSchedule,
     FeeType,
     OptionalService,
     ServiceSubscription,
@@ -542,6 +543,16 @@ class SyncEnrollmentFeesCommandTests(TenantTestCase):
             logical_fee_key="exam-materials",
             recurrence=FeeRecurrence.PER_TERM,
             is_mandatory=True,
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=per_term_fee,
+            term=self.term,
+            due_date=self.term.start_date,
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=per_term_fee,
+            term=term_2,
+            due_date=term_2.start_date,
         )
 
         # Sync for Term 1

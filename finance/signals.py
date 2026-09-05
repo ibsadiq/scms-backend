@@ -12,6 +12,11 @@ from .models import FeeRecurrence, FeeStructure
 @receiver(post_save, sender=FeeStructure)
 def schedule_mandatory_fee_assignment(sender, instance, created, **kwargs):
     if created and instance.is_mandatory:
+        if getattr(instance, "_suppress_auto_assign", False):
+            return
+        if instance.recurrence == FeeRecurrence.PER_TERM and instance.term_id is None:
+            if not instance.term_schedules.exists():
+                return
         fee_id = instance.pk
         transaction.on_commit(lambda: _assign_fee(fee_id))
 
@@ -65,6 +70,9 @@ def _assign_fee(fee_id, term_id=None):
 
     fee = FeeStructure.objects.get(pk=fee_id)
     term = Term.objects.get(pk=term_id) if term_id else None
+    if term and fee.recurrence == FeeRecurrence.PER_TERM and fee.term_id is None:
+        if not fee.term_schedules.filter(term=term).exists():
+            return
     FeeAssignmentService.assign_fee(fee_structure=fee, term=term)
 
 

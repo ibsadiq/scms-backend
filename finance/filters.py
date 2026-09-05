@@ -6,10 +6,13 @@ class StudentFeeAssignmentFilter(django_filters.FilterSet):
     payment_status = django_filters.CharFilter(method='filter_payment_status')
     classroom = django_filters.NumberFilter(field_name='student__classroom')
     academic_year = django_filters.NumberFilter(field_name='term__academic_year')
+    due_date = django_filters.DateFilter(field_name='due_date')
+    due_date_from = django_filters.DateFilter(field_name='due_date', lookup_expr='gte')
+    due_date_to = django_filters.DateFilter(field_name='due_date', lookup_expr='lte')
 
     class Meta:
         model = StudentFeeAssignment
-        fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type', 'classroom', 'academic_year']
+        fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type', 'classroom', 'academic_year', 'due_date']
 
     def filter_payment_status(self, queryset, name, value):
         qs = queryset.alias(balance_calc=F('amount_owed') - F('amount_paid'))

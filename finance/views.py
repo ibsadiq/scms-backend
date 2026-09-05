@@ -280,7 +280,7 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = StudentFeeAssignmentFilter
     search_fields = ['student__first_name', 'student__last_name', 'student__admission_number', 'fee_structure__name']
-    ordering_fields = ['assigned_date', 'amount_owed', 'balance']
+    ordering_fields = ['assigned_date', 'amount_owed', 'balance', 'due_date']
     ordering = ['-assigned_date']
 
     def get_queryset(self):
@@ -499,25 +499,52 @@ class ReceiptViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(student_id__in=accessible_student_ids(self.request.user))
 
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        allocations_data = serializer.validated_data.pop('allocations', None)
+
+        if allocations_data is not None:
+            from finance.services import PaymentAllocationService
+            try:
+                receipt = PaymentAllocationService.record_payment_with_allocations(
+                    receipt_data=serializer.validated_data,
+                    allocations=allocations_data,
+                    actor=request.user,
+                )
+            except (DjangoValidationError, ValueError, KeyError, TypeError) as exc:
+                detail = exc.message_dict if hasattr(exc, "message_dict") else str(exc)
+                return Response({"error": detail}, status=status.HTTP_400_BAD_REQUEST)
+
+            response_serializer = self.get_serializer(receipt)
+            headers = self.get_success_headers(response_serializer.data)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         receipt = serializer.save(received_by=self.request.user)
+        student_name = receipt.student.full_name if receipt.student else receipt.payer
+        adm_no = (
+            receipt.student.admission_number
+            if (receipt.student and receipt.student.admission_number)
+            else "No Adm"
+        )
         FinanceAuditLog.objects.create(
             user=self.request.user,
             action=AuditAction.PAYMENT_RECORDED,
             target_student=receipt.student,
-            description=f"Recorded incoming payment of ₦{receipt.amount} from {receipt.student.full_name} ({receipt.student.admission_number}).",
+            description=f"Recorded incoming payment of ₦{receipt.amount} from {student_name} ({adm_no}).",
             metadata={"amount": float(receipt.amount), "receipt_id": receipt.id}
         )
 
     def perform_destroy(self, instance):
-        FinanceAuditLog.objects.create(
-            user=self.request.user,
-            action=AuditAction.PAYMENT_REVERSED,
-            target_student=instance.student,
-            description=f"Reversed/deleted incoming payment of ₦{instance.amount} from {instance.student.full_name}.",
-            metadata={"amount": float(instance.amount), "receipt_id": instance.id}
-        )
-        instance.delete()
+        from finance.services import PaymentAllocationService
+        PaymentAllocationService.reverse_receipt(receipt=instance, actor=self.request.user)
 
     def filter_queryset(self, queryset):
         student_param = self.request.query_params.get('student') or self.request.query_params.get('student_id')
@@ -582,9 +609,12 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         from django.db.models import Sum, Count, Q
         from django.utils import timezone as tz
+        from finance.models import FeePaymentAllocation
 
         today = tz.now().date()
-        aggregates = queryset.aggregate(
+        # Guarantee no join-multiplication can ever occur by aggregating over distinct receipt IDs
+        safe_receipts = Receipt.objects.filter(id__in=queryset.values('id'))
+        aggregates = safe_receipts.aggregate(
             total_collected=Sum('amount'),
             total_count=Count('id'),
             today_count=Count('id', filter=Q(date=today) | Q(payment_date=today))
@@ -595,8 +625,16 @@ class ReceiptViewSet(viewsets.ModelViewSet):
         today_count = aggregates['today_count'] or 0
         avg_payment = (total_collected / Decimal(str(total_count))) if total_count > 0 else Decimal('0.00')
 
+        total_allocated = FeePaymentAllocation.objects.filter(
+            receipt_id__in=safe_receipts.values('id')
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        total_unallocated = max(Decimal('0.00'), total_collected - total_allocated)
+
         return Response({
             'total_collected': float(total_collected),
+            'total_received': float(total_collected),
+            'total_allocated': float(total_allocated),
+            'total_unallocated': float(total_unallocated),
             'total_count': total_count,
             'today_count': today_count,
             'avg_payment': float(avg_payment),
@@ -781,7 +819,10 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             assignments = assignments.filter(term_id=term_id)
             term = get_object_or_404(Term, id=term_id)
         elif academic_year_id:
-            assignments = assignments.filter(term__academic_year_id=academic_year_id)
+            from django.db.models import Q
+            assignments = assignments.filter(
+                Q(term__academic_year_id=academic_year_id) | Q(academic_year_id=academic_year_id)
+            )
             term = None
         else:
             # Get current term
@@ -792,8 +833,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             if term:
                 assignments = assignments.filter(term=term)
 
-        # Calculate totals
-        total_fees = assignments.aggregate(
+        # Calculate totals: exclude waived fees from expected/owed totals
+        total_fees = assignments.filter(is_waived=False).aggregate(
             total=Sum('amount_owed')
         )['total'] or Decimal('0.00')
 
@@ -801,7 +842,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             total=Sum('amount_paid')
         )['total'] or Decimal('0.00')
 
-        balance = total_fees - total_paid
+        balance = max(Decimal('0.00'), total_fees - total_paid)
 
         # Determine status
         if balance == 0:
@@ -895,7 +936,10 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         if term_id:
             assignments = assignments.filter(term_id=term_id)
         elif academic_year_id:
-            assignments = assignments.filter(term__academic_year_id=academic_year_id)
+            from django.db.models import Q
+            assignments = assignments.filter(
+                Q(term__academic_year_id=academic_year_id) | Q(academic_year_id=academic_year_id)
+            )
         if fee_type:
             assignments = assignments.filter(fee_structure__fee_type=fee_type)
 
@@ -941,7 +985,11 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         if term_id:
             allocations = allocations.filter(fee_assignment__term_id=term_id)
         elif academic_year_id:
-            allocations = allocations.filter(fee_assignment__term__academic_year_id=academic_year_id)
+            from django.db.models import Q
+            allocations = allocations.filter(
+                Q(fee_assignment__term__academic_year_id=academic_year_id)
+                | Q(fee_assignment__academic_year_id=academic_year_id)
+            )
         if fee_type:
             allocations = allocations.filter(fee_assignment__fee_structure__fee_type=fee_type)
 
@@ -994,7 +1042,10 @@ class FinanceDashboardSummaryView(APIView):
         if term_id:
             assignments = assignments.filter(term_id=term_id)
         elif academic_year_id:
-            assignments = assignments.filter(term__academic_year_id=academic_year_id)
+            from django.db.models import Q
+            assignments = assignments.filter(
+                Q(term__academic_year_id=academic_year_id) | Q(academic_year_id=academic_year_id)
+            )
         if fee_type:
             assignments = assignments.filter(fee_structure__fee_type=fee_type)
         if classroom_id:
@@ -1029,10 +1080,16 @@ class FinanceDashboardSummaryView(APIView):
                 unpaid_count += 1
 
         allocations = FeePaymentAllocation.objects.all()
+        if classroom_id:
+            allocations = allocations.filter(fee_assignment__student__classroom_id=classroom_id)
         if term_id:
             allocations = allocations.filter(fee_assignment__term_id=term_id)
         elif academic_year_id:
-            allocations = allocations.filter(fee_assignment__term__academic_year_id=academic_year_id)
+            from django.db.models import Q
+            allocations = allocations.filter(
+                Q(fee_assignment__term__academic_year_id=academic_year_id)
+                | Q(fee_assignment__academic_year_id=academic_year_id)
+            )
         if fee_type:
             allocations = allocations.filter(fee_assignment__fee_structure__fee_type=fee_type)
 
@@ -1109,7 +1166,7 @@ class ParentFeesView(APIView):
                 owed = assignment.amount_owed
                 paid = assignment.amount_paid
                 balance = assignment.balance
-                total_fees += owed
+                total_fees += (Decimal('0.00') if assignment.is_waived else owed)
                 total_paid += paid
                 total_balance += balance
                 
@@ -1128,13 +1185,15 @@ class ParentFeesView(APIView):
             receipts = Receipt.objects.filter(student=student).order_by('-payment_date', '-receipt_number')
             receipts_list = []
             for r in receipts:
+                p_date = r.payment_date or r.date
+                term_disp = getattr(r, 'header_term_display', None) or (r.term.name if r.term else 'N/A')
                 receipts_list.append({
                     "id": r.id,
                     "receipt_number": f"RCP-{r.receipt_number:06d}" if r.receipt_number else str(r.id),
                     "amount": float(r.amount),
-                    "payment_date": r.payment_date.strftime('%Y-%m-%d'),
+                    "payment_date": p_date.strftime('%Y-%m-%d') if p_date else None,
                     "paid_through": r.paid_through,
-                    "term_name": r.term.name if r.term else 'N/A'
+                    "term_name": term_disp
                 })
 
             children_fees.append({

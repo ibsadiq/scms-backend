@@ -53,7 +53,7 @@ def send_fee_reminders(schema_name=None, job_public_id=None):
                 
                 # Get assignments where due date is target_date and balance > 0
                 assignments = StudentFeeAssignment.objects.filter(
-                    fee_structure__due_date=target_date,
+                    due_date=target_date,
                     amount_paid__lt=F('amount_owed'),
                     is_waived=False
                 ).select_related('student', 'student__parent_guardian', 'student__parent_guardian__user', 'fee_structure')
@@ -86,8 +86,8 @@ def send_fee_reminders(schema_name=None, job_public_id=None):
                     message = message.replace('{{amount_owed}}', f"₦{assignment.amount_owed:,.2f}")
                     message = message.replace('{{balance}}', f"₦{balance:,.2f}")
                     message = message.replace('{{amount_paid}}', f"₦{assignment.amount_paid:,.2f}")
-                    if assignment.fee_structure.due_date:
-                        message = message.replace('{{due_date}}', assignment.fee_structure.due_date.strftime("%B %d, %Y"))
+                    if assignment.due_date:
+                        message = message.replace('{{due_date}}', assignment.due_date.strftime("%B %d, %Y"))
                     else:
                         message = message.replace('{{due_date}}', 'N/A')
 
@@ -195,8 +195,8 @@ def send_custom_fee_reminder(schema_name, fee_structure_id, message=None, job_pu
                     if parent_user:
                         try:
                             default_message = f'{fee_structure.name} payment of ₦{balance:,.2f} is pending. '
-                            if fee_structure.due_date:
-                                default_message += f'Due date: {fee_structure.due_date.strftime("%B %d, %Y")}. '
+                            if assignment.due_date:
+                                default_message += f'Due date: {assignment.due_date.strftime("%B %d, %Y")}. '
                             default_message += f'Student: {assignment.student.full_name}'
 
                             notification_service.create_notification(
@@ -319,16 +319,79 @@ def _to_base64_uri(field_or_url):
     return field_or_url
 
 
-def render_receipt_pdf(receipt):
+def get_fee_scope_label(fee_assignment):
     """
-    Render PDF receipt using WeasyPrint with school logo and tenant info.
+    Returns the academic scope label for a fee assignment.
+    Semantics:
+    - If recurrence is ANNUAL -> "Annual"
+    - If recurrence is ONE_TIME -> "One-Time"
+    - If recurrence is PER_TERM (or not annual/one-time):
+        - If concrete term exists (on assignment or fee_structure) -> term.name
+        - If PER_TERM with no concrete term -> "Every Term"
+    - Otherwise -> "—"
     """
-    from weasyprint import HTML
+    if not fee_assignment:
+        return "—"
+
+    recurrence = getattr(fee_assignment, "recurrence", None)
+    if not recurrence and getattr(fee_assignment, "fee_structure", None):
+        recurrence = getattr(fee_assignment.fee_structure, "recurrence", None)
+
+    rec_str = str(recurrence).upper() if recurrence else ""
+    if rec_str == "ANNUAL":
+        return "Annual"
+    if rec_str == "ONE_TIME":
+        return "One-Time"
+
+    term = getattr(fee_assignment, "term", None)
+    if term and getattr(term, "name", None):
+        return str(term.name).strip()
+
+    fee_structure = getattr(fee_assignment, "fee_structure", None)
+    if fee_structure and getattr(fee_structure, "term", None) and getattr(fee_structure.term, "name", None):
+        return str(fee_structure.term.name).strip()
+
+    if rec_str == "PER_TERM":
+        return "Every Term"
+
+    return "—"
+
+
+def get_fee_academic_year_label(fee_assignment):
+    """
+    Returns the academic year label for a fee assignment, preferring the
+    assignment's snapshot/link, falling back to term or fee_structure.
+    """
+    if not fee_assignment:
+        return "—"
+
+    ay = getattr(fee_assignment, "academic_year", None)
+    if ay and getattr(ay, "name", None):
+        return str(ay.name).strip()
+
+    term = getattr(fee_assignment, "term", None)
+    if term and getattr(term, "academic_year", None) and getattr(term.academic_year, "name", None):
+        return str(term.academic_year.name).strip()
+
+    fee_structure = getattr(fee_assignment, "fee_structure", None)
+    if fee_structure and getattr(fee_structure, "academic_year", None) and getattr(fee_structure.academic_year, "name", None):
+        return str(fee_structure.academic_year.name).strip()
+
+    return "—"
+
+
+def build_receipt_html(receipt):
+    """
+    Builds clean, consolidated, printer-friendly HTML for a receipt.
+    Handles single-fee, multi-fee, mixed-term, annual, one-time, and unallocated receipts.
+    """
+    import html
     from django.utils import timezone as tz
     from tenants.models import Client
     from django.db import connection
+    from finance.models import FeeRecurrence
 
-    schema_name = connection.schema_name
+    schema_name = getattr(connection, 'schema_name', None) or 'public'
     try:
         client_tenant = Client.objects.get(schema_name=schema_name)
     except Exception:
@@ -347,43 +410,123 @@ def render_receipt_pdf(receipt):
         'motto': getattr(client_tenant, 'motto', '') or '' if client_tenant else '',
     }
 
-    allocations = receipt.fee_allocations.select_related(
-        'fee_assignment__fee_structure'
-    ).all()
+    allocations = list(receipt.fee_allocations.select_related(
+        'fee_assignment',
+        'fee_assignment__fee_structure',
+        'fee_assignment__term',
+        'fee_assignment__academic_year',
+        'fee_assignment__fee_structure__academic_year',
+    ).all())
 
     student = receipt.student
     if student:
-        raw_name = getattr(student, 'full_name', None) or f"{student.first_name} {student.last_name}"
-        student_name = raw_name.strip().title()
+        raw_name = getattr(student, 'full_name', None) or f"{getattr(student, 'first_name', '')} {getattr(student, 'last_name', '')}"
+        student_name = raw_name.strip().title() or "—"
     else:
         student_name = (receipt.payer or '—').strip().title()
 
-    admission_no = student.admission_number if student else "—"
-    classroom = str(student.classroom.name) if student and student.classroom else "—"
+    admission_no = getattr(student, 'admission_number', None) or "—" if student else "—"
+    classroom = str(student.classroom.name) if (student and getattr(student, 'classroom', None) and getattr(student.classroom, 'name', None)) else "—"
 
+    # Header term semantics (Section 3):
+    # - Single-term receipt:
+    #   receipt.term is not null AND allocated items genuinely share that term (and are not Annual/One-Time) -> receipt.term.name
+    # - Mixed-term / annual / one-time receipt:
+    #   receipt.term is null (or allocations span mixed terms / annual / one-time) -> "Multiple / Mixed"
+    # - Unallocated receipt with no term -> None (omit term row)
+    has_annual_or_onetime = any(
+        getattr(alloc.fee_assignment, 'recurrence', None) in (FeeRecurrence.ANNUAL, FeeRecurrence.ONE_TIME)
+        or getattr(getattr(alloc.fee_assignment, 'fee_structure', None), 'recurrence', None) in (FeeRecurrence.ANNUAL, FeeRecurrence.ONE_TIME)
+        for alloc in allocations
+    )
+
+    if receipt.term and getattr(receipt.term, 'name', None):
+        terms = {
+            alloc.fee_assignment.term_id
+            for alloc in allocations
+            if alloc.fee_assignment and alloc.fee_assignment.term_id
+        }
+        if has_annual_or_onetime or len(terms) > 1 or (terms and list(terms)[0] != receipt.term_id):
+            term_header_label = "Multiple / Mixed"
+        else:
+            term_header_label = str(receipt.term.name).strip()
+    elif allocations:
+        alloc_terms = {
+            alloc.fee_assignment.term
+            for alloc in allocations
+            if alloc.fee_assignment and alloc.fee_assignment.term
+        }
+        all_have_same_term = (
+            not has_annual_or_onetime
+            and len(alloc_terms) == 1
+            and all(alloc.fee_assignment and alloc.fee_assignment.term is not None for alloc in allocations)
+        )
+        if all_have_same_term:
+            term_header_label = str(list(alloc_terms)[0].name).strip()
+        else:
+            term_header_label = "Multiple / Mixed"
+    else:
+        term_header_label = None
+
+    # Line items
     fee_rows = ""
     for alloc in allocations:
-        fee_name = alloc.fee_assignment.fee_structure.name if alloc.fee_assignment else "Fee"
+        fa = getattr(alloc, 'fee_assignment', None)
+        fs = getattr(fa, 'fee_structure', None) if fa else None
+        fee_name = html.escape(fs.name if fs else "Fee Item")
+        ay_label = html.escape(get_fee_academic_year_label(fa))
+        scope_label = html.escape(get_fee_scope_label(fa))
+
         fee_rows += f"""
         <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">{fee_name}</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;word-break:break-word;">
+                <div style="font-weight:600;color:#111827;">{fee_name}</div>
+            </td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#374151;">
+                {ay_label}
+            </td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#374151;">
+                {scope_label}
+            </td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;white-space:nowrap;font-weight:600;color:#111827;">
                 &#8358;{alloc.amount:,.2f}
             </td>
         </tr>"""
 
     if not fee_rows:
-        fee_rows = f"""
+        fee_rows = """
         <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">School Fees</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">
-                &#8358;{receipt.amount:,.2f}
+            <td colspan="4" style="padding:18px 12px;border-bottom:1px solid #e5e7eb;text-align:center;color:#6b7280;font-style:italic;">
+                No fee allocation details available.
             </td>
         </tr>"""
 
-    term_name = str(receipt.term.name) if (receipt.term and hasattr(receipt.term, 'name')) else (str(receipt.term) if receipt.term else "—")
-    payment_date = receipt.payment_date.strftime("%d %B %Y") if receipt.payment_date else "—"
+    payment_date = receipt.payment_date.strftime("%d %B %Y") if getattr(receipt, 'payment_date', None) else "—"
     generated_at = tz.now().strftime("%d %B %Y, %H:%M")
+
+    # Payment details line
+    payment_method_line = f"Method: {html.escape(str(receipt.paid_through or '—'))}"
+    if term_header_label:
+        payment_method_line += f" &nbsp;|&nbsp; Term: {html.escape(term_header_label)}"
+
+    received_by_user = getattr(receipt, 'received_by', None)
+    if received_by_user:
+        raw_rec_by = f"{getattr(received_by_user, 'first_name', '')} {getattr(received_by_user, 'last_name', '')}".strip() or getattr(received_by_user, 'email', '')
+        received_by_display = html.escape(raw_rec_by if raw_rec_by else "—")
+    else:
+        received_by_display = "—"
+
+    payer_display = html.escape((receipt.payer or '—').strip().title()) if receipt.payer else "—"
+    receipt_no_display = f"#{receipt.receipt_number}" if receipt.receipt_number else "#—"
+
+    remarks_html = (
+        f"<div class='meta-details'><strong>Remarks:</strong> {html.escape(str(receipt.remarks))}</div>"
+        if receipt.remarks else ""
+    )
+    reference_html = (
+        f"<div class='meta-details' style='margin-top:6px;border-top:none;padding-top:0;'><strong>Reference:</strong> {html.escape(str(receipt.reference_number))}</div>"
+        if receipt.reference_number else ""
+    )
 
     html_content = f"""
     <!DOCTYPE html>
@@ -414,13 +557,14 @@ def render_receipt_pdf(receipt):
         .info-block p {{ font-size:14px; font-weight:600; color:#111827; }}
         table {{ width:100%; border-collapse:collapse; margin-bottom:20px; margin-top:10px; }}
         thead th {{ background:#f3f4f6; padding:10px 12px; text-align:left; font-size:11px;
-                    font-weight:700; color:#374151; text-transform:uppercase; letter-spacing:.04em; }}
+                    font-weight:700; color:#374151; text-transform:uppercase; letter-spacing:.04em; border-bottom:2px solid #e5e7eb; }}
         thead th:last-child {{ text-align:right; }}
         .total-row td {{ padding:12px; font-weight:700; font-size:15px;
                          background:#f0fdf4; color:#065f46; border-top:2px solid #059669; }}
         .total-row td:last-child {{ text-align:right; }}
         .status-badge {{ display:inline-block; background:#d1fae5; color:#065f46;
                           border-radius:12px; padding:3px 12px; font-size:12px; font-weight:600; }}
+        .meta-details {{ margin-top:14px; padding-top:12px; border-top:1px dashed #e5e7eb; font-size:12px; color:#4b5563; }}
         .footer {{ margin-top:28px; padding-top:18px; border-top:1px solid #e5e7eb;
                    text-align:center; font-size:11px; color:#9ca3af; }}
       </style>
@@ -431,15 +575,15 @@ def render_receipt_pdf(receipt):
           <div class="brand">
             {"<img class='logo' src='" + logo_uri + "' />" if logo_uri else ""}
             <div>
-              <div class="school-name">{school_info['name']}</div>
-              {"<div class='school-info'>" + school_info['address'] + "</div>" if school_info['address'] else ""}
-              {"<div class='school-info'>Tel: " + school_info['phone'] + " | Email: " + school_info['email'] + "</div>" if (school_info['phone'] or school_info['email']) else ""}
-              {"<div class='school-motto'>\"" + school_info['motto'] + "\"</div>" if school_info['motto'] else ""}
+              <div class="school-name">{html.escape(school_info['name'])}</div>
+              {"<div class='school-info'>" + html.escape(school_info['address']) + "</div>" if school_info['address'] else ""}
+              {"<div class='school-info'>Tel: " + html.escape(school_info['phone']) + " | Email: " + html.escape(school_info['email']) + "</div>" if (school_info['phone'] or school_info['email']) else ""}
+              {"<div class='school-motto'>\"" + html.escape(school_info['motto']) + "\"</div>" if school_info['motto'] else ""}
             </div>
           </div>
           <div style="text-align:right;">
             <span class="receipt-badge">RECEIPT</span>
-            <div class="receipt-no">#{receipt.receipt_number}</div>
+            <div class="receipt-no">{receipt_no_display}</div>
           </div>
         </div>
 
@@ -450,33 +594,36 @@ def render_receipt_pdf(receipt):
         <div class="info-grid">
           <div class="info-block">
             <div class="section-label">Student</div>
-            <p>{student_name}</p>
+            <p>{html.escape(student_name)}</p>
             <div style="color:#6b7280;font-size:12px;margin-top:2px;">
-              Adm No: {admission_no} &nbsp;|&nbsp; Class: {classroom}
+              Adm No: {html.escape(admission_no)} &nbsp;|&nbsp; Class: {html.escape(classroom)}
             </div>
           </div>
           <div class="info-block">
             <div class="section-label">Payment Details</div>
             <p>{payment_date}</p>
             <div style="color:#6b7280;font-size:12px;margin-top:2px;">
-              Method: {receipt.paid_through} &nbsp;|&nbsp; Term: {term_name}
+              {payment_method_line}
             </div>
           </div>
           <div class="info-block">
             <div class="section-label">Payer</div>
-            <p>{(receipt.payer or '—').strip().title()}</p>
+            <p>{payer_display}</p>
+            {"<div style='color:#6b7280;font-size:12px;margin-top:2px;'>Received By: " + received_by_display + "</div>" if received_by_display != "—" else ""}
           </div>
           <div class="info-block">
             <div class="section-label">Status</div>
-            <span class="status-badge">{receipt.status}</span>
+            <span class="status-badge">{html.escape(str(receipt.status or 'Completed'))}</span>
           </div>
         </div>
 
         <table>
           <thead>
             <tr>
-              <th>Description</th>
-              <th style="text-align:right;">Amount</th>
+              <th style="width:38%;">Fee Description</th>
+              <th style="width:22%;">Academic Year</th>
+              <th style="width:22%;">Term / Scope</th>
+              <th style="width:18%;text-align:right;">Amount Paid</th>
             </tr>
           </thead>
           <tbody>
@@ -484,24 +631,32 @@ def render_receipt_pdf(receipt):
           </tbody>
           <tfoot>
             <tr class="total-row">
-              <td>Total Paid</td>
+              <td colspan="3">Total Paid</td>
               <td>&#8358;{receipt.amount:,.2f}</td>
             </tr>
           </tfoot>
         </table>
 
-        {"<p style='font-size:12px;color:#6b7280;margin-bottom:12px;'><strong>Remarks:</strong> " + receipt.remarks + "</p>" if receipt.remarks else ""}
-        {"<p style='font-size:12px;color:#6b7280;'><strong>Reference:</strong> " + receipt.reference_number + "</p>" if receipt.reference_number else ""}
+        {remarks_html}
+        {reference_html}
 
         <div class="footer">
           <p>This is a computer-generated receipt. No signature required.</p>
-          <p style="margin-top:4px;">Generated on {generated_at} &nbsp;|&nbsp; {school_info['name']} Finance</p>
+          <p style="margin-top:4px;">Generated on {generated_at} &nbsp;|&nbsp; {html.escape(school_info['name'])} Finance</p>
         </div>
       </div>
     </body>
     </html>
     """
+    return html_content
 
+
+def render_receipt_pdf(receipt):
+    """
+    Render PDF receipt using WeasyPrint with school logo and tenant info.
+    """
+    from weasyprint import HTML
+    html_content = build_receipt_html(receipt)
     return HTML(string=html_content).write_pdf()
 
 

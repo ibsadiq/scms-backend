@@ -11,6 +11,7 @@ from administration.models import AcademicYear, Term
 from finance.models import (
     FeeRecurrence,
     FeeStructure,
+    FeeTermSchedule,
     StudentFeeAssignment,
 )
 from finance.services import FeeAssignmentService
@@ -114,6 +115,21 @@ class FeeRecurrencePhase3ATests(TenantTestCase):
             logical_fee_key="tuition-fee",
             recurrence=FeeRecurrence.PER_TERM,
             is_mandatory=True,
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=fee,
+            term=self.term_2026_t1,
+            due_date=self.term_2026_t1.start_date,
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=fee,
+            term=self.term_2026_t2,
+            due_date=self.term_2026_t2.start_date,
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=fee,
+            term=self.term_2026_t3,
+            due_date=self.term_2026_t3.start_date,
         )
 
         # 1. Sync for Term 1
@@ -803,7 +819,7 @@ class FeeRecurrencePhase3ATests(TenantTestCase):
         - ONE_TIME fees are not duplicated.
         """
         # 1. PER_TERM fee (term=None)
-        FeeStructure.objects.create(
+        fee_signal = FeeStructure.objects.create(
             name="Tuition Signal",
             amount=Decimal("30000.00"),
             academic_year=self.year_2026,
@@ -839,6 +855,11 @@ class FeeRecurrencePhase3ATests(TenantTestCase):
             academic_year=self.year_2026,
             start_date=date(2027, 8, 1),
             end_date=date(2027, 8, 30),
+        )
+        FeeTermSchedule.objects.create(
+            fee_structure=fee_signal,
+            term=new_term,
+            due_date=new_term.start_date,
         )
 
         # Manually run the term fee assignment handler on new_term

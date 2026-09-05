@@ -198,6 +198,12 @@ class Command(BaseCommand):
                     else:
                         assignments_created += details.get("created_count", 0)
 
+                    if details.get("errors"):
+                        for err in details["errors"]:
+                            error_msg = f"Enrollment #{enrollment.pk} [{student_desc}]: {err}"
+                            errors.append(error_msg)
+                            self.stderr.write(self.style.ERROR(f"  ERROR: {error_msg}"))
+
             except Exception as exc:
                 error_msg = f"Enrollment #{enrollment.pk} [{student_desc}]: {type(exc).__name__}: {str(exc)}"
                 errors.append(error_msg)
