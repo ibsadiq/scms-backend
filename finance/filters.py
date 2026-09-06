@@ -12,16 +12,18 @@ class StudentFeeAssignmentFilter(django_filters.FilterSet):
 
     class Meta:
         model = StudentFeeAssignment
-        fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type', 'classroom', 'academic_year', 'due_date']
+        fields = ['student', 'term', 'fee_structure', 'is_waived', 'fee_structure__fee_type', 'classroom', 'academic_year', 'due_date', 'charge_number']
 
     def filter_payment_status(self, queryset, name, value):
         qs = queryset.alias(balance_calc=F('amount_owed') - F('amount_paid'))
-        if value == 'Paid':
-            return qs.filter(balance_calc__lte=0)
-        elif value == 'Partial':
-            return qs.filter(amount_paid__gt=0, balance_calc__gt=0)
-        elif value == 'Unpaid':
-            return qs.filter(amount_paid=0, balance_calc__gt=0)
+        if value in ('Paid', 'paid'):
+            return qs.filter(is_waived=False, balance_calc__lte=0)
+        elif value in ('Partial', 'partial'):
+            return qs.filter(is_waived=False, amount_paid__gt=0, balance_calc__gt=0)
+        elif value in ('Unpaid', 'unpaid'):
+            return qs.filter(is_waived=False, amount_paid=0, balance_calc__gt=0)
+        elif value in ('Waived', 'waived'):
+            return qs.filter(is_waived=True)
         return queryset
 
 

@@ -65,11 +65,12 @@ class PaymentAllocationService:
 
     @classmethod
     @transaction.atomic
-    def record_payment_with_allocations(cls, *, receipt_data, allocations, actor=None):
+    def record_payment_with_allocations(cls, *, receipt_data, allocations, actor=None, received_by=None):
         """
         Atomically creates a Receipt, its FeePaymentAllocations, updates
         StudentFeeAssignment balances, and writes a FinanceAuditLog entry.
         """
+        actor = actor or received_by
         # 1. Validate and normalize allocations payload
         normalized = cls._validate_and_normalize_allocations(allocations)
         total_allocated = sum((item["amount"] for item in normalized), Decimal("0.00"))
@@ -235,7 +236,7 @@ class PaymentAllocationService:
 
     @classmethod
     @transaction.atomic
-    def reverse_receipt(cls, *, receipt, actor=None):
+    def reverse_receipt(cls, *, receipt, actor=None, reason=None):
         """
         Atomically reverses a Receipt:
         - Locks receipt and related fee assignments in deterministic order.
@@ -259,18 +260,26 @@ class PaymentAllocationService:
             for a in locked_receipt.fee_allocations.all()
         ]
 
+        desc = f"Reversed payment of ₦{locked_receipt.amount:,.2f} from {student_name} ({adm_no}) across {len(allocations_snapshot)} fee item(s)."
+        if reason:
+            desc += f" Reason: {reason}"
+
+        metadata = {
+            "amount": float(locked_receipt.amount),
+            "receipt_id": locked_receipt.id,
+            "receipt_number": locked_receipt.receipt_number,
+            "allocations_count": len(allocations_snapshot),
+            "allocations": allocations_snapshot,
+        }
+        if reason:
+            metadata["reason"] = reason
+
         FinanceAuditLog.objects.create(
             user=actor,
             action=AuditAction.PAYMENT_REVERSED,
             target_student=locked_receipt.student,
-            description=f"Reversed payment of ₦{locked_receipt.amount:,.2f} from {student_name} ({adm_no}) across {len(allocations_snapshot)} fee item(s).",
-            metadata={
-                "amount": float(locked_receipt.amount),
-                "receipt_id": locked_receipt.id,
-                "receipt_number": locked_receipt.receipt_number,
-                "allocations_count": len(allocations_snapshot),
-                "allocations": allocations_snapshot,
-            },
+            description=desc,
+            metadata=metadata,
         )
 
         locked_receipt.delete()

@@ -42,6 +42,7 @@ class StudentFeeAssignmentAdmin(admin.ModelAdmin):
     list_display = (
         "student",
         "fee_structure",
+        "charge_number",
         "term",
         "academic_year",
         "recurrence",
@@ -53,6 +54,7 @@ class StudentFeeAssignmentAdmin(admin.ModelAdmin):
     )
     list_filter = ("recurrence", "is_waived", "academic_year", "term")
     readonly_fields = (
+        "charge_number",
         "due_date",
         "amount_paid",
         "assigned_date",

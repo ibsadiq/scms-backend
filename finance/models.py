@@ -244,6 +244,11 @@ class FeeStructure(models.Model):
         if self.amount <= 0:
             raise ValidationError("Amount must be a positive value.")
 
+        if self.recurrence == FeeRecurrence.PER_TERM and self.applicability == FeeApplicability.NEW_STUDENTS_ONLY:
+            raise ValidationError({
+                "applicability": "New Students Only cannot be used with Every Term billing."
+            })
+
         # Validate due date is within academic year
         if self.due_date:
             if self.academic_year.start_date and self.due_date < self.academic_year.start_date:
@@ -368,7 +373,7 @@ class StudentFeeAssignment(models.Model):
     )
     fee_structure = models.ForeignKey(
         FeeStructure,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='student_assignments'
     )
     term = models.ForeignKey(
@@ -436,27 +441,35 @@ class StudentFeeAssignment(models.Model):
         db_index=True,
         help_text="Concrete historical due date for this financial obligation",
     )
+    charge_number = models.PositiveIntegerField(
+        default=1,
+        help_text="Sequence index for repeatable manual fee charges (defaults to 1 for standard fees)",
+    )
 
     class Meta:
-        unique_together = ('student', 'fee_structure', 'term')
-        ordering = ['-term', 'fee_structure__fee_type', 'student']
+        ordering = ['-term', 'fee_structure__fee_type', 'student', 'charge_number']
         constraints = [
             models.CheckConstraint(condition=models.Q(amount_owed__gte=0), name='finance_assignment_owed_nonnegative'),
             models.CheckConstraint(condition=models.Q(amount_paid__gte=0), name='finance_assignment_paid_nonnegative'),
             models.CheckConstraint(condition=models.Q(amount_paid__lte=models.F('amount_owed')), name='finance_assignment_paid_lte_owed'),
+            models.CheckConstraint(condition=models.Q(charge_number__gte=1), name='finance_assignment_charge_number_positive'),
             models.UniqueConstraint(
-                fields=["student", "logical_fee_key"],
-                condition=models.Q(recurrence=FeeRecurrence.ONE_TIME) & ~models.Q(logical_fee_key=""),
-                name="finance_assignment_uniq_onetime_student_key",
+                fields=['student', 'fee_structure', 'term', 'charge_number'],
+                name='finance_assignment_uniq_student_fee_term_charge',
             ),
             models.UniqueConstraint(
-                fields=["student", "logical_fee_key", "academic_year"],
+                fields=["student", "logical_fee_key", "charge_number"],
+                condition=models.Q(recurrence=FeeRecurrence.ONE_TIME) & ~models.Q(logical_fee_key=""),
+                name="finance_assignment_uniq_onetime_student_key_charge",
+            ),
+            models.UniqueConstraint(
+                fields=["student", "logical_fee_key", "academic_year", "charge_number"],
                 condition=(
                     models.Q(recurrence=FeeRecurrence.ANNUAL)
                     & ~models.Q(logical_fee_key="")
                     & models.Q(academic_year__isnull=False)
                 ),
-                name="finance_assignment_uniq_annual_student_key_year",
+                name="finance_assignment_uniq_annual_student_key_year_charge",
             ),
         ]
         indexes = [
@@ -466,7 +479,8 @@ class StudentFeeAssignment(models.Model):
 
 
     def __str__(self):
-        return f"{self.student.full_name} - {self.fee_structure.name} ({self.term.name})"
+        charge_suffix = f" (Charge #{self.charge_number})" if self.charge_number > 1 else ""
+        return f"{self.student.full_name} - {self.fee_structure.name}{charge_suffix} ({self.term.name})"
 
     @property
     def balance(self):
@@ -505,6 +519,10 @@ class StudentFeeAssignment(models.Model):
             raise ValidationError("Amount paid cannot be negative.")
         if self.amount_paid > self.amount_owed:
             raise ValidationError("Amount paid cannot exceed amount owed.")
+        if self.charge_number < 1:
+            raise ValidationError("Charge number must be a positive integer (>= 1).")
+        if self.fee_structure and self.fee_structure.is_mandatory and self.charge_number != 1:
+            raise ValidationError("Mandatory fees cannot have a charge number other than 1.")
 
     def apply_payment(self, amount):
         """
@@ -529,8 +547,17 @@ class StudentFeeAssignment(models.Model):
 
         return applicable_amount
 
+    def delete(self, *args, **kwargs):
+        if self.amount_paid > 0 or self.payment_allocations.exists():
+            raise ValidationError("Cannot delete this fee assignment because payment history exists.")
+        return super().delete(*args, **kwargs)
+
     def waive_fee(self, reason, waived_by):
         """Waive this fee (scholarship, discount, etc.)."""
+        if self.amount_paid > 0:
+            raise ValidationError(
+                "This fee has recorded payments. Reverse the payment before waiving the fee."
+            )
         self.is_waived = True
         self.waived_reason = reason
         self.waived_by = waived_by
@@ -725,7 +752,7 @@ class FeePaymentAllocation(models.Model):
     )
     fee_assignment = models.ForeignKey(
         StudentFeeAssignment,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='payment_allocations'
     )
     amount = models.DecimalField(

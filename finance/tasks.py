@@ -71,7 +71,7 @@ def send_fee_reminders(schema_name=None, job_public_id=None):
                     assignments = assignments.exclude(fee_structure_id__in=specific_fee_ids)
 
                 for assignment in assignments:
-                    balance = assignment.amount_owed - assignment.amount_paid
+                    balance = assignment.balance
                     if balance <= 0:
                         continue
 
@@ -183,7 +183,7 @@ def send_custom_fee_reminder(schema_name, fee_structure_id, message=None, job_pu
             ).select_related('student', 'student__parent_guardian', 'student__parent_guardian__user')
 
             for assignment in assignments:
-                balance = assignment.amount_owed - assignment.amount_paid
+                balance = assignment.balance
 
                 parent = assignment.student.parent_guardian
                 if parent:

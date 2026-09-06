@@ -48,8 +48,11 @@ class FinanceDashboardSummarySerializer(serializers.Serializer):
 
 
 class ParentFeeBreakdownSerializer(serializers.Serializer):
+    assignment_id = serializers.IntegerField(required=False, allow_null=True)
     fee_name = serializers.CharField()
     fee_type = serializers.CharField()
+    charge_number = serializers.IntegerField(required=False, default=1)
+    due_date = serializers.DateField(required=False, allow_null=True)
     amount_owed = serializers.FloatField()
     amount_paid = serializers.FloatField()
     balance = serializers.FloatField()
@@ -228,6 +231,14 @@ class FeeStructureSerializer(serializers.ModelSerializer):
         if amount is not None and amount <= 0:
             raise serializers.ValidationError({
                 'amount': 'Amount must be a positive value.'
+            })
+
+        recurrence = data.get('recurrence') if 'recurrence' in data else getattr(self.instance, 'recurrence', FeeRecurrence.PER_TERM)
+        applicability = data.get('applicability') if 'applicability' in data else getattr(self.instance, 'applicability', FeeApplicability.ALL_ELIGIBLE)
+
+        if recurrence == FeeRecurrence.PER_TERM and applicability == FeeApplicability.NEW_STUDENTS_ONLY:
+            raise serializers.ValidationError({
+                'applicability': 'New Students Only cannot be used with Every Term billing.'
             })
 
         term = data.get('term') if 'term' in data else getattr(self.instance, 'term', None)
@@ -458,6 +469,7 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
             'term',
             'term_name',
             'academic_year_name',
+            'charge_number',
             'amount_owed',
             'amount_paid',
             'balance',
@@ -474,6 +486,7 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = [
+            'charge_number',
             'amount_paid',
             'assigned_date',
             'last_payment_date',
@@ -481,26 +494,31 @@ class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
             'due_date',
             'is_overdue',
         ]
+        validators = []
+        extra_kwargs = {
+            'academic_year': {'required': False, 'allow_null': True},
+            'amount_owed': {'required': False},
+        }
 
     def create(self, validated_data):
         fee_structure = validated_data.get('fee_structure')
-        if fee_structure:
+        student = validated_data.get('student')
+        term = validated_data.get('term')
+        allow_repeat = self.context.get('allow_repeat', False) if hasattr(self, 'context') else False
+
+        if fee_structure and student:
             from finance.services.fee_assignment_service import FeeAssignmentService
-            target_term = validated_data.get('term')
-            resolved_amount, resolved_due_date = FeeAssignmentService.resolve_assignment_financials(
+            assignment, created = FeeAssignmentService.get_or_create_assignment(
                 fee_structure=fee_structure,
-                target_term=target_term,
+                student=student,
+                term=term,
+                allow_repeat=allow_repeat,
             )
-            if 'due_date' not in validated_data or validated_data['due_date'] is None:
-                validated_data['due_date'] = resolved_due_date
-            if not validated_data.get('amount_owed'):
-                validated_data['amount_owed'] = resolved_amount
-            if not validated_data.get('logical_fee_key'):
-                validated_data['logical_fee_key'] = fee_structure.logical_fee_key
-            if not validated_data.get('recurrence'):
-                validated_data['recurrence'] = fee_structure.recurrence
-            if not validated_data.get('academic_year'):
-                validated_data['academic_year'] = fee_structure.academic_year
+            override_amount = validated_data.get('amount_owed')
+            if override_amount is not None and override_amount != assignment.amount_owed:
+                assignment.amount_owed = override_amount
+                assignment.save(update_fields=['amount_owed'])
+            return assignment
         return super().create(validated_data)
 
 
@@ -541,6 +559,10 @@ class FeePaymentAllocationSerializer(serializers.ModelSerializer):
     academic_year_name = serializers.SerializerMethodField()
     term_name = serializers.SerializerMethodField()
     scope_label = serializers.SerializerMethodField()
+    charge_number = serializers.IntegerField(
+        source='fee_assignment.charge_number',
+        read_only=True
+    )
     remaining_balance = serializers.DecimalField(
         source='fee_assignment.balance',
         max_digits=10,
@@ -580,6 +602,7 @@ class FeePaymentAllocationSerializer(serializers.ModelSerializer):
             'academic_year_name',
             'term_name',
             'scope_label',
+            'charge_number',
             'remaining_balance',
             'amount',
             'allocated_date',
@@ -707,6 +730,11 @@ class ReceiptSerializer(serializers.ModelSerializer):
             'fee_allocations',
         ]
         read_only_fields = ['receipt_number', 'date']
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['allocations'] = ret.get('fee_allocations', [])
+        return ret
 
     def validate(self, attrs):
         allocations = attrs.get('allocations')

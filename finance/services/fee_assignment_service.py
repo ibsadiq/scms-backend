@@ -15,6 +15,48 @@ from finance.models import (
 )
 
 
+class AssignmentResult(int):
+    """
+    Integer return value (1 if newly created, 0 if existed or not assignable) that also
+    delegates attribute access and equality checks to the underlying StudentFeeAssignment instance.
+    Preserves backward compatibility with integer checks (== 1, == 0, +=, int(), bool())
+    while allowing direct property access (.charge_number, .pk, .save(), etc.).
+    """
+    assignment: object = None
+
+    def __new__(cls, val, assignment=None):
+        obj = super().__new__(cls, int(val))
+        obj.assignment = assignment
+        return obj
+
+    def __getattr__(self, name):
+        if getattr(self, "assignment", None) is not None:
+            return getattr(self.assignment, name)
+        raise AttributeError(f"'AssignmentResult' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name == "assignment":
+            super().__setattr__(name, value)
+        elif getattr(self, "assignment", None) is not None:
+            setattr(self.assignment, name, value)
+        else:
+            super().__setattr__(name, value)
+
+    def __eq__(self, other):
+        if isinstance(other, int) and not isinstance(other, AssignmentResult):
+            return super().__eq__(other)
+        if self.assignment is not None and other is not None:
+            if isinstance(other, AssignmentResult):
+                return self.assignment == other.assignment
+            return self.assignment == other
+        return super().__eq__(other)
+
+    def __hash__(self):
+        if self.assignment is not None:
+            return hash(self.assignment)
+        return super().__hash__()
+
+
 class FeeAssignmentService:
     @classmethod
     def _validate_recurrence_logical_key(cls, fee_structure):
@@ -163,13 +205,53 @@ class FeeAssignmentService:
         return amount, due_date
 
     @classmethod
-    def _create_assignment_with_snapshot(cls, *, student, fee_structure, target_term):
+    def _resolve_next_charge_number(cls, *, student, fee_structure, target_term):
+        """
+        Determines the next charge_number for an optional fee assignment,
+        locking existing assignments with select_for_update() to serialize
+        concurrent repeat requests.
+        """
+        if fee_structure.recurrence == FeeRecurrence.ONE_TIME:
+            qs = StudentFeeAssignment.objects.select_for_update().filter(
+                student=student,
+                logical_fee_key=fee_structure.logical_fee_key,
+                recurrence=FeeRecurrence.ONE_TIME,
+            )
+            if not qs.exists():
+                qs = StudentFeeAssignment.objects.select_for_update().filter(
+                    student=student,
+                    fee_structure=fee_structure,
+                )
+        elif fee_structure.recurrence == FeeRecurrence.ANNUAL:
+            qs = StudentFeeAssignment.objects.select_for_update().filter(
+                student=student,
+                logical_fee_key=fee_structure.logical_fee_key,
+                academic_year=fee_structure.academic_year,
+                recurrence=FeeRecurrence.ANNUAL,
+            )
+            if not qs.exists():
+                qs = StudentFeeAssignment.objects.select_for_update().filter(
+                    student=student,
+                    fee_structure=fee_structure,
+                    academic_year=fee_structure.academic_year,
+                )
+        else:  # PER_TERM
+            qs = StudentFeeAssignment.objects.select_for_update().filter(
+                student=student,
+                fee_structure=fee_structure,
+                term=target_term,
+            )
+
+        existing_numbers = list(qs.values_list("charge_number", flat=True))
+        max_charge = max(existing_numbers) if existing_numbers else 0
+        return max_charge + 1
+
+    @classmethod
+    def _create_assignment_with_snapshot(cls, *, student, fee_structure, target_term, allow_repeat=False):
         """
         Creates a new StudentFeeAssignment capturing immutable metadata snapshots.
-        Handles concurrent insertion races safely by catching IntegrityError,
-        retrieving the winning transaction's assignment via find_existing_obligation,
-        and returning (assignment, False).
-        Re-raises any unrelated IntegrityError.
+        If allow_repeat is True (optional fees only), dynamically increments charge_number.
+        Handles concurrent insertion races safely by catching IntegrityError.
         """
         cls._validate_recurrence_logical_key(fee_structure)
         resolved_amount, resolved_due_date = cls.resolve_assignment_financials(
@@ -177,8 +259,51 @@ class FeeAssignmentService:
             target_term=target_term,
         )
 
-        try:
-            with transaction.atomic():
+        with transaction.atomic():
+            if allow_repeat:
+                if fee_structure.is_mandatory:
+                    raise ValidationError(
+                        f"Cannot repeat mandatory fee '{fee_structure.name}' (recurrence: {fee_structure.recurrence})."
+                    )
+                next_charge = cls._resolve_next_charge_number(
+                    student=student,
+                    fee_structure=fee_structure,
+                    target_term=target_term,
+                )
+            else:
+                next_charge = 1
+
+            try:
+                with transaction.atomic():
+                    assignment = StudentFeeAssignment.objects.create(
+                        student=student,
+                        fee_structure=fee_structure,
+                        term=target_term,
+                        amount_owed=resolved_amount,
+                        amount_paid=Decimal("0.00"),
+                        due_date=resolved_due_date,
+                        logical_fee_key=fee_structure.logical_fee_key,
+                        recurrence=fee_structure.recurrence,
+                        academic_year=fee_structure.academic_year,
+                        charge_number=next_charge,
+                    )
+                    return assignment, True
+            except IntegrityError:
+                if not allow_repeat:
+                    existing = cls.find_existing_obligation(
+                        student=student,
+                        fee_structure=fee_structure,
+                        term=target_term,
+                    )
+                    if existing is not None:
+                        return existing, False
+                    raise
+                # Concurrent race on allow_repeat: re-evaluate next charge number and retry
+                retry_charge = cls._resolve_next_charge_number(
+                    student=student,
+                    fee_structure=fee_structure,
+                    target_term=target_term,
+                )
                 assignment = StudentFeeAssignment.objects.create(
                     student=student,
                     fee_structure=fee_structure,
@@ -189,20 +314,12 @@ class FeeAssignmentService:
                     logical_fee_key=fee_structure.logical_fee_key,
                     recurrence=fee_structure.recurrence,
                     academic_year=fee_structure.academic_year,
+                    charge_number=retry_charge,
                 )
                 return assignment, True
-        except IntegrityError:
-            existing = cls.find_existing_obligation(
-                student=student,
-                fee_structure=fee_structure,
-                term=target_term,
-            )
-            if existing is not None:
-                return existing, False
-            raise
 
     @classmethod
-    def get_or_create_assignment(cls, *, fee_structure, student, term=None):
+    def get_or_create_assignment(cls, *, fee_structure, student, term=None, allow_repeat=False):
         """
         Recurrence-aware get_or_create for StudentFeeAssignment.
         Returns:
@@ -214,18 +331,20 @@ class FeeAssignmentService:
                 f"Cannot resolve target term for FeeStructure '{fee_structure.name}' (ID {fee_structure.pk})."
             )
 
-        existing = cls.find_existing_obligation(
-            student=student,
-            fee_structure=fee_structure,
-            term=target_term,
-        )
-        if existing is not None:
-            return existing, False
+        if not allow_repeat:
+            existing = cls.find_existing_obligation(
+                student=student,
+                fee_structure=fee_structure,
+                term=target_term,
+            )
+            if existing is not None:
+                return existing, False
 
         return cls._create_assignment_with_snapshot(
             student=student,
             fee_structure=fee_structure,
             target_term=target_term,
+            allow_repeat=allow_repeat,
         )
 
     @classmethod
@@ -377,14 +496,30 @@ class FeeAssignmentService:
         return assigned
 
     @classmethod
-    def assign_fee_to_student(cls, *, fee_structure, student, term=None):
+    def assign_fee_to_student(cls, *, fee_structure, student, term=None, allow_repeat=False):
         """
         Assigns fee_structure to student under recurrence policy.
+        If allow_repeat is True and fee_structure is non-mandatory, creates a new charge
+        with an incremented charge_number.
         Preserves existing contract: returns 1 if newly created, 0 if already existed or not assignable.
         """
+        if allow_repeat and fee_structure.is_mandatory:
+            raise ValidationError(
+                f"Cannot repeat mandatory fee '{fee_structure.name}' (recurrence: {fee_structure.recurrence})."
+            )
+
+        if not allow_repeat:
+            existing = cls.find_existing_obligation(
+                student=student,
+                fee_structure=fee_structure,
+                term=term or fee_structure.term,
+            )
+            if existing is not None:
+                return AssignmentResult(0, existing)
+
         target_term = cls._resolve_target_term(fee_structure, context_term=term)
         if not target_term:
-            return 0
+            return AssignmentResult(0, None)
 
         if not cls.is_student_applicable(
             student=student,
@@ -392,22 +527,15 @@ class FeeAssignmentService:
             academic_year=fee_structure.academic_year,
             term=target_term,
         ):
-            return 0
+            return AssignmentResult(0, None)
 
-        existing = cls.find_existing_obligation(
-            student=student,
-            fee_structure=fee_structure,
-            term=target_term,
-        )
-        if existing is not None:
-            return 0
-
-        _, created = cls._create_assignment_with_snapshot(
+        assignment, created = cls._create_assignment_with_snapshot(
             student=student,
             fee_structure=fee_structure,
             target_term=target_term,
+            allow_repeat=allow_repeat,
         )
-        return int(created)
+        return AssignmentResult(int(created), assignment)
 
     @classmethod
     def resolve_effective_term(cls, academic_year):
@@ -454,7 +582,8 @@ class FeeAssignmentService:
     def sync_fees_for_enrollment(
         cls,
         *,
-        enrollment,
+        enrollment=None,
+        student=None,
         term=None,
         dry_run=False,
         return_details=False,
@@ -466,6 +595,13 @@ class FeeAssignmentService:
         Strictly confines fee assignments to enrollment.academic_year.
         Enforces recurrence rules (PER_TERM, ANNUAL, ONE_TIME) centrally.
         """
+        if not enrollment and student:
+            from academic.models import StudentClassEnrollment
+            qs = StudentClassEnrollment.objects.filter(student=student, is_active=True)
+            if term and getattr(term, "academic_year", None):
+                qs = qs.filter(academic_year=term.academic_year)
+            enrollment = qs.first()
+
         if not enrollment or not enrollment.is_active:
             if return_details:
                 return {

@@ -1,5 +1,5 @@
 # views.py
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,7 +9,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Sum, Q, F
+from django.db.models import Sum, Q, F, ProtectedError
 from django.shortcuts import get_object_or_404
 from decimal import Decimal
 from .models import (
@@ -24,7 +24,8 @@ from .models import (
     PaymentCategory,
     ReminderSetting,
     FinanceAuditLog,
-    AuditAction
+    AuditAction,
+    FeeRecurrence,
 )
 from .filters import StudentFeeAssignmentFilter
 from .services import FeeAssignmentService
@@ -155,6 +156,21 @@ class FeeStructureViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Save fee structure with current user."""
         serializer.save(created_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.student_assignments.exists():
+            return Response(
+                {"error": "Cannot delete this fee structure because student fee assignments already exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"error": "Cannot delete this fee structure because student fee assignments already exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def auto_assign(self, request, pk=None):
@@ -296,6 +312,21 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
             metadata={"amount_owed": float(assignment.amount_owed), "fee_id": assignment.fee_structure.id}
         )
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.amount_paid > 0 or instance.payment_allocations.exists():
+            return Response(
+                {"error": "Cannot delete this fee assignment because payment history exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except (DjangoValidationError, ProtectedError):
+            return Response(
+                {"error": "Cannot delete this fee assignment because payment history exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     @action(detail=False, methods=['get'])
     def by_student(self, request):
         """
@@ -323,13 +354,24 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
     def bulk_assign(self, request):
         """
         Bulk assign a fee structure to multiple students.
-        Body: { "fee_structure": 1, "term": 1, "student_ids": [10, 15, 20] }
+        Body: { "fee_structure": 1, "term": 1, "student_ids": [10, 15, 20], "allow_repeat": false }
         """
         fee_structure_id = request.data.get('fee_structure')
         term_id = request.data.get('term')
         student_ids = request.data.get('student_ids', [])
 
-        if not fee_structure_id or not student_ids:
+        raw_repeat = request.data.get('allow_repeat', False)
+        if raw_repeat is None:
+            raw_repeat = False
+        try:
+            allow_repeat = serializers.BooleanField().run_validation(raw_repeat)
+        except serializers.ValidationError:
+            return Response(
+                {"error": "Invalid allow_repeat: must be a valid boolean."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not fee_structure_id or not student_ids or not isinstance(student_ids, list):
             return Response(
                 {"error": "fee_structure and student_ids are required"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -338,29 +380,79 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         fee_structure = get_object_or_404(FeeStructure, id=fee_structure_id)
         term = get_object_or_404(Term, id=term_id) if term_id else None
 
+        # Guard: allow_repeat on a mandatory fee is invalid
+        if allow_repeat and fee_structure.is_mandatory:
+            return Response(
+                {"error": f"Cannot repeat mandatory fee '{fee_structure.name}' (recurrence: {fee_structure.recurrence})."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         created_count = 0
+        skipped = []
+
         for student_id in student_ids:
             student = get_object_or_404(Student, id=student_id)
-            if fee_structure.applies_to_student(student, term):
-                created = FeeAssignmentService.assign_fee_to_student(
-                    fee_structure=fee_structure,
+            if not fee_structure.applies_to_student(student, term):
+                skipped.append({
+                    "student_id": student.id,
+                    "student_name": student.full_name,
+                    "reason": "Student is not applicable for this fee structure."
+                })
+                continue
+
+            # If not repeating, check if already exists to provide meaningful feedback
+            if not allow_repeat:
+                existing = FeeAssignmentService.find_existing_obligation(
                     student=student,
-                    term=term,
+                    fee_structure=fee_structure,
+                    term=term or fee_structure.term,
                 )
-                if created:
-                    created_count += 1
+                if existing is not None:
+                    recurrence_desc = (
+                        "this academic year" if fee_structure.recurrence == FeeRecurrence.ANNUAL
+                        else "this term" if fee_structure.recurrence == FeeRecurrence.PER_TERM
+                        else "lifetime"
+                    )
+                    skipped.append({
+                        "student_id": student.id,
+                        "student_name": student.full_name,
+                        "reason": f"Fee is already assigned for {recurrence_desc} (Charge #{existing.charge_number})."
+                    })
+                    continue
+
+            created = FeeAssignmentService.assign_fee_to_student(
+                fee_structure=fee_structure,
+                student=student,
+                term=term,
+                allow_repeat=allow_repeat,
+            )
+            if created:
+                created_count += 1
+            else:
+                skipped.append({
+                    "student_id": student.id,
+                    "student_name": student.full_name,
+                    "reason": "Could not assign fee obligation."
+                })
 
         if created_count > 0:
             FinanceAuditLog.objects.create(
                 user=request.user,
                 action=AuditAction.BULK_FEE_ASSIGNED,
-                description=f"Bulk assigned fee '{fee_structure.name}' to {created_count} students.",
-                metadata={"fee_id": fee_structure.id, "student_ids": student_ids}
+                description=f"Bulk assigned fee '{fee_structure.name}' to {created_count} students (repeat={allow_repeat}).",
+                metadata={"fee_id": fee_structure.id, "student_ids": student_ids, "allow_repeat": allow_repeat}
             )
 
+        msg_parts = [f"Successfully assigned fee to {created_count} student(s)"]
+        if skipped:
+            msg_parts.append(f"{len(skipped)} skipped")
+        message = ", ".join(msg_parts)
+
         return Response({
-            "message": f"Successfully assigned fee to {created_count} students",
-            "assigned_count": created_count
+            "message": message,
+            "assigned_count": created_count,
+            "skipped_count": len(skipped),
+            "skipped": skipped,
         })
 
     @action(detail=True, methods=['post'])
@@ -371,10 +463,19 @@ class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
         Body: { "reason": "Scholarship awarded" }
         """
         assignment = self.get_object()
+        if assignment.amount_paid > 0:
+            return Response(
+                {"error": "This fee has recorded payments. Reverse the payment before waiving the fee."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         reason = request.data.get('reason', 'No reason provided')
         original_amount = assignment.amount_owed
 
-        assignment.waive_fee(reason=reason, waived_by=request.user)
+        try:
+            assignment.waive_fee(reason=reason, waived_by=request.user)
+        except (DjangoValidationError, ValueError) as exc:
+            msg = exc.messages[0] if hasattr(exc, "messages") else str(exc)
+            return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
 
         FinanceAuditLog.objects.create(
             user=request.user,
@@ -545,6 +646,24 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         from finance.services import PaymentAllocationService
         PaymentAllocationService.reverse_receipt(receipt=instance, actor=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def reverse(self, request, pk=None):
+        """
+        Reverse a receipt, undoing its payment allocations and restoring student fee balances.
+        POST /api/finance/receipts/{id}/reverse/
+        Body: { "reason": "Payment recorded in error" }
+        """
+        receipt = self.get_object()
+        reason = request.data.get('reason', '').strip() if isinstance(request.data, dict) else None
+        from finance.services import PaymentAllocationService
+        try:
+            PaymentAllocationService.reverse_receipt(receipt=receipt, actor=request.user, reason=reason or None)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            "message": f"Receipt #{receipt.receipt_number} reversed successfully. Outstanding balances restored."
+        })
 
     def filter_queryset(self, queryset):
         student_param = self.request.query_params.get('student') or self.request.query_params.get('student_id')
@@ -805,9 +924,17 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             )
         if not can_access_student_finance(request.user, student):
             return Response({'detail': 'You do not have access to this student.'}, status=status.HTTP_403_FORBIDDEN)
-        term_id = request.query_params.get('term_id')
+        term_id = request.query_params.get('term_id') or request.query_params.get('term')
         academic_year_id = request.query_params.get('academic_year_id')
-        return self._get_student_balance(student, term_id, academic_year_id)
+        try:
+            return self._get_student_balance(student, term_id, academic_year_id)
+        except Exception as exc:
+            import logging, traceback
+            logging.getLogger(__name__).exception("StudentFeeBalanceViewSet.retrieve failed: %s", exc)
+            return Response(
+                {"error": str(exc), "traceback": traceback.format_exc()},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def _get_student_balance(self, student, term_id=None, academic_year_id=None):
         """Helper method to get student balance data"""
@@ -816,29 +943,43 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         assignments = StudentFeeAssignment.objects.filter(student=student)
 
         if term_id:
-            assignments = assignments.filter(term_id=term_id)
-            term = get_object_or_404(Term, id=term_id)
+            term = Term.objects.filter(id=term_id).select_related('academic_year').first()
+            if not term:
+                term = get_object_or_404(Term, id=term_id)
+            assignments = assignments.filter(term=term)
+            academic_year = term.academic_year
         elif academic_year_id:
-            from django.db.models import Q
+            from administration.models import AcademicYear
+            academic_year = AcademicYear.objects.filter(id=academic_year_id).first()
             assignments = assignments.filter(
                 Q(term__academic_year_id=academic_year_id) | Q(academic_year_id=academic_year_id)
             )
             term = None
         else:
-            # Get current term
-            term = Term.objects.filter(
-                academic_year__active_year=True
-            ).order_by('-start_date').first()
-
-            if term:
-                assignments = assignments.filter(term=term)
+            # Default to active academic year obligations (all terms + annual/one-time fees in active year)
+            from administration.models import AcademicYear
+            academic_year = AcademicYear.objects.filter(active_year=True).first()
+            if academic_year:
+                assignments = assignments.filter(
+                    Q(term__academic_year=academic_year) | Q(academic_year=academic_year)
+                )
+                term = Term.objects.filter(academic_year=academic_year).order_by('-start_date').first()
+            else:
+                term = Term.objects.filter(
+                    academic_year__active_year=True
+                ).order_by('-start_date').first()
+                if term:
+                    assignments = assignments.filter(term=term)
+                    academic_year = term.academic_year
+                else:
+                    academic_year = None
 
         # Calculate totals: exclude waived fees from expected/owed totals
         total_fees = assignments.filter(is_waived=False).aggregate(
             total=Sum('amount_owed')
         )['total'] or Decimal('0.00')
 
-        total_paid = assignments.aggregate(
+        total_paid = assignments.filter(is_waived=False).aggregate(
             total=Sum('amount_paid')
         )['total'] or Decimal('0.00')
 
@@ -873,6 +1014,8 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
                 'balance': assignment.balance,
                 'status': assignment.payment_status,
                 'is_waived': assignment.is_waived,
+                'charge_number': assignment.charge_number,
+                'due_date': assignment.due_date.isoformat() if assignment.due_date else None,
             })
             
         fee_breakdown.sort(key=lambda x: x['term_start'])
@@ -901,7 +1044,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             'parent_contact': student.parent_guardian.phone_number if student.parent_guardian else "N/A",
             'term': term.id if term else None,
             'term_name': term.name if term else None,
-            'academic_year': term.academic_year.name if term else None,
+            'academic_year': (term.academic_year.name if term and term.academic_year else (academic_year.name if academic_year else None)),
             'total_fee': total_fees,  # Frontend expects total_fee
             'total_fees': total_fees,  # Keep backward compatibility
             'amount_paid': total_paid,  # Frontend expects amount_paid
@@ -936,7 +1079,6 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
         if term_id:
             assignments = assignments.filter(term_id=term_id)
         elif academic_year_id:
-            from django.db.models import Q
             assignments = assignments.filter(
                 Q(term__academic_year_id=academic_year_id) | Q(academic_year_id=academic_year_id)
             )
@@ -955,7 +1097,7 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
             st = totals_map.get(student.id, {})
             total_fees = st.get('total_fees') or Decimal('0.00')
             total_paid = st.get('total_paid') or Decimal('0.00')
-            balance = total_fees - total_paid
+            balance = max(Decimal('0.00'), total_fees - total_paid)
 
             if balance == 0 and total_fees > 0:
                 payment_status = 'Paid'
@@ -981,17 +1123,10 @@ class StudentFeeBalanceViewSet(viewsets.ViewSet):
 
         # Method breakdown
         from finance.models import FeePaymentAllocation
-        allocations = FeePaymentAllocation.objects.filter(fee_assignment__student__in=students_qs)
-        if term_id:
-            allocations = allocations.filter(fee_assignment__term_id=term_id)
-        elif academic_year_id:
-            from django.db.models import Q
-            allocations = allocations.filter(
-                Q(fee_assignment__term__academic_year_id=academic_year_id)
-                | Q(fee_assignment__academic_year_id=academic_year_id)
-            )
-        if fee_type:
-            allocations = allocations.filter(fee_assignment__fee_structure__fee_type=fee_type)
+        allocations = FeePaymentAllocation.objects.filter(
+            fee_assignment__in=assignments,
+            fee_assignment__student__in=students_qs,
+        )
 
         method_breakdown_map = {}
         for alloc in allocations.select_related('receipt'):
@@ -1167,12 +1302,15 @@ class ParentFeesView(APIView):
                 paid = assignment.amount_paid
                 balance = assignment.balance
                 total_fees += (Decimal('0.00') if assignment.is_waived else owed)
-                total_paid += paid
+                total_paid += (Decimal('0.00') if assignment.is_waived else paid)
                 total_balance += balance
                 
                 fee_breakdown.append({
+                    "assignment_id": assignment.id,
                     "fee_name": assignment.fee_structure.name,
                     "fee_type": assignment.fee_structure.fee_type,
+                    "charge_number": assignment.charge_number,
+                    "due_date": assignment.due_date.isoformat() if assignment.due_date else None,
                     "amount_owed": float(owed),
                     "amount_paid": float(paid),
                     "balance": float(balance),
